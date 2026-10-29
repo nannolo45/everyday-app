@@ -93,7 +93,11 @@ async function syncFile(c, shard, repo = state.settings.repo, path = pathFor(c, 
   const inFile = (x) => shard == null || shardOf(c, x) === shard;
   for (let attempt = 0; attempt < 4; attempt++) {
     const remote = await getFile(path, repo);
-    if (READ_ONLY.has(c)) { await replaceCollection(c, [...state[c].filter((x) => !inFile(x)), ...remote.data]); return; }
+    if (READ_ONLY.has(c)) {
+      const next = [...state[c].filter((x) => !inFile(x)), ...remote.data].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
+      await replaceCollection(c, next);
+      return;
+    }
     const merged = purgeTombstones(mergeLists(remote.data, state[c]));
     const content = merged.filter(inFile);
     const text = serialize(content);
@@ -104,7 +108,8 @@ async function syncFile(c, shard, repo = state.settings.repo, path = pathFor(c, 
       }
     }
     // Merge again with whatever changed locally while we were talking to GitHub.
-    await replaceCollection(c, purgeTombstones(mergeLists(content, state[c])));
+    // Same order every time (by id), so an unchanged collection is recognised as unchanged.
+    await replaceCollection(c, purgeTombstones(mergeLists(content, state[c])).sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)));
     return;
   }
   throw new SyncError('conflict');

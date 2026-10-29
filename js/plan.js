@@ -109,6 +109,7 @@ export function sortTasks(tasks, todayStr) {
     t.priority || 9,
     t.due || '9999-99-99',
     t.createdAt || 0,
+    t.id || '', // last tie-break, so the order never changes between redraws
   ];
   return [...tasks].sort((a, b) => {
     const ka = key(a); const kb = key(b);
@@ -226,7 +227,9 @@ export function templateBlocks(tpl, date) {
       title: b.title, category: b.category || null, templateId: tpl.id, done: false,
     };
     if (b.taskId) rec.taskId = b.taskId; // e.g. "Gym", so its preparation and checklist come along
-    if (b.kind === 'meal') Object.assign(rec, { kind: 'meal', recipeId: b.recipeId, servings: b.servings });
+    if (b.kind === 'meal') {
+      Object.assign(rec, { kind: 'meal', servings: b.servings, recipes: b.recipes || (b.recipeId ? [{ recipeId: b.recipeId, servings: b.servings }] : []) });
+    }
     return rec;
   });
 }

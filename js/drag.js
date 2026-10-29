@@ -10,12 +10,12 @@ export function setupDrag(root, hooks) {
   let d = null; // current gesture
   let suppressClick = false;
 
-  const geo = () => {
-    const tl = root.querySelector('.timeline');
-    if (!tl) return null;
+  // Every day column on screen (one in the day view, seven in the week view).
+  const columns = () => [...root.querySelectorAll('.timeline')].map((tl) => {
     const r = tl.getBoundingClientRect();
-    return { tl, top: r.top + window.scrollY, left: r.left, right: r.right, rangeStart: Number(tl.dataset.start), ppm: Number(tl.dataset.ppm), snap: Number(tl.dataset.snap) || 15 };
-  };
+    return { tl, date: tl.dataset.date, top: r.top + window.scrollY, left: r.left, right: r.right, rangeStart: Number(tl.dataset.start), ppm: Number(tl.dataset.ppm), snap: Number(tl.dataset.snap) || 15 };
+  });
+  const columnAt = (cols, x, fallback) => cols.find((c) => x >= c.left && x <= c.right) || fallback;
 
   root.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || d) return;
@@ -40,6 +40,7 @@ export function setupDrag(root, hooks) {
         navigator.vibrate?.(12);
       }, HOLD_MS);
     }
+    el.dataset.date0 = el.closest('.timeline')?.dataset.date || '';
     try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
   });
 
@@ -66,7 +67,10 @@ export function setupDrag(root, hooks) {
 
   function begin() {
     d.started = true;
-    d.g = geo();
+    d.cols = columns();
+    d.g = d.cols.find((c) => c.tl.contains(d.el)) || d.cols[0];
+    d.date = d.g?.date;
+    if (!d.g) { d.started = false; return; }
     hooks.dragging(true);
     d.el.classList.add('dragging');
     if (d.kind === 'task') {
@@ -78,6 +82,7 @@ export function setupDrag(root, hooks) {
       d.ghost.style.height = `${Math.max(d.minutes, 15) * d.g.ppm}px`;
       d.ghost.hidden = true;
       d.g.tl.appendChild(d.ghost);
+      d.ghost.style.left = '1px'; d.ghost.style.right = '3px';
     }
     tickScroll();
   }
@@ -89,6 +94,15 @@ export function setupDrag(root, hooks) {
 
   function update() {
     if (!d || !d.started) return;
+    if (d.kind !== 'resize') {
+      // Moving sideways in the week view: switch day column.
+      const col = columnAt(d.cols, d.x, d.kind === 'task' ? null : d.g);
+      if (col && col !== d.g) {
+        d.g = col; d.date = col.date;
+        if (d.kind === 'move') { col.tl.appendChild(d.el); d.el.style.left = '1px'; d.el.style.width = 'calc(100% - 4px)'; }
+        else if (d.ghost) col.tl.appendChild(d.ghost);
+      }
+    }
     const g = d.g; const snap = g.snap;
     const dy = (d.y + window.scrollY) - (d.y0 + d.sy0);
     if (d.kind === 'move') {
@@ -100,7 +114,7 @@ export function setupDrag(root, hooks) {
       d.el.style.height = `${d.newMinutes * g.ppm}px`;
       d.el.querySelector('.blk-time').textContent = hooks.label(d.start, d.newMinutes);
     } else {
-      const over = d.x >= g.left && d.x <= g.right && minuteAt(d.y) >= g.rangeStart - 30;
+      const over = Boolean(columnAt(d.cols, d.x, null)) && minuteAt(d.y) >= g.rangeStart - 30;
       d.ghost.hidden = !over;
       d.el.classList.toggle('dropping', over);
       if (over) {
@@ -126,9 +140,10 @@ export function setupDrag(root, hooks) {
   function finish() {
     const g = d;
     end();
-    if (g.kind === 'move' && g.newStart != null && g.newStart !== g.start) hooks.move(g.id, g.newStart);
+    const movedDay = g.date && g.date !== g.el.dataset.date0;
+    if (g.kind === 'move' && g.newStart != null && (g.newStart !== g.start || movedDay)) hooks.move(g.id, g.newStart, g.date);
     else if (g.kind === 'resize' && g.newMinutes != null && g.newMinutes !== g.minutes) hooks.resize(g.id, g.newMinutes);
-    else if (g.kind === 'task' && g.newStart != null) hooks.dropTask(g.id, g.newStart);
+    else if (g.kind === 'task' && g.newStart != null) hooks.dropTask(g.id, g.newStart, g.date);
     else hooks.redraw();
   }
 

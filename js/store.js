@@ -135,6 +135,8 @@ function persist(collection, silent) {
 }
 
 export async function replaceCollection(collection, items) {
+  // After a sync most files come back unchanged: then there's nothing to save or redraw.
+  if (JSON.stringify(items) === JSON.stringify(state[collection])) return;
   state[collection] = items;
   await kvSet(collection, items);
   emit(collection);

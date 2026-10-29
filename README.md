@@ -4,14 +4,20 @@ A companion app for planning and tracking your day. It runs in the browser on Li
 installs like a normal app, works offline, and keeps your data as JSON files in **your own private GitHub repository**,
 the same way Ricette does.
 
-Version 3: **to-do list, day planner and sync, smart planning, meals and a recipe browser from Ricette,
-and two-way Google Calendar sync**. Time tracking and workouts come next and slot into the same structure.
+Version 5: **to-do list, planner (list, day, week and month views), smart planning, rules, meals with
+recipes from Ricette, and two-way Google Calendar sync**. Time tracking and workouts come next and slot into the same structure.
 The smart features are plain rules that run on the device: no AI and no paid services.
 
 ## What it does
 
 - **Tasks:** quick add with shortcuts: `Write report 1h30 !1 #work` sets length, priority (`!1` high to `!3` low) and category.
   Due dates, notes, and repeats (daily, weekdays, weekly, monthly). Grouped into overdue, today, upcoming and anytime.
+- **Views:** switch the planner between **List** (the next seven days as an agenda), **Day**, **Week** and **Month**.
+  Settings choose which view opens first and what each list row shows at a glance (time, length, category, due
+  date, priority, checklist progress, what it prepares, recipes, place, notes). Tap a row in the list to expand it:
+  checklist, recipes, notes, and buttons for Edit and "Couldn't do it". Tasks due that day but not planned yet appear
+  in the list with a **Plan it** button. In the week view you can drag blocks to another day; tap a day in the month
+  to open it.
 - **Day planner:** a timeline for each day.
   - Tap a task in *To plan* and it goes into the next free slot, or drag it to a specific time.
   - Drag blocks to move them, drag their bottom edge to resize. On a phone, press and hold a block first, then drag.
@@ -35,15 +41,23 @@ The smart features are plain rules that run on the device: no AI and no paid ser
 - **Conflicts:** overlapping blocks, a preparation or grocery trip planned after the thing it's for, or a task planned
   after its due date get a ⚠ and a warning. **Fix** moves the less important block to the next free gap;
   **It's fine** marks an overlap as intended. A block can also be set to "can overlap" (e.g. a podcast on the commute).
-- **Meals (with Ricette):** add a meal from your recipes. Everyday checks the pantry, counting what's already on the
-  shopping list and what earlier planned meals will use up, and lists what's missing. One tap puts it on Ricette's
-  shopping list and plans a grocery trip before the meal, or reuses one already planned. In the grocery block you tick
-  items off and the pantry restocks, exactly as in Ricette. Marking the meal done uses the ingredients up.
-  Meals that came from a template show a reminder to check them.
-- **Recipes tab:** browse Ricette's recipes with photos, by folder (subfolders included) and tag, search by title,
-  tag or ingredient, filter to "can cook now" (everything in the pantry) or by time, and sort by name, speed or
-  newest. A recipe shows what's in the pantry and what to buy for the number of people you choose. **+ Meal** opens
-  the same browser to pick from.
+- **Pantry maths (with Ricette):** the ingredient check counts the pantry, what's already on the shopping list, and
+  what earlier planned meals (and earlier recipes in the same meal) will use up. In the grocery block you tick items
+  off and the pantry restocks, exactly as in Ricette. Marking a meal done uses its ingredients up.
+- **Meals:** **+ Meal** creates a meal of a type (Breakfast, Lunch, Snack, Dinner, or your own in Settings → Meals,
+  each with its usual time). Inside it you add one or more recipes with the recipe picker: a full-screen sheet with
+  photos, search (titles, tags, ingredients), folders and subfolders, tags, "can cook now" and "≤ 30 min" filters.
+  Each card shows what's missing from the pantry; ⓘ opens the recipe with every ingredient marked.
+- **Rules:** any task, preparation step or meal type can have rules: *when this* is done / couldn't be done / was
+  missed (its time passed) → *add a task* (right before what it prepares, right after, at the next free time
+  today, or tomorrow) or *plan a grocery trip*. Every block can be marked **Couldn't do it**; undoing that takes back
+  what the rules added. Built in: each meal with recipes gets a **Check ingredients** step (earlier that day; the
+  evening before for breakfast). It runs by itself when its time comes, or when you tick it: if everything's in the
+  pantry it's done; if not, the missing items go on Ricette's shopping list, the step "couldn't be done", and its
+  rule plans a grocery trip before the meal (or reuses one already planned). You can edit these steps and rules in
+  Settings → Meals like any other task.
+- **Home-screen shortcuts:** long-press the app icon on Android for *Today*, *Add task*, *I have time* and *+ Meal*;
+  drag any of them onto the home screen as its own icon.
 - **Google Calendar (both ways):** your calendars appear in the planner as busy time (and the planner plans around
   them). Your plan appears in Google Calendar on a calendar called *Everyday*, with Google's reminders. Moving,
   renaming or deleting an Everyday event in Google Calendar changes the plan too. See the setup below.
@@ -124,7 +138,7 @@ What gets synced:
 
 ## Good to know
 
-- Updating the app: replace the files in `everyday` with the new ones (this version adds `recipes.js`). Installed copies pick up the update because `VERSION` in `app/sw.js` is already bumped in this zip;
+- Updating the app: replace the files in `everyday` with the new ones. Installed copies pick up the update because `VERSION` in `app/sw.js` is already bumped in this zip;
   bump it yourself whenever you change files later.
 - Backups: the data repo keeps the full history of every change. Settings also has a one-click JSON download.
 - Once GitHub sync works, Settings shows a summary instead of the form; the token is never shown again.
@@ -139,5 +153,6 @@ From the `tests` folder:
 - `node e2e-smart.mjs`: suggestions, free time, preparations and checklists, conflicts, the recipe browser and meals against a fake Ricette repo
 - `node e2e-calendar.mjs`: the locked connection settings, and Google Calendar events in the planner
 - `node --test gcal.test.mjs`: the Google Calendar sync script against a fake Google Calendar API
+- `node e2e-stability.mjs`: the page stays still while you type (no redraws from syncs or the clock)
 
 The `e2e` files need Playwright.

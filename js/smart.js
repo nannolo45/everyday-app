@@ -35,7 +35,7 @@ export function scoreTask(task, date, now = Date.now()) {
 // Tasks worth considering for a day: open, not a preparation helper, not already planned,
 // and (for repeating tasks) actually due by then.
 export function candidates(tasks, plannedTaskIds, date) {
-  return tasks.filter((t) => !t.done && !t.deleted && !t.helper && !plannedTaskIds.has(t.id)
+  return tasks.filter((t) => !t.done && !t.deleted && !t.helper && !t.routine && !plannedTaskIds.has(t.id)
     && !(t.repeat && t.due && t.due > date));
 }
 
@@ -163,6 +163,13 @@ export function placePrep({ parent, minutes, mode, blocksOn, today, nowMin, sett
     const at = fit(free, minutes, { snap: s.snap, prefer: 'late', before: parent.start });
     return { date: parent.date, start: at ?? Math.max(0, parent.start - minutes) };
   };
+  if (mode === 'sameday') {
+    // Earlier the same day: the first free slot of the day (or from now), well ahead of it.
+    const from = parent.date === today ? nowMin : s.dayStart;
+    const free = freeIntervals(blocksOn(parent.date).filter((b) => b.id !== parent.id), { from, dayStart: Math.min(s.dayStart, parent.start), dayEnd: parent.start });
+    const at = fit(free, minutes, { snap: s.snap, prefer: 'early', before: parent.start });
+    return at == null ? sameDay() : { date: parent.date, start: at };
+  }
   if (mode === 'daybefore') {
     const day = addDays(parent.date, -1);
     if (day < today) return sameDay();
@@ -212,7 +219,7 @@ export function findConflicts(dayBlocks, { getBlock = () => null, getTask = () =
   }
   for (const b of list) {
     if (b.done) continue;
-    if (b.kind === 'prep' && b.parentId) {
+    if ((b.kind === 'prep' || b.mustPrecede) && b.parentId) {
       const p = getBlock(b.parentId);
       if (p && !p.done && !before(b, p)) out.push({ type: 'order', ids: [b.id, p.id] });
     }
