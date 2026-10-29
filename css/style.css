@@ -501,3 +501,46 @@ body.is-sorting, body.is-sorting * { cursor: grabbing !important; -webkit-user-s
 .tabs .count[hidden] { display: none; }
 .update-bar { position: fixed; z-index: 30; left: 50%; transform: translateX(-50%); bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 12px); display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 14px; background: var(--ink); color: var(--bg); font-size: .9rem; box-shadow: 0 8px 24px rgba(0,0,0,.25); max-width: calc(100vw - 24px); }
 @media (min-width: 1100px) { .update-bar { bottom: 20px; } }
+/* Long dialogs: Save / Cancel stay in view at the bottom. */
+dialog > form.form > .button-row:last-child { position: sticky; bottom: -10px; margin-bottom: -10px; padding: 12px 0 14px; background: var(--bg); border-top: 1px solid var(--line); z-index: 2; }
+
+/* ---------- steps ---------- */
+.steps-edit { list-style: none; margin: 6px 0 8px; padding: 0; display: grid; gap: 6px; }
+.step-row { display: grid; grid-template-columns: 22px 1fr 92px 30px 30px; gap: 6px; align-items: center; }
+.step-row .step-n { font-size: .8rem; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; }
+.step-row input, .step-row select { margin: 0; }
+.icon-sp { width: 30px; }
+.form .static { display: block; margin-top: 5px; padding: 10px 0; color: var(--ink); font-weight: 400; }
+.rule-subj { font-weight: 600; color: var(--ink); }
+.prio.low { color: var(--muted); }
+/* On the timeline: title on the left, steps on the right at their own times. */
+.block.with-steps .blk-body { flex: 0 0 40%; max-width: 40%; }
+.blk-steps { position: absolute; top: 0; bottom: 0; left: calc(40% + 30px); right: 4px; }
+.blk-step { position: absolute; left: 0; right: 0; display: flex; align-items: flex-start; gap: 5px; padding: 2px 4px 0 6px; overflow: hidden;
+  border-top: 1px dashed color-mix(in srgb, var(--c) 45%, transparent); font-size: .74rem; line-height: 1.2; border-left: 1px solid color-mix(in srgb, var(--c) 30%, transparent); }
+.blk-step.first { border-top: 0; }
+.blk-step input { width: 13px; height: 13px; margin: 1px 0 0; flex: none; accent-color: var(--c); }
+.blk-step .st-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.blk-step .st-time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.blk-step.done .st-title { text-decoration: line-through; color: var(--muted); }
+.blk-step.failed .st-title { color: var(--danger); text-decoration: line-through; }
+/* In the list: steps under their task. */
+.ag-steps { list-style: none; margin: -4px 0 8px; padding: 0 0 0 40px; display: grid; gap: 2px; flex: 1 0 100%; }
+.ag-steps li { display: flex; align-items: center; gap: 8px; font-size: .88rem; padding: 3px 0; }
+.ag-steps input { width: 17px; height: 17px; margin: 0; accent-color: var(--c); flex: none; }
+.ag-steps .ag-time { width: 3.2em; font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ag-steps li.done .st-title { text-decoration: line-through; color: var(--muted); }
+.ag-steps li.failed .st-title { text-decoration: line-through; color: var(--danger); }
+.steps-dlg li { display: flex; align-items: center; gap: 6px; }
+.steps-dlg li label { flex: 1; }
+.steps-dlg li.failed .item-text { color: var(--danger); }
+.steps-toggle[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.saved-pick .task-main { width: 100%; text-align: left; }
+/* Rule cards: each choice gets room. "When [subject] [event]" wraps; the task picker takes a full row. */
+.rule-line select, .rule-line input { min-width: 8.5em; flex: 1 1 8.5em; }
+.rule-line.rt-task select[name^=rk_], .rule-line.rt-task .rule-title { flex: 1 1 100%; }
+.rule-line.rt-task select[name^=rm_] { flex: 0 1 6.5em; min-width: 5.5em; }
+.rule-line.rt-task .btn { flex: none; }
+.rule-line .rule-subj { padding: 0 4px; }
+.blk-step.tight { padding-top: 0; align-items: center; font-size: .66rem; }
+.blk-step.tight input { width: 10px; height: 10px; margin: 0; }

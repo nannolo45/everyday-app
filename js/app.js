@@ -5,10 +5,10 @@ import { syncNow, isConfigured, isSyncing, testConnection, watchMonth, ricetteCo
 import {
   today, addDays, parseDate, isDate, nowMinutes, weekday, dateStr, fmtTime, fmtDur, parseTime, quickAdd,
   REPEATS, completeTask, reopenTask, groupTasks, sortTasks, layoutBlocks, freeSlot, dayTotals,
-  parseTemplateLines, formatTemplateLines, templateBlocks, autoTemplatesFor,
+  parseTemplateLines, IMPORTANCE, importanceOf, formatTemplateLines, templateBlocks, autoTemplatesFor,
 } from './plan.js';
 import {
-  candidates, suggestDay, spareTime, scoreTask, nearestSlot, placePrep, placeGroceries, findConflicts, recipeMinutes,
+  candidates, suggestDay, spareTime, scoreTask, WINDOWS, nearestSlot, placePrep, placeGroceries, findConflicts, recipeMinutes,
 } from './smart.js';
 import { makeKitchen } from './kitchen.js';
 import { DEPTS, DEPT_IDS, NONFOOD, deptIcon, deptOf } from './depts.js';
@@ -205,9 +205,14 @@ function deleteBlock(b) {
 
 function outcomeOf(b) { return b?.outcome || (b?.done ? 'done' : null); }
 
-function setOutcome(block, outcome) {
+function setOutcome(block, outcome, { steps = true } = {}) {
   const prev = outcomeOf(block);
   const b = upsert('blocks', { ...block, done: outcome === 'done', outcome: outcome || null }, { silent: true });
+  // Ticking the whole task ticks its open steps; unticking it (or resetting) clears them.
+  if (steps && stepsOf(b).length) {
+    if (outcome === 'done') for (const st of stepsOf(b)) if (!b.stepState?.[st.id]) setStepOutcome(get('blocks', b.id), st.id, 'done', { parent: false });
+    if (!outcome) for (const st of stepsOf(b)) if (get('blocks', b.id).stepState?.[st.id]) setStepOutcome(get('blocks', b.id), st.id, null, { parent: false });
+  }
   const task = b.taskId && get('tasks', b.taskId);
   if (task && isTodo(task) && !b.partial && b.kind !== 'prep') {
     const done = outcome === 'done';
@@ -221,14 +226,63 @@ function setOutcome(block, outcome) {
   }
   return get('blocks', b.id);
 }
+
+// ---------- steps ----------
+// A task can be split into steps (Dinner: Prep, Eat, Clean up). Its length is the sum of the steps.
+// On the plan it stays one block; each step has its own time inside it, can be ticked or marked
+// "couldn't do it", and can have rules of its own. The block is done once every step is.
+function stepsOf(b) {
+  const task = b?.taskId && get('tasks', b.taskId);
+  return (task?.steps || []).filter((x) => x.title);
+}
+// Each step's time inside the block (scaled if the block was made longer or shorter).
+function stepTimes(b) {
+  const steps = stepsOf(b);
+  const total = steps.reduce((n, x) => n + (Number(x.minutes) || 0), 0) || 1;
+  const k = b.minutes / total;
+  let cum = 0;
+  return steps.map((x) => {
+    const start = b.start + Math.round(cum * k);
+    cum += Number(x.minutes) || 0;
+    return { ...x, start, end: b.start + Math.round(cum * k), state: b.stepState?.[x.id] || null };
+  });
+}
+function setStepOutcome(block, sid, outcome, { parent = true } = {}) {
+  const prev = block.stepState?.[sid] || null;
+  const stepState = { ...(block.stepState || {}) };
+  if (outcome) stepState[sid] = outcome; else delete stepState[sid];
+  let b = upsert('blocks', { ...block, stepState }, { silent: true });
+  if (prev !== (outcome || null)) {
+    if (prev) undoRules(b, prev, sid);
+    if (outcome) fireRules(get('blocks', b.id), outcome, sid);
+  }
+  b = get('blocks', b.id);
+  if (parent) {
+    const steps = stepsOf(b);
+    const all = steps.length > 0 && steps.every((x) => b.stepState?.[x.id] === 'done');
+    if (all && outcomeOf(b) !== 'done') trySetBlockDone(b, true, { fromSteps: true });
+    else if (!all && outcomeOf(b) === 'done') setOutcome(b, null, { steps: false });
+  }
+  return get('blocks', b.id);
+}
+// Ticking a step: if a rule waits for it to fail, ask how it went.
+function tryStep(block, sid, done) {
+  if (done && rulesOf(block, sid).some((r) => r.when === 'failed')) { openOutcome(block, sid); return false; }
+  setStepOutcome(block, sid, done ? 'done' : null);
+  return true;
+}
 function setBlockDone(block, done) { return setOutcome(block, done ? 'done' : null); }
 
-const RULE_WHEN = ['done', 'failed', 'missed'];
+// "planned" rules are the task's preparations (stored in task.prep, planned by linkFor).
+const RULE_WHEN = ['planned', 'done', 'failed', 'missed'];
 const RULE_PLACES = ['before', 'after', 'next', 'tomorrow'];
-function rulesOf(b) { return (b?.taskId && get('tasks', b.taskId)?.rules) || []; }
+const PREP_PLACES = ['before', 'sameday', 'daybefore'];
+// Rules about the whole block (sid null) or about one of its steps.
+function rulesOf(b, sid = null) { return ((b?.taskId && get('tasks', b.taskId)?.rules) || []).filter((r) => (r.stepId || null) === sid); }
 
-function fireRules(block, when) {
-  for (const rule of rulesOf(block).filter((r) => r.when === when)) {
+function fireRules(block, when, sid = null) {
+  const step = sid ? stepTimes(block).find((x) => x.id === sid) : null;
+  for (const rule of rulesOf(block, sid).filter((r) => r.when === when)) {
     const id = `${block.id}_r_${rule.id}`;
     if (has('blocks', id)) continue; // fired before (even if its result was deleted since): never twice
     const parent = block.parentId ? get('blocks', block.parentId) : null;
@@ -248,7 +302,7 @@ function fireRules(block, when) {
     } else {
       if (rule.place === 'tomorrow') date = addDays(today(), 1);
       if (rule.place === 'next') date = today();
-      const from = rule.place === 'after' ? block.start + block.minutes : rule.place === 'next' ? nowMinutes() : s.dayStart;
+      const from = rule.place === 'after' ? (step ? step.end : block.start + block.minutes) : rule.place === 'next' ? nowMinutes() : s.dayStart;
       start = freeSlot(busyOn(date), minutes, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap }) ?? Math.min(from, 1440 - minutes);
     }
     newBlock({
@@ -260,8 +314,8 @@ function fireRules(block, when) {
 }
 
 // Changed your mind (unticked, or reset "couldn't do it"): take back what the rules added, unless it's under way.
-function undoRules(block, when) {
-  for (const rule of rulesOf(block).filter((r) => r.when === when)) {
+function undoRules(block, when, sid = null) {
+  for (const rule of rulesOf(block, sid).filter((r) => r.when === when)) {
     const cur = get('blocks', `${block.id}_r_${rule.id}`);
     if (cur && !cur.done && !cur.outcome) remove('blocks', cur.id);
   }
@@ -300,8 +354,13 @@ function autoChecks(date) {
 
 // Ticking a block. A block with an unfinished checklist can't be ticked: the checklist opens
 // instead. An ingredient check runs the check.
-function trySetBlockDone(block, done) {
+function trySetBlockDone(block, done, { fromSteps = false } = {}) {
   if (done && isCheckStep(block)) { runCheck(block); return true; }
+  // A step whose rule waits for "couldn't be done" asks first, before the whole task is ticked.
+  if (done && !fromSteps) {
+    const ask = stepsOf(block).find((x) => !block.stepState?.[x.id] && rulesOf(block, x.id).some((r) => r.when === 'failed'));
+    if (ask) { openOutcome(block, ask.id, { thenWhole: true }); return false; }
+  }
   if (done && checklistLeft(checklistOf(block), block.checked) > 0) { openChecklist(block); return false; }
   if (done && rulesOf(block).some((r) => r.when === 'failed')) { openOutcome(block); return false; }
   setOutcome(block, done ? 'done' : null);
@@ -317,18 +376,25 @@ function trySetBlockDone(block, done) {
 }
 
 // A step whose result matters ("Check the backpack": ready, or not?): ticking it asks how it went.
-function openOutcome(block) {
-  const failRules = rulesOf(block).filter((r) => r.when === 'failed');
+function openOutcome(block, sid = null, { thenWhole = false } = {}) {
+  const failRules = rulesOf(block, sid).filter((r) => r.when === 'failed');
+  const title = sid ? stepsOf(block).find((x) => x.id === sid)?.title || block.title : block.title;
   const what = failRules.map((r) => (r.then === 'groceries' ? t('groceryTitle') : get('tasks', r.taskId)?.title || r.title)).filter(Boolean);
   setTimeout(() => openModal(`
-    <h2>${esc(t('howDidItGo', block.title))}</h2>
+    <h2>${esc(t('howDidItGo', title))}</h2>
     ${what.length ? `<p class="hint">${esc(t('ifNotThen', what.join(', ')))}</p>` : ''}
     <div class="outcome-choice">
       <button class="btn primary" value="done">✓ ${esc(t('wentOk'))}</button>
       <button class="btn" value="fail">✕ ${esc(t('couldntDo'))}</button>
     </div>
     <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('cancel'))}</button></div>`, (form, action) => {
-    setOutcome(get('blocks', block.id), action === 'done' ? 'done' : 'failed');
+    if (sid) {
+      setStepOutcome(get('blocks', block.id), sid, action === 'done' ? 'done' : 'failed');
+      // You ticked the whole task: once this step is answered, the rest follow.
+      if (thenWhole && action === 'done' && outcomeOf(get('blocks', block.id)) !== 'done' && trySetBlockDone(get('blocks', block.id), true)) changed();
+      else changed();
+      return;
+    } else setOutcome(get('blocks', block.id), action === 'done' ? 'done' : 'failed');
     changed();
   }), 0);
 }
@@ -360,6 +426,79 @@ function seedMeals() {
       prep: m.check ? [{ taskId: 'meal_check', when: m.check }] : [], rules: [], checklist: [], notes: '', createdAt: 1,
     }, { silent: true, at: 1 });
   }
+}
+
+// ---------- saved tasks ----------
+// Tasks that come back often, at different times: meals (with recipes), the gym, cleaning…
+// They're the "routine" tasks, grouped by category. "+ From saved" puts one on the plan.
+function savedTasks() { return live('tasks').filter((x) => x.routine); }
+function savedGroups() {
+  const cats = categories();
+  const order = (id) => { const i = cats.findIndex((c) => c.id === id); return i < 0 ? 999 : i; };
+  const groups = new Map();
+  for (const x of savedTasks().sort((a, b) => (a.defaultStart ?? 9999) - (b.defaultStart ?? 9999) || a.title.localeCompare(b.title))) {
+    const c = get('categories', x.category) ? x.category : '';
+    if (!groups.has(c)) groups.set(c, []);
+    groups.get(c).push(x);
+  }
+  return [...groups.entries()].sort((a, b) => (a[0] ? order(a[0]) : 1000) - (b[0] ? order(b[0]) : 1000)).map(([c, list]) => [c ? get('categories', c) : null, list]);
+}
+function savedInfo(x) {
+  const when = x.defaultStart != null ? fmtTime(x.defaultStart) : t(`when_${x.when || 'any'}`);
+  const bits = [when, fmtDur(x.minutes || 30)];
+  if ((x.steps || []).length) bits.push(`▤ ${x.steps.map((y) => y.title).join(', ')}`);
+  if (prepOf(x).length) bits.push(`↳ ${prepOf(x).map((p) => p.task.title).join(', ')}`);
+  return bits.join(' · ');
+}
+// When a saved task would go on a day: its usual time, else the first free slot in its part of the day.
+function savedStart(x, date) {
+  const s = planSettings();
+  if (x.defaultStart != null) return x.defaultStart;
+  const win = WINDOWS[x.when];
+  const from = Math.max(win ? win[0] : s.dayStart, date === today() ? nowMinutes() : s.dayStart) + leadOf(x);
+  return freeSlot(busyOn(date), x.minutes || 30, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap })
+    ?? Math.min(Math.ceil(from / s.snap) * s.snap, 1440 - (x.minutes || 30));
+}
+function openSavedPicker(date) {
+  const groups = savedGroups();
+  openModal(`
+    <h2>${esc(t('pickSaved'))}</h2>
+    <p class="hint">${esc(fmtDay(date))}</p>
+    ${groups.length ? groups.map(([cat, list]) => `<div class="sub">${esc(cat ? catName(cat) : t('noCategory'))}</div>
+      <ul class="list saved-pick">${list.map((x) => `<li><button class="task-main" value="pick:${esc(x.id)}" formnovalidate><span class="item-text">${x.meal ? '🍽 ' : ''}${esc(x.title)}<small>${esc(savedInfo(x))}</small></span></button></li>`).join('')}</ul>`).join('')
+    : `<p class="hint">${esc(t('noSaved'))}</p>`}
+    <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('cancel'))}</button></div>`, (form, action, e) => {
+    if (!action.startsWith('pick:')) return;
+    e.preventDefault();
+    const x = get('tasks', action.slice(5));
+    if (x.meal) { ui.mealDate = date; openMeal(null, { kind: 'meal', date, typeId: x.id, start: savedStart(x, date), minutes: x.minutes || 45, recipes: [], people: 2, notes: '' }); return; }
+    openPlanSaved(x, date);
+  });
+}
+function openPlanSaved(x, date) {
+  openModal(`
+    <h2>${esc(t('planSaved', x.title))}</h2>
+    ${(x.steps || []).length ? `<p class="hint">▤ ${esc(x.steps.map((y) => `${y.title} ${fmtDur(y.minutes)}`).join(' → '))}</p>` : ''}
+    <div class="three">
+      <label>${esc(t('date'))}<input name="date" type="date" required value="${esc(date)}"></label>
+      <label>${esc(t('start'))}<input name="start" type="time" required step="300" value="${fmtTime(savedStart(x, date))}"></label>
+      <label>${esc(t('duration'))}<select name="minutes">${durOptions(x.minutes || 30)}</select></label>
+    </div>
+    <div class="button-row">
+      <button class="btn primary" value="ok">${esc(t('planIt'))}</button>
+      <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
+    </div>`, (form) => {
+    const d = form.date.value || date;
+    const b = planTask(x, d, parseTime(form.start.value), { minutes: Number(form.minutes.value) || x.minutes || 30 });
+    toast(t('plannedToast', relDay(d), fmtTime(b.start)));
+    if (d !== currentDate()) location.hash = `#/plan/${d}`;
+    changed();
+    warnConflicts(get('blocks', b.id));
+  });
+  // A different day can mean a different free slot.
+  modal.querySelector('input[name=date]').addEventListener('change', (ev) => {
+    if (isDate(ev.target.value)) ev.target.form.start.value = fmtTime(savedStart(x, ev.target.value));
+  });
 }
 
 function mealTypes() { return live('tasks').filter((x) => x.meal).sort((a, b) => (a.defaultStart ?? 0) - (b.defaultStart ?? 0)); }
@@ -647,6 +786,8 @@ function viewPlan(date) {
     ${showToday ? `<a class="btn small" href="#/plan/${td}">${esc(t('today'))}</a>` : ''}
     <button class="btn small" type="button" data-action="new-block">+ ${esc(t('block'))}</button>
     <button class="btn small" type="button" data-action="new-meal">+ ${esc(t('meal'))}</button>
+    <button class="btn small" type="button" data-action="new-saved">+ ${esc(t('fromSaved'))}</button>
+    ${v === 'day' || v === 'list' ? `<button class="btn small ghost steps-toggle" type="button" data-action="toggle-steps" aria-pressed="${showSteps()}">▤ ${esc(t(showSteps() ? 'hideSteps' : 'showSteps'))}</button>` : ''}
     <button class="btn small" type="button" data-action="templates">${esc(t('templates'))}</button>
   </div>`;
   if (v === 'list') return head + viewList(date);
@@ -759,7 +900,7 @@ function viewWeek(date) {
     return `<div class="timeline wk-col${d === td ? ' today' : ''}" data-start="${startMin}" data-ppm="${PPM}" data-snap="${s.snap}" data-date="${d}" style="height:${h}px">
           ${hours.map((m) => `<div class="hour" style="top:${(m - startMin) * PPM}px"></div>`).join('')}
           ${d === td ? '<div class="now" id="now-line" hidden></div>' : ''}
-          ${laid.map((b) => (b.isEvent ? eventHtml(b, startMin, inConflict.has(b.id)) : blockHtml(b, startMin, inConflict.has(b.id)))).join('')}
+          ${laid.map((b) => (b.isEvent ? eventHtml(b, startMin, inConflict.has(b.id)) : blockHtml(b, startMin, inConflict.has(b.id), true))).join('')}
         </div>`;
   }).join('')}
     </div>
@@ -794,6 +935,15 @@ function viewMonth(date) {
 
 // List: the next seven days as an agenda. What each row shows at a glance is set in Settings;
 // tap a row to see the rest (notes, checklist, recipes) and act on it.
+// Importance at a glance: !!! very high, !! high, ↓ low; nothing for normal.
+function impBadge(x) {
+  const n = importanceOf(x);
+  if (n === 3) return '';
+  return n > 3 ? `<span class="prio" title="${esc(t(`imp_${n}`))}">${'!'.repeat(n - 2)}</span>` : `<span class="prio low" title="${esc(t(`imp_${n}`))}">↓</span>`;
+}
+// Steps on the plan: listed (default) or folded into their task. Toggled from the plan.
+function showSteps() { return state.settings.showSteps !== false; }
+
 const GLANCE = ['time', 'duration', 'category', 'due', 'priority', 'checklist', 'prep', 'recipes', 'location', 'notes'];
 const GLANCE_DEFAULT = ['time', 'duration', 'category', 'due', 'checklist', 'recipes', 'location'];
 function glance() { return new Set(state.settings.glance || GLANCE_DEFAULT); }
@@ -831,7 +981,9 @@ function glanceBits(x) {
   const cat = get('categories', x.category);
   if (g.has('category') && cat) bits.push(`<span class="cat" style="--c:${esc(cat.color)}">${esc(catName(cat))}</span>`);
   if (g.has('due') && task?.due && isTodo(task)) bits.push(`<span class="${task.due < x.date ? 'late' : ''}">${esc(t('dueOn', relDay(task.due)))}</span>`);
-  if (g.has('priority') && task?.priority) bits.push(`<span class="prio">${'!'.repeat(4 - task.priority)}</span>`);
+  if (g.has('priority') && task && impBadge(task)) bits.push(impBadge(task));
+  const st = stepTimes(x);
+  if (st.length && !showSteps()) bits.push(`▤ ${st.filter((y) => y.state === 'done' || (outcomeOf(x) === 'done')).length}/${st.length}`);
   const items = checklistOf(x);
   if (g.has('checklist') && items.length) bits.push(`☑ ${items.length - checklistLeft(items, x.checked)}/${items.length}`);
   if (g.has('prep') && x.parentId) { const p = get('blocks', x.parentId); if (p) bits.push(`↳ ${esc(t('forParent', p.title))}`); }
@@ -855,8 +1007,21 @@ function agendaRow(x, conflict) {
       <span class="ag-text"><span class="ag-title">${conflict ? '<span class="warn-ico">⚠</span> ' : ''}${KIND_ICON[x.kind] || ''}${esc(x.title)}</span>
       <small>${glanceBits(x).join(' · ')}</small></span>
     </button>
+    ${!x.isEvent && showSteps() ? agendaSteps(x) : ''}
     ${open && !x.isEvent ? agendaDetails(x) : ''}
   </li>`;
+}
+
+function stepCheck(b, y) {
+  const st = y.state || (outcomeOf(b) === 'done' ? 'done' : null);
+  return `<input type="checkbox" data-action="step-done" data-block="${esc(b.id)}" data-step="${esc(y.id)}" ${st === 'done' ? 'checked' : ''} aria-label="${esc(y.title)}">`;
+}
+function agendaSteps(b) {
+  const st = stepTimes(b);
+  if (!st.length) return '';
+  return `<ol class="ag-steps">${st.map((y) => `<li class="${y.state || (outcomeOf(b) === 'done' ? 'done' : '')}">
+    ${stepCheck(b, y)}<span class="ag-time">${fmtTime(y.start)}</span><span class="st-title">${esc(y.title)}</span>
+    ${y.state === 'failed' ? `<small class="late">${esc(t('couldnt'))}</small>` : ''}</li>`).join('')}</ol>`;
 }
 
 function agendaDetails(b) {
@@ -887,7 +1052,7 @@ function dueRow(x, date) {
   if (g.has('duration')) bits.push(esc(fmtDur(x.minutes || 30)));
   const cat = get('categories', x.category);
   if (g.has('category') && cat) bits.push(`<span class="cat" style="--c:${esc(cat.color)}">${esc(catName(cat))}</span>`);
-  if (g.has('priority') && x.priority) bits.push(`<span class="prio">${'!'.repeat(4 - x.priority)}</span>`);
+  if (g.has('priority') && impBadge(x)) bits.push(impBadge(x));
   return `<li class="ag-row due" style="--c:${esc(catColor(x.category) || 'var(--accent)')}">
     <input type="checkbox" class="ag-check" data-action="task-done" data-id="${esc(x.id)}" aria-label="${esc(t('markDone'))}">
     <button type="button" class="ag-main" data-action="task-edit" data-id="${esc(x.id)}">
@@ -898,7 +1063,7 @@ function dueRow(x, date) {
   </li>`;
 }
 
-function blockHtml(b, startMin, conflict) {
+function blockHtml(b, startMin, conflict, compact = false) {
   const color = catColor(b.category) || 'var(--accent)';
   const short = b.minutes < 30;
   const left = `calc(${(b.col / b.cols) * 100}% + 1px)`;
@@ -909,13 +1074,23 @@ function blockHtml(b, startMin, conflict) {
   if (items.length) extra = `<span class="mini-badge">☑ ${items.length - checklistLeft(items, b.checked)}/${items.length}</span>`;
   if (b.kind === 'groceries') { const n = live('r_shopping').filter((x) => !x.checked).length; extra = `<span class="mini-badge">${n}</span>`; }
   if (status === 'failed') extra = `<span class="mini-badge bad">✕</span>`;
-  return `<div class="block${status ? ` ${status}` : ''}${status === 'failed' ? ' done' : ''}${short ? ' short' : ''}${conflict ? ' conflict' : ''}${b.kind ? ` k-${b.kind}` : ''}" data-id="${esc(b.id)}" data-start="${b.start}" data-minutes="${b.minutes}"
+  const st = stepTimes(b);
+  // Steps fit beside the title when the block is a single column and tall enough; otherwise a count.
+  const stepsIn = st.length && showSteps() && b.cols === 1 && !compact && b.minutes >= 30;
+  if (st.length && !stepsIn && status !== 'failed') extra += `<span class="mini-badge">▤ ${status === 'done' ? st.length : st.filter((y) => y.state === 'done').length}/${st.length}</span>`;
+  const stepsHtml = stepsIn ? `<div class="blk-steps">${st.map((y, i) => {
+    const hpx = (y.end - y.start) * PPM;
+    return `<div class="blk-step${i ? '' : ' first'}${hpx < 16 ? ' tight' : ''}${y.state ? ` ${y.state}` : status === 'done' ? ' done' : ''}" style="top:${(y.start - b.start) * PPM}px;height:${hpx}px">
+      ${hpx >= 11 ? `${stepCheck(b, y)}<span class="st-title">${esc(y.title)}</span><span class="st-time">${fmtTime(y.start)}</span>` : ''}</div>`;
+  }).join('')}</div>` : '';
+  return `<div class="block${stepsIn ? ' with-steps' : ''}${status ? ` ${status}` : ''}${status === 'failed' ? ' done' : ''}${short ? ' short' : ''}${conflict ? ' conflict' : ''}${b.kind ? ` k-${b.kind}` : ''}" data-id="${esc(b.id)}" data-start="${b.start}" data-minutes="${b.minutes}"
     style="--c:${esc(color)};top:${(b.start - startMin) * PPM}px;height:${Math.max(b.minutes * PPM, 16)}px;left:${left};width:${width}">
     <input type="checkbox" class="blk-check" data-action="block-done" data-id="${esc(b.id)}" ${status === 'done' ? 'checked' : ''} aria-label="${esc(t('markDone'))}">
     <div class="blk-body">
       <div class="blk-title">${conflict ? '<span class="warn-ico">⚠</span> ' : ''}${KIND_ICON[b.kind] || ''}${esc(b.title)} ${extra}</div>
       <div class="blk-time">${range(b.start, b.minutes)}</div>
     </div>
+    ${stepsHtml}
     <div class="resize" aria-hidden="true"></div>
   </div>`;
 }
@@ -1032,6 +1207,7 @@ function openMeal(block, draft = null) {
     <div class="field-label">${esc(t('recipesInMeal'))}</div>
     ${rows ? `<ul class="meal-recipes">${rows}</ul>` : `<p class="hint">${esc(ricetteConfigured() ? t('noRecipeYet') : t('ricetteNeeded'))}</p>`}
     ${ricetteConfigured() ? `<button class="btn add-recipe" value="pick" formnovalidate>＋ ${esc(t('addRecipe'))}</button>` : ''}
+    ${stepsSection(block)}
     <label>${esc(t('notes'))}<textarea name="notes" rows="2">${esc(x.notes || '')}</textarea></label>
     <div class="button-row">
       <button class="btn primary" value="ok">${esc(t('save'))}</button>
@@ -1049,6 +1225,7 @@ function openMeal(block, draft = null) {
       x.recipes = x.recipes.map((r) => ({ ...r, servings: x.people }));
     };
     collect();
+    if (block && stepAction(block, action, e, (nb) => openMeal(nb))) return;
     if (action === 'delete') { deleteBlock(block); changed(); return; }
     if (action === 'pick') {
       e.preventDefault();
@@ -1086,6 +1263,7 @@ function openMeal(block, draft = null) {
     if (action === 'check') checkMealNow(get('blocks', saved.id));
   });
   hydratePhotos(modal);
+  if (block) wireSteps(block, (nb) => openMeal(nb));
   // Picking a type moves a new meal to that type's usual time.
   modal.querySelector('form').addEventListener('change', (ev) => {
     if (ev.target.name !== 'type' || !isNew) return;
@@ -1416,10 +1594,10 @@ function taskRow(x) {
   if (cat) bits.push(`<span class="cat" style="--c:${esc(cat.color)}">${esc(catName(cat))}</span>`);
   const planned = live('blocks').filter((b) => b.taskId === x.id && !b.done && b.date >= td && b.kind !== 'prep').sort((a, b) => ((a.date + a.start) < (b.date + b.start) ? -1 : 1))[0];
   if (planned && !x.done) bits.push(`<span class="badge">${esc(t('plannedAt', relDay(planned.date), fmtTime(planned.start)))}</span>`);
-  return `<li class="prio-${x.priority || 0}">
+  return `<li class="imp-${importanceOf(x)}">
     ${x.helper ? '<span class="helper-dot">↳</span>' : `<input type="checkbox" data-action="task-done" data-id="${esc(x.id)}" ${x.done ? 'checked' : ''} aria-label="${esc(t('markDone'))}">`}
     <button class="task-main" type="button" data-action="task-edit" data-id="${esc(x.id)}">
-      <span class="item-text">${x.priority ? `<span class="prio">${'!'.repeat(4 - x.priority)}</span> ` : ''}${esc(x.title)}<small>${bits.join(' · ')}</small></span>
+      <span class="item-text">${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}<small>${bits.join(' · ')}</small></span>
     </button>
   </li>`;
 }
@@ -1457,12 +1635,11 @@ function viewSettings() {
       <small>${esc(t('maxLoadHint'))}</small></label>
   </form>
 
-  <h2>${esc(t('meals'))}</h2>
-  <p class="hint">${esc(t('mealsHint'))}</p>
-  <ul class="list">
-    ${mealTypes().map((tp) => `<li><button class="task-main" type="button" data-action="task-edit" data-id="${esc(tp.id)}"><span class="item-text">🍽 ${esc(tp.title)}<small>${esc(fmtTime(tp.defaultStart ?? 0))} · ${esc(fmtDur(tp.minutes || 30))}${prepOf(tp).length ? ` · ↳ ${esc(prepOf(tp).map((p) => p.task.title).join(', '))}` : ''}</small></span></button></li>`).join('')}
-  </ul>
-  <button class="btn small" type="button" data-action="meal-type-new">+ ${esc(t('newMealType'))}</button>
+  <h2>${esc(t('savedTasks'))}</h2>
+  <p class="hint">${esc(t('savedHint'))}</p>
+  ${savedGroups().map(([cat, list]) => `<div class="sub">${esc(cat ? catName(cat) : t('noCategory'))}</div>
+  <ul class="list">${list.map((tp) => `<li><button class="task-main" type="button" data-action="task-edit" data-id="${esc(tp.id)}"><span class="item-text">${tp.meal ? '🍽 ' : ''}${esc(tp.title)}<small>${esc(savedInfo(tp))}</small></span></button></li>`).join('')}</ul>`).join('')}
+  <button class="btn small" type="button" data-action="saved-new">+ ${esc(t('newSaved'))}</button>
 
   <h2>${esc(t('templates'))}</h2>
   <p class="hint">${esc(t('templatesHint'))}</p>
@@ -1693,68 +1870,90 @@ const durOptions = (sel, list = [5, 10, 15, 20, 30, 45, 60, 75, 90, 120, 150, 18
 const lines = (v) => String(v || '').split('\n').map((s) => s.trim()).filter(Boolean);
 
 // Task editor. Used for to-dos, for preparation steps (small tasks of their own, planned
-// automatically before the task they belong to) and for meal types (Settings → Meals).
-// Any of them can have rules: "when this is done / couldn't be done / was missed → …".
+// automatically before the task they belong to) and for saved tasks (Settings → Saved tasks, meals
+// among them). Any task can be split into steps, and can have rules: "when this is planned / done /
+// couldn't be done / was missed → …". "When it's planned" rules are its preparations (task.prep).
+function rulesForEditor(task) {
+  const preps = (task.prep || []).map((p, i) => {
+    const pt = get('tasks', p.taskId);
+    return { id: `prep${i}`, when: 'planned', then: 'task', taskId: p.taskId, title: pt?.title || '', minutes: pt?.minutes || 10, place: p.when || 'before', stepId: null };
+  });
+  return [...preps, ...(task.rules || []).map((r) => ({ ...r }))];
+}
+
 function openTask(task, draft = null) {
   const isNew = !task;
-  const base = task || { title: '', minutes: 30, priority: 0, category: '', due: '', repeat: '', notes: '', when: '' };
-  const x = draft || { ...base, prep: [...(base.prep || [])], checklist: [...(base.checklist || [])], rules: (base.rules || []).map((r) => ({ ...r })) };
+  const base = task || { title: '', minutes: 30, importance: 3, category: '', due: '', repeat: '', notes: '', when: '' };
+  const src = draft || base;
+  const x = draft?.allRules ? draft : { ...src, importance: importanceOf(src), steps: (src.steps || []).map((y) => ({ ...y })), checklist: [...(src.checklist || [])], allRules: rulesForEditor(src) };
   const helper = Boolean(x.helper);
   const routine = Boolean(x.routine);
   const todo = !helper && !routine;
-  const prepRows = (x.prep || []).map((p, i) => {
-    const pt = p.newTask || get('tasks', p.taskId);
-    if (!pt) return '';
-    return `<li><span class="item-text pad">↳ ${esc(pt.title)}<small>${esc(fmtDur(pt.minutes || 10))} · ${esc(t(`pw_${p.when}`))}${pt.checklist?.length ? ` · ☑ ${pt.checklist.length}` : ''}${pt.rules?.length ? ` · ⚙ ${pt.rules.length}` : ''}</small></span>
-      <button class="btn small ghost" value="edit-prep:${i}">${esc(t('edit'))}</button>
-      <button class="btn small ghost" value="rm-prep:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></li>`;
-  }).join('');
-  const ruleRows = (x.rules || []).map((r, i) => `
+  const stepTotal = x.steps.reduce((n, y) => n + (Number(y.minutes) || 0), 0);
+  const whenOpts = helper ? RULE_WHEN.filter((w) => w !== 'planned') : RULE_WHEN;
+  const stepRows = x.steps.map((y, i) => `<li class="step-row">
+      <span class="step-n">${i + 1}</span>
+      <input name="st_t_${i}" value="${esc(y.title)}" placeholder="${esc(t('stepPh'))}" autocomplete="off" aria-label="${esc(t('title'))}">
+      <select name="st_m_${i}" aria-label="${esc(t('duration'))}">${durOptions(Number(y.minutes) || 10, [5, 10, 15, 20, 25, 30, 45, 60, 90, 120])}</select>
+      ${i ? `<button class="icon" value="up-step:${i}" formnovalidate aria-label="↑">↑</button>` : '<span class="icon-sp"></span>'}
+      <button class="icon" value="rm-step:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></li>`).join('');
+  const ruleRows = x.allRules.map((r, i) => {
+    const planned = r.when === 'planned';
+    const places = planned ? PREP_PLACES : RULE_PLACES;
+    const linked = r.taskId && get('tasks', r.taskId);
+    return `
     <div class="rule ${r.then === 'groceries' ? 'is-groceries' : ''}">
-      <div class="rule-line"><span>${esc(t('ruleWhen'))}</span>
-        <select name="rw_${i}">${RULE_WHEN.map((w) => `<option value="${w}" ${w === r.when ? 'selected' : ''}>${esc(t(`rw_${w}`))}</option>`).join('')}</select>
+      <div class="rule-line"><span>${esc(t('ruleWhenGen'))}</span>
+        ${x.steps.length && !planned ? `<select name="rs_${i}" data-rerender="1"><option value="">${esc(t('ruleSubjectTask'))}</option>${x.steps.map((y) => `<option value="${esc(y.id)}" ${y.id === r.stepId ? 'selected' : ''}>${esc(t('ruleSubjectStep', y.title || '…'))}</option>`).join('')}</select>` : `<span class="rule-subj">${esc(t('ruleSubjectTask'))}</span>`}
+        <select name="rw_${i}" data-rerender="1">${whenOpts.filter((w) => !(r.stepId && (w === 'planned' || w === 'missed'))).map((w) => `<option value="${w}" ${w === r.when ? 'selected' : ''}>${esc(t(`rw_${w}`))}</option>`).join('')}</select>
         <button class="icon" value="rm-rule:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></div>
       <div class="rule-line"><span>→</span>
-        <select name="rt_${i}" data-rule="${i}"><option value="task" ${r.then !== 'groceries' ? 'selected' : ''}>${esc(t('rt_task'))}</option><option value="groceries" ${r.then === 'groceries' ? 'selected' : ''}>${esc(t('rt_groceries'))}</option></select></div>
+        ${planned ? `<span class="rule-subj">${esc(t('rt_task'))}</span><input type="hidden" name="rt_${i}" value="task">`
+    : `<select name="rt_${i}" data-rule="${i}"><option value="task" ${r.then !== 'groceries' ? 'selected' : ''}>${esc(t('rt_task'))}</option><option value="groceries" ${r.then === 'groceries' ? 'selected' : ''}>${esc(t('rt_groceries'))}</option></select>`}</div>
       <div class="rule-line rt-task">
         <select name="rk_${i}" data-rulekind="${i}"><option value="">${esc(t('ruleNewTask'))}</option>${ruleTargets(x).map((y) => `<option value="${esc(y.id)}" ${y.id === r.taskId ? 'selected' : ''}>${y.helper ? '↳ ' : ''}${esc(y.title)}</option>`).join('')}</select>
-        <input class="rule-title${r.taskId ? ' hide' : ''}" name="rti_${i}" value="${esc(r.taskId ? '' : r.title || '')}" placeholder="${esc(t('rulePh'))}" autocomplete="off">
-        <select name="rm_${i}">${durOptions(Number(r.minutes) || 30, [5, 10, 15, 20, 30, 45, 60, 90, 120])}</select>
-        <select name="rp_${i}">${RULE_PLACES.map((p) => `<option value="${p}" ${p === (r.place || 'next') ? 'selected' : ''}>${esc(t(`rp_${p}`))}</option>`).join('')}</select>
+        <input class="rule-title${r.taskId ? ' hide' : ''}" name="rti_${i}" value="${esc(r.taskId ? '' : r.title || '')}" placeholder="${esc(t(planned ? 'prepPh' : 'rulePh'))}" autocomplete="off">
+        <select name="rm_${i}">${durOptions(Number(r.minutes) || linked?.minutes || 30, [5, 10, 15, 20, 30, 45, 60, 90, 120])}</select>
+        <select name="rp_${i}">${places.map((p) => `<option value="${p}" ${p === (r.place || places[0]) ? 'selected' : ''}>${esc(t(`${planned ? 'pw' : 'rp'}_${p}`))}</option>`).join('')}</select>
+        <button class="btn small ghost" value="edit-rule:${i}" formnovalidate title="${esc(t('editRuleTask'))}">${esc(t('edit'))}${linked?.steps?.length ? ` · ▤ ${linked.steps.length}` : ''}${linked?.checklist?.length ? ` · ☑ ${linked.checklist.length}` : ''}${linked?.rules?.length ? ` · ⚙ ${linked.rules.length}` : ''}</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+  const heading = routine ? (x.meal ? (isNew ? t('newMealType') : t('mealType')) : (isNew ? t('newSaved') : t('savedTask'))) : helper ? t('editPrep') : isNew ? t('newTask') : t('editTask');
   openModal(`
-    <h2>${esc(routine ? (isNew ? t('newMealType') : t('mealType')) : helper ? t('editPrep') : isNew ? t('newTask') : t('editTask'))}</h2>
+    <h2>${esc(heading)}</h2>
     ${x.check === 'ingredients' ? `<p class="hint">${esc(t('checkStepHint'))}</p>` : ''}
     <label>${esc(t('title'))}<input name="title" required value="${esc(x.title)}" autocomplete="off"></label>
     <div class="two">
-      <label>${esc(t('duration'))}<select name="minutes">${durOptions(x.minutes || 30)}</select></label>
-      ${todo ? `<label>${esc(t('priority'))}<select name="priority">${[0, 1, 2, 3].map((p) => `<option value="${p}" ${p === (x.priority || 0) ? 'selected' : ''}>${esc(t(`prio_${p}`))}</option>`).join('')}</select></label>` : ''}
-      ${routine ? `<label>${esc(t('usualTime'))}<input name="defaultStart" type="time" step="300" value="${fmtTime(x.defaultStart ?? 720)}"></label>` : ''}
+      ${x.steps.length ? `<label>${esc(t('duration'))}<span class="static">${esc(t('durationFromSteps', fmtDur(stepTotal)))}</span><input type="hidden" name="minutes" value="${stepTotal}"></label>`
+    : `<label>${esc(t('duration'))}<select name="minutes">${durOptions(x.minutes || 30)}</select></label>`}
+      ${helper ? '' : `<label>${esc(t('importance'))}<select name="importance">${IMPORTANCE.map((n) => `<option value="${n}" ${n === x.importance ? 'selected' : ''}>${'★'.repeat(n)}${'☆'.repeat(5 - n)} ${esc(t(`imp_${n}`))}</option>`).join('')}</select></label>`}
     </div>
     ${todo ? `
     <div class="two">
       <label>${esc(t('due'))}<input name="due" type="date" value="${esc(x.due || '')}"></label>
       <label>${esc(t('repeat'))}<select name="repeat"><option value="">${esc(t('rep_none'))}</option>${REPEATS.map((r) => `<option value="${r}" ${r === x.repeat ? 'selected' : ''}>${esc(t(`rep_${r}`))}</option>`).join('')}</select></label>
-    </div>
+    </div>` : ''}
+    ${routine ? `
     <div class="two">
+      <label>${esc(t('usualTimeOpt'))}<input name="defaultStart" type="time" step="300" value="${x.defaultStart != null ? fmtTime(x.defaultStart) : ''}"></label>
       <label>${esc(t('bestTime'))}<select name="when">${['', 'morning', 'afternoon', 'evening'].map((w) => `<option value="${w}" ${w === (x.when || '') ? 'selected' : ''}>${esc(t(`when_${w || 'any'}`))}</option>`).join('')}</select></label>
+    </div>
+    <small class="hint">${esc(t('usualTimeHint'))}</small>` : ''}
+    ${helper ? '' : `
+    <div class="two">
+      ${todo ? `<label>${esc(t('bestTime'))}<select name="when">${['', 'morning', 'afternoon', 'evening'].map((w) => `<option value="${w}" ${w === (x.when || '') ? 'selected' : ''}>${esc(t(`when_${w || 'any'}`))}</option>`).join('')}</select></label>` : ''}
       <label>${esc(t('category'))}<select name="category">${catOptions(x.category)}</select></label>
-    </div>` : routine ? `<label>${esc(t('category'))}<select name="category">${catOptions(x.category)}</select></label>` : ''}
+    </div>`}
+    ${routine ? `<label class="check"><input type="checkbox" name="meal" ${x.meal ? 'checked' : ''}> <span>${esc(t('isMeal'))}</span></label>` : ''}
+    <div class="field-label">▤ ${esc(t('steps'))}</div>
+    <p class="hint">${esc(t('stepsHint'))}</p>
+    ${stepRows ? `<ol class="steps-edit">${stepRows}</ol>` : ''}
+    <button class="btn small" value="add-step" formnovalidate>+ ${esc(t('addStep'))}</button>
     ${x.check ? '' : `<label>${esc(t('checklist'))}<textarea name="checklist" rows="3" placeholder="${esc(t('checklistPh'))}">${esc((x.checklist || []).join('\n'))}</textarea>
       <small>${esc(t('checklistHint'))}</small></label>`}
-    ${helper ? '' : `
-    <div class="field-label">${esc(t('prepTitle'))}</div>
-    <p class="hint">${esc(t('prepHint'))}</p>
-    ${prepRows ? `<ul class="list">${prepRows}</ul>` : ''}
-    <div class="prep-add">
-      <input name="prepTitle" placeholder="${esc(t('prepPh'))}" autocomplete="off">
-      <select name="prepMinutes">${durOptions(10, [5, 10, 15, 20, 30, 45, 60])}</select>
-      <select name="prepWhen">${['before', 'sameday', 'daybefore'].map((w) => `<option value="${w}">${esc(t(`pw_${w}`))}</option>`).join('')}</select>
-      <button class="btn small" value="add-prep" formnovalidate>+ ${esc(t('add'))}</button>
-    </div>`}
     <div class="field-label">⚙ ${esc(t('rules'))}</div>
-    <p class="hint">${esc(t('rulesHint'))}</p>
+    <p class="hint">${esc(t(helper ? 'rulesHint' : 'rulesHintPrep'))}</p>
     ${ruleRows}
     <button class="btn small" value="add-rule" formnovalidate>+ ${esc(t('addRule'))}</button>
     <label>${esc(t('notes'))}<textarea name="notes" rows="2">${esc(x.notes || '')}</textarea></label>
@@ -1764,48 +1963,29 @@ function openTask(task, draft = null) {
       <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
       ${isNew || x.id === 'meal_check' ? '' : `<button class="btn danger" value="delete" formnovalidate>${esc(t('delete'))}</button>`}
     </div>`, (form, action, e) => {
-    const collect = () => {
-      x.title = form.title.value.trim();
-      x.minutes = Number(form.minutes.value) || 30;
-      if (form.checklist) x.checklist = lines(form.checklist.value);
-      x.notes = form.notes.value.trim();
-      if (todo) {
-        x.priority = Number(form.priority.value) || 0;
-        x.due = form.due.value || null;
-        x.repeat = form.repeat.value || null;
-        x.when = form.when.value || '';
-      }
-      if (form.category) x.category = form.category.value || null;
-      if (routine) x.defaultStart = parseTime(form.defaultStart.value) ?? x.defaultStart;
-      x.rules = (x.rules || []).map((r, i) => {
-        const then = form[`rt_${i}`].value;
-        return then === 'groceries'
-          ? { id: r.id, when: form[`rw_${i}`].value, then }
-          : { id: r.id, when: form[`rw_${i}`].value, then, taskId: form[`rk_${i}`].value || null, title: form[`rk_${i}`].value ? get('tasks', form[`rk_${i}`].value)?.title : form[`rti_${i}`].value.trim(), minutes: Number(form[`rm_${i}`].value) || 30, place: form[`rp_${i}`].value };
-      });
-    };
-    collect();
+    collect(form);
+    const again = () => { e.preventDefault(); openTask(task, x); };
+    if (action === 'add-step') {
+      x.steps.push({ id: uid().slice(0, 6), title: '', minutes: 10 });
+      again();
+      modal.querySelector(`input[name=st_t_${x.steps.length - 1}]`)?.focus();
+      return;
+    }
+    if (action.startsWith('rm-step:')) {
+      const [gone] = x.steps.splice(Number(action.slice(8)), 1);
+      x.allRules = x.allRules.map((r) => (r.stepId === gone.id ? { ...r, stepId: null } : r));
+      again(); return;
+    }
+    if (action.startsWith('up-step:')) {
+      const i = Number(action.slice(8));
+      [x.steps[i - 1], x.steps[i]] = [x.steps[i], x.steps[i - 1]];
+      again(); return;
+    }
     if (action === 'add-rule') {
-      e.preventDefault();
-      x.rules = [...x.rules, { id: uid().slice(0, 6), when: helper ? 'failed' : 'done', then: 'task', title: '', minutes: 30, place: helper ? 'before' : 'next' }];
-      openTask(task, x);
-      return;
+      x.allRules.push({ id: uid().slice(0, 6), when: helper ? 'failed' : 'planned', then: 'task', title: '', minutes: helper ? 15 : 10, place: 'before', stepId: null });
+      again(); return;
     }
-    if (action.startsWith('rm-rule:')) { e.preventDefault(); x.rules.splice(Number(action.slice(8)), 1); openTask(task, x); return; }
-    if (action === 'add-prep') {
-      e.preventDefault();
-      const title = form.prepTitle.value.trim();
-      if (title) x.prep = [...(x.prep || []), { newTask: { title, minutes: Number(form.prepMinutes.value) || 10 }, when: form.prepWhen.value }];
-      openTask(task, x);
-      modal.querySelector('input[name=prepTitle]')?.focus();
-      return;
-    }
-    if (action.startsWith('rm-prep:')) {
-      e.preventDefault();
-      x.prep = x.prep.filter((_, i) => i !== Number(action.slice(8)));
-      openTask(task, x);
-      return;
-    }
+    if (action.startsWith('rm-rule:')) { x.allRules.splice(Number(action.slice(8)), 1); again(); return; }
     if (action === 'delete') {
       if (!confirm(t('confirmDeleteTask'))) { e.preventDefault(); return; }
       remove('tasks', x.id);
@@ -1814,17 +1994,10 @@ function openTask(task, draft = null) {
       return;
     }
     if (!x.title) { e.preventDefault(); return; }
-    // A rule that adds a task needs a name: drop the ones left empty. A new name becomes a small task of
-    // its own (listed under Preparations), so it can get a checklist and rules too: rules can chain.
-    x.rules = x.rules.filter((r) => r.then === 'groceries' || r.taskId || r.title).map((r) => {
-      if (r.then === 'groceries' || r.taskId) return r;
-      const step = upsert('tasks', { id: uid(), createdAt: Date.now(), helper: true, title: r.title, minutes: r.minutes, category: x.category || null, checklist: [], rules: [], notes: '', done: false }, { silent: true });
-      return { ...r, taskId: step.id };
-    });
     const rec = saveTask(x);
-    if (action.startsWith('edit-prep:')) {
-      const p = rec.prep[Number(action.slice(10))];
-      setTimeout(() => openTask(get('tasks', p.taskId)), 0);
+    if (action.startsWith('edit-rule:')) {
+      const r = x.allRules[Number(action.slice(10))];
+      if (r?.taskId) setTimeout(() => openTask(get('tasks', r.taskId)), 0);
     }
     if (action === 'plan') {
       const date = rec.due && rec.due > today() ? rec.due : today();
@@ -1834,35 +2007,86 @@ function openTask(task, draft = null) {
     }
     changed();
   });
-  // Switching a rule between "add a task" and "plan a grocery trip", or between an existing task and
-  // a new one, shows the right fields.
-  modal.querySelector('form').addEventListener('change', (ev) => {
+
+  function collect(form) {
+    x.title = form.elements.namedItem('title').value.trim();
+    x.steps = x.steps.map((y, i) => ({ ...y, title: form[`st_t_${i}`].value.trim(), minutes: Number(form[`st_m_${i}`].value) || 10 }));
+    x.minutes = x.steps.length ? x.steps.reduce((n, y) => n + y.minutes, 0) || 30 : Number(form.minutes.value) || 30;
+    if (form.checklist) x.checklist = lines(form.checklist.value);
+    x.notes = form.notes.value.trim();
+    if (form.importance) x.importance = Number(form.importance.value) || 3;
+    if (todo) {
+      x.due = form.due.value || null;
+      x.repeat = form.repeat.value || null;
+    }
+    if (form.elements.namedItem('when')) x.when = form.elements.namedItem('when').value || '';
+    if (form.category) x.category = form.category.value || null;
+    if (routine) {
+      x.defaultStart = form.defaultStart.value ? parseTime(form.defaultStart.value) : null;
+      x.meal = form.meal.checked;
+    }
+    x.allRules = x.allRules.map((r, i) => {
+      const when = form[`rw_${i}`].value;
+      const then = when === 'planned' ? 'task' : form[`rt_${i}`].value;
+      const stepId = when === 'planned' ? null : form[`rs_${i}`]?.value || null;
+      if (then === 'groceries') return { id: r.id, when, then, stepId };
+      const kind = form[`rk_${i}`].value;
+      const places = when === 'planned' ? PREP_PLACES : RULE_PLACES;
+      const place = places.includes(form[`rp_${i}`].value) ? form[`rp_${i}`].value : (when === 'planned' ? 'before' : r.when === 'planned' ? 'before' : 'next');
+      return { id: r.id, when, then, stepId, taskId: kind || null, title: kind ? get('tasks', kind)?.title : form[`rti_${i}`].value.trim(), minutes: Number(form[`rm_${i}`].value) || 30, place };
+    });
+  }
+  const form = modal.querySelector('form');
+  form.addEventListener('change', (ev) => {
+    // Changing what a rule listens to changes its choices (e.g. "planned" → when to prepare it).
+    if (ev.target.dataset.rerender) { collect(form); openTask(task, x); return; }
     if (ev.target.dataset.rule != null) ev.target.closest('.rule').classList.toggle('is-groceries', ev.target.value === 'groceries');
     if (ev.target.dataset.rulekind != null) ev.target.closest('.rule').querySelector('.rule-title').classList.toggle('hide', Boolean(ev.target.value));
+  });
+  // The total length follows the steps as you change them.
+  form.addEventListener('input', (ev) => {
+    if (!/^st_m_/.test(ev.target.name || '')) return;
+    const n = [...form.querySelectorAll('select[name^=st_m_]')].reduce((a, el) => a + Number(el.value), 0);
+    const st = form.querySelector('.static');
+    if (st) st.textContent = t('durationFromSteps', fmtDur(n));
   });
 }
 
 // Tasks a rule can add: your to-dos and small steps, not meal types, and not the task itself.
 function ruleTargets(x) {
-  return live('tasks').filter((y) => y.id !== x.id && !y.routine && !y.check && (!y.done || y.repeat))
+  const used = new Set((x.allRules || []).map((r) => r.taskId).filter(Boolean));
+  return live('tasks').filter((y) => used.has(y.id) || (y.id !== x.id && !y.meal && !y.check && (!y.done || y.repeat)))
     .sort((a, b) => Number(Boolean(b.helper)) - Number(Boolean(a.helper)) || a.title.localeCompare(b.title));
 }
 
 function saveTask(x) {
-  const prep = (x.prep || []).map((p) => {
-    if (!p.newTask) return { taskId: p.taskId, when: p.when };
-    const h = upsert('tasks', {
-      id: uid(), createdAt: Date.now(), helper: true, title: p.newTask.title, minutes: p.newTask.minutes,
-      category: x.category || null, checklist: [], rules: [], notes: '', done: false,
-    }, { silent: true });
-    return { taskId: h.id, when: p.when };
-  });
+  const newStep = (title, minutes) => upsert('tasks', {
+    id: uid(), createdAt: Date.now(), helper: true, title, minutes,
+    category: x.category || null, checklist: [], rules: [], notes: '', done: false,
+  }, { silent: true }).id;
+  // A rule that adds a task needs one: drop the empty ones. A new name becomes a small task of its
+  // own (listed under Preparations), so it can get a checklist and rules too: rules can chain.
+  const all = (x.allRules || rulesForEditor(x)).filter((r) => r.then === 'groceries' || r.taskId || r.title);
+  for (const r of all) if (r.then !== 'groceries' && !r.taskId) r.taskId = newStep(r.title, r.minutes || 10);
+  for (const r of all) {
+    // The length chosen here is the step's own length (for small steps, not for your to-dos).
+    const tk = r.taskId && get('tasks', r.taskId);
+    if (tk?.helper && r.minutes && tk.minutes !== r.minutes && !(tk.steps || []).length) upsert('tasks', { ...tk, minutes: r.minutes }, { silent: true });
+  }
+  const prep = all.filter((r) => r.when === 'planned').map((r) => ({ taskId: r.taskId, when: r.place || 'before' }));
+  const rules = all.filter((r) => r.when !== 'planned').map((r) => (r.then === 'groceries'
+    ? { id: r.id, when: r.when, then: r.then, stepId: r.stepId || null }
+    : { id: r.id, when: r.when, then: 'task', stepId: r.stepId || null, taskId: r.taskId, title: get('tasks', r.taskId)?.title || r.title, minutes: r.minutes, place: r.place }));
+  x.allRules = all;
   let due = x.due || null;
   if (x.repeat && !due) due = today();
-  const { newTask, ...clean } = x;
-  void newTask;
+  const { allRules, newTask, ...clean } = x;
+  void allRules; void newTask;
+  const steps = (x.steps || []).filter((y) => y.title);
   return upsert('tasks', {
-    ...clean, id: x.id || uid(), createdAt: x.createdAt || Date.now(), due, prep, done: Boolean(x.done),
+    ...clean, id: x.id || uid(), createdAt: x.createdAt || Date.now(), due, prep, rules, steps,
+    minutes: steps.length ? steps.reduce((n, y) => n + (Number(y.minutes) || 0), 0) : x.minutes,
+    priority: 0, done: Boolean(x.done),
   }, { silent: true });
 }
 
@@ -1958,6 +2182,7 @@ function openBlock(block, defaults = {}) {
     ${isShop ? shoppingSection() : ''}
     ${items.length && !isNew ? `<div class="field-label">${esc(t('checklist'))}</div>
       <ul class="list checklist">${items.map((it, i) => `<li><label><input type="checkbox" data-ci="${i}" ${(b.checked || [])[i] ? 'checked' : ''}><span class="item-text">${esc(it)}</span></label></li>`).join('')}</ul>` : ''}
+    ${stepsSection(b)}
     ${isShop ? '' : `<label>${esc(t('category'))}<select name="category">${catOptions(b.category)}</select></label>`}
     <label>${esc(t('notes'))}<textarea name="notes" rows="2">${esc(b.notes || '')}</textarea></label>
     <label class="check"><input type="checkbox" name="allowOverlap" ${b.allowOverlap ? 'checked' : ''}> ${esc(t('allowOverlap'))}</label>
@@ -1969,6 +2194,7 @@ function openBlock(block, defaults = {}) {
       ${isNew ? '' : `<button class="btn" value="dup" formnovalidate>${esc(t('duplicate'))}</button>
       <button class="btn danger" value="delete" formnovalidate>${esc(t('delete'))}</button>`}
     </div>`, (form, action, e) => {
+    if (stepAction(b, action, e, openBlock)) return;
     if (action === 'delete') { deleteBlock(b); changed(); return; }
     if (action === 'fail') { setOutcome(get('blocks', b.id), 'failed'); changed(); return; }
     if (action === 'reset') { setOutcome(get('blocks', b.id), null); changed(); return; }
@@ -1997,6 +2223,7 @@ function openBlock(block, defaults = {}) {
     changed();
     warnConflicts(get('blocks', saved.id));
   });
+  wireSteps(b, openBlock);
   const form = modal.querySelector('form');
   // Checklist items and shopping items are saved as you tick them.
   form.addEventListener('change', (ev) => {
@@ -2016,6 +2243,38 @@ function openBlock(block, defaults = {}) {
       if (isNew && x.minutes) form.minutes.innerHTML = durOptions(x.minutes);
       if (x.category) form.category.value = x.category;
     }
+  });
+}
+
+// Steps inside the block dialog: tick them, or mark one "couldn't do it".
+function stepsSection(b) {
+  if (!b?.id || !has('blocks', b.id)) return '';
+  const st = stepTimes(b);
+  if (!st.length) return '';
+  const whole = outcomeOf(b) === 'done';
+  return `<div class="field-label">▤ ${esc(t('steps'))}</div>
+    <ul class="list checklist steps-dlg">${st.map((y) => `<li class="${y.state || (whole ? 'done' : '')}"><label><input type="checkbox" data-sstep="${esc(y.id)}" ${y.state === 'done' || whole ? 'checked' : ''}>
+      <span class="item-text">${esc(y.title)}<small>${esc(range(y.start, y.end - y.start))}${y.state === 'failed' ? ` · ${esc(t('couldnt'))}` : ''}</small></span></label>
+      ${y.state === 'failed' ? `<button class="btn small ghost" value="step-reset:${esc(y.id)}" formnovalidate>${esc(t('reset'))}</button>`
+    : y.state || whole ? '' : `<button class="btn small ghost" value="step-fail:${esc(y.id)}" formnovalidate title="${esc(t('couldntDo'))}">✕ ${esc(t('couldnt'))}</button>`}</li>`).join('')}</ul>`;
+}
+function stepAction(b, action, e, reopen) {
+  if (!/^step-(fail|reset):/.test(action)) return false;
+  e.preventDefault();
+  const [kind, sid] = action.split(':');
+  setStepOutcome(get('blocks', b.id), sid, kind === 'step-fail' ? 'failed' : null);
+  changed();
+  if (modal.querySelector('[data-sstep]')) reopen(get('blocks', b.id));
+  return true;
+}
+function wireSteps(b, reopen) {
+  if (!b?.id) return;
+  modal.querySelector('form').addEventListener('change', (ev) => {
+    const sid = ev.target.dataset.sstep;
+    if (!sid) return;
+    const ok = tryStep(get('blocks', b.id), sid, ev.target.checked);
+    changed();
+    if (ok) reopen(get('blocks', b.id));
   });
 }
 
@@ -2186,7 +2445,7 @@ view.addEventListener('submit', (e) => {
     if (!q.title) return;
     const onDay = form.id === 'side-add' ? currentDate() : null;
     upsert('tasks', {
-      id: uid(), createdAt: Date.now(), title: q.title, minutes: q.minutes || 30, priority: q.priority,
+      id: uid(), createdAt: Date.now(), title: q.title, minutes: q.minutes || 30, priority: q.priority, importance: q.importance || 3,
       category: findCategory(q.category), due: onDay, repeat: null, notes: '', done: false,
     }, { silent: true });
     form.title.value = '';
@@ -2211,6 +2470,12 @@ view.addEventListener('change', (e) => {
     changed();
   }
   if (action === 'shop-toggle') { K().setChecked(id, el.checked); changed(); return; }
+  if (action === 'step-done') {
+    const ok = tryStep(get('blocks', el.dataset.block), el.dataset.step, el.checked);
+    if (!ok) { el.checked = false; return; }
+    changed();
+    return;
+  }
   if (action === 'block-done') {
     const ok = trySetBlockDone(get('blocks', id), el.checked);
     if (!ok) { el.checked = false; return; }
@@ -2286,6 +2551,8 @@ view.addEventListener('click', (e) => {
       break;
     }
     case 'new-meal': ui.mealDate = currentDate(); openMeal(null); break;
+    case 'new-saved': openSavedPicker(currentDate()); break;
+    case 'toggle-steps': saveSettings({ showSteps: !showSteps() }); render(); break;
     case 'view': ui.view = id; ui.scrolledFor = null; ui.suggest = null; render(); if (id !== 'day') window.scrollTo(0, 0); break;
     case 'view-day': ui.view = 'day'; ui.scrolledFor = null; if (currentDate() === id) render(); else location.hash = `#/plan/${id}`; break;
     case 'ag-toggle': if (ui.expanded.has(id)) ui.expanded.delete(id); else ui.expanded.add(id); render(); break;
@@ -2293,6 +2560,7 @@ view.addEventListener('click', (e) => {
     case 'block-fail': setOutcome(get('blocks', id), 'failed'); changed(); break;
     case 'block-reset': setOutcome(get('blocks', id), null); changed(); break;
     case 'meal-type-new': openTask(null, { title: '', minutes: 30, routine: true, meal: true, defaultStart: 12 * 60, category: 'meals', prep: [], rules: [], checklist: [], notes: '' }); break;
+    case 'saved-new': openTask(null, { title: '', minutes: 30, routine: true, meal: false, defaultStart: null, when: '', category: null, importance: 3, prep: [], rules: [], steps: [], checklist: [], notes: '' }); break;
     case 'event': openEvent(get('events', id)); break;
     case 'templates': openTemplatesMenu(); break;
     case 'suggest': startSuggest(); break;

@@ -44,14 +44,24 @@ export function parseDuration(s) {
   return null;
 }
 
-// Quick add: "Call the dentist 15m !1 #health" -> title, minutes, priority, category name
+// Importance, 1 (very low) to 5 (very high); 3 is normal. Older tasks had a priority
+// (1 high, 2 medium, 3 low), which maps onto it.
+export const IMPORTANCE = [1, 2, 3, 4, 5];
+export function importanceOf(task) {
+  const n = Number(task?.importance);
+  if (n >= 1 && n <= 5) return n;
+  return { 1: 5, 2: 4, 3: 2 }[task?.priority] ?? 3;
+}
+
+// Quick add: "Call the dentist 15m !1 #health" -> title, minutes, importance, category name.
+// !1 = very important … !5 = not important (!1–!3 as before; the number is the rank).
 export function quickAdd(text) {
-  const out = { title: '', minutes: null, priority: 0, category: null };
+  const out = { title: '', minutes: null, priority: 0, importance: null, category: null };
   const words = [];
   for (const w of String(text || '').trim().split(/\s+/)) {
     let m;
     if (out.minutes == null && /^\d/.test(w) && /[hm]|min/i.test(w) && parseDuration(w) != null) out.minutes = parseDuration(w);
-    else if (!out.priority && (m = w.match(/^!([123])$/))) out.priority = Number(m[1]);
+    else if (!out.importance && (m = w.match(/^!([1-5])$/))) { out.importance = 6 - Number(m[1]); out.priority = Number(m[1]) <= 3 ? Number(m[1]) : 0; }
     else if (!out.category && (m = w.match(/^#(\S+)$/))) out.category = m[1];
     else words.push(w);
   }
@@ -102,11 +112,11 @@ export function reopenTask(task) {
   return { ...rest, done: false };
 }
 
-// Order: overdue first, then priority (1 = high), then due date, then oldest first.
+// Order: overdue first, then importance (most important first), then due date, then oldest first.
 export function sortTasks(tasks, todayStr) {
   const key = (t) => [
     t.due && t.due < todayStr ? 0 : 1,
-    t.priority || 9,
+    6 - importanceOf(t),
     t.due || '9999-99-99',
     t.createdAt || 0,
     t.id || '', // last tie-break, so the order never changes between redraws

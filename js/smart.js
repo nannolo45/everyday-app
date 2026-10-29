@@ -1,6 +1,6 @@
 // The "smart" part of the planner: plain rules and scores, no AI and no outside services.
 // Everything here is pure (no DOM, no storage) so it can be unit-tested.
-import { addDays, parseDate } from './plan.js';
+import { addDays, parseDate, importanceOf } from './plan.js';
 
 // Preferred times of day, in minutes from midnight.
 export const WINDOWS = { morning: [0, 720], afternoon: [720, 1050], evening: [1050, 1440] };
@@ -12,9 +12,11 @@ const daysBetween = (a, b) => Math.round((parseDate(b) - parseDate(a)) / 864e5);
 
 export function scoreTask(task, date, now = Date.now()) {
   let score = 0; const reasons = [];
-  const prio = { 1: 40, 2: 25, 3: 5 }[task.priority] ?? 12;
-  score += prio;
-  if (task.priority === 1) reasons.push({ k: 'r_high' });
+  // Importance weighs as much as a close due date: a very important task beats a normal one due tomorrow.
+  const imp = importanceOf(task);
+  score += { 1: 0, 2: 5, 3: 12, 4: 28, 5: 45 }[imp];
+  if (imp >= 4) reasons.push({ k: imp === 5 ? 'r_veryImportant' : 'r_high' });
+  if (imp <= 2) reasons.push({ k: 'r_low' });
   if (task.due) {
     const d = daysBetween(date, task.due);
     if (d < 0) { score += 60; reasons.push({ k: 'r_overdue', n: -d }); }
