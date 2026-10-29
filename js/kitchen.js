@@ -7,6 +7,7 @@
 // names = { recipes, pantry, shopping } -> collection names in that store
 
 import { parseIngredient, scaleQty, convert, addQuantities, namesMatch, stepFor } from './parse.js';
+import { isBasic } from './recipe-tools.js';
 
 const round = (x) => Math.round(x * 1000) / 1000;
 const num = (v) => { if (v === '' || v == null) return null; const n = parseFloat(String(v).replace(',', '.')); return Number.isFinite(n) ? n : null; };
@@ -46,16 +47,17 @@ export function makeKitchen(store, names = { recipes: 'recipes', pantry: 'pantry
     return { buy: round(target - qty) };
   }
 
-  // Items at or below their "remind me at" threshold go on the list by themselves.
+  // Items at or below their "remind me at" threshold go on the list by themselves (Ricette's rule:
+  // an item already ticked as bought stays ticked until it's put away in the pantry).
   function ensureLowItems() {
     for (const p of live(P)) {
       const id = `low_${p.id}`;
       const cur = get(S, id);
       const low = lowInfo(p);
       if (low) {
-        if (!cur || cur.checked) {
+        if (!cur) {
           upsert(S, { id, name: p.name, qty: low.buy, unit: p.unit || '', checked: false, auto: true, pantryId: p.id, sources: [] });
-        } else if (cur.qty !== low.buy || cur.name !== p.name || cur.unit !== (p.unit || '')) {
+        } else if (!cur.checked && (cur.qty !== low.buy || cur.name !== p.name || cur.unit !== (p.unit || ''))) {
           upsert(S, { ...cur, name: p.name, qty: low.buy, unit: p.unit || '' });
         }
       } else if (cur && !cur.checked) {
@@ -68,19 +70,13 @@ export function makeKitchen(store, names = { recipes: 'recipes', pantry: 'pantry
     }
   }
 
-  // Ticking an item at the shop restocks the pantry; unticking takes it back out.
+  // Ticking an item at the shop marks it bought. As in Ricette, it reaches the pantry when you
+  // put the shopping away there ("Put away", with expiry dates). Older versions stocked it on
+  // the spot: unticking such an item still takes it back out.
   function setChecked(id, checked) {
     const it = get(S, id);
     if (!it) return;
     let stocked = it.stocked || null;
-    if (checked && !stocked && it.qty != null) {
-      const p = it.pantryId ? get(P, it.pantryId) : findPantry(it.name);
-      const add = p ? convert(it.qty, it.unit, p.unit) : null;
-      if (p && add != null) {
-        upsert(P, { ...p, qty: round((num(p.qty) || 0) + add) });
-        stocked = { pantryId: p.id, amount: add };
-      }
-    }
     if (!checked && stocked) {
       const p = get(P, stocked.pantryId);
       if (p) upsert(P, { ...p, qty: Math.max(0, round((num(p.qty) || 0) - stocked.amount)) });
@@ -115,7 +111,8 @@ export function makeKitchen(store, names = { recipes: 'recipes', pantry: 'pantry
   function pantryAfter(meals, recipeOf) {
     const pantry = live(P).map((p) => ({ ...p }));
     for (const it of live(S)) {
-      if (it.checked || it.qty == null) continue;
+      // Still to buy, or bought (ticked) and not put away yet: either way it'll be at home.
+      if (it.stocked || it.qty == null) continue;
       const p = findPantry(it.name, pantry);
       if (!p) { pantry.push({ id: `list_${it.id}`, name: it.name, qty: it.qty, unit: it.unit || '' }); continue; }
       const add = convert(it.qty, it.unit, p.unit);
@@ -136,9 +133,10 @@ export function makeKitchen(store, names = { recipes: 'recipes', pantry: 'pantry
     return pantry;
   }
 
-  // Ingredients to buy for a meal. Untracked "to taste" items (salt, pepper…) never trigger a trip.
+  // Ingredients to buy for a meal. Basics (salt, pepper, oil, water) and untracked "to taste"
+  // items never trigger a trip, same as Ricette's "what can I cook" suggestions.
   function missingFor(r, n, pantry) {
-    return planForRecipe(r, n, pantry).filter((x) => !x.covered && (x.need != null || x.tracked));
+    return planForRecipe(r, n, pantry).filter((x) => !x.covered && (x.need != null || x.tracked) && !isBasic(x.name || ''));
   }
 
   function cook(r, n) {

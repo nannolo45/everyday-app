@@ -471,3 +471,6 @@ dialog.sheet .rec-hero { margin-top: 4px; }
 @media (max-width: 600px) { .m-item i { display: none; } .m-cell { min-height: 70px; padding: 3px; } }
 .rt-task input { flex-basis: 100%; }
 .glance .day-pill span { text-transform: none; }
+.rule-title.hide { display: none; }
+.outcome-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 16px 0 4px; }
+.outcome-choice .btn { padding: 16px 10px; font-size: 1.05rem; }

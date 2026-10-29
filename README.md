@@ -41,6 +41,11 @@ The smart features are plain rules that run on the device: no AI and no paid ser
 - **Conflicts:** overlapping blocks, a preparation or grocery trip planned after the thing it's for, or a task planned
   after its due date get a ⚠ and a warning. **Fix** moves the less important block to the next free gap;
   **It's fine** marks an overlap as intended. A block can also be set to "can overlap" (e.g. a podcast on the commute).
+- **Same rules as Ricette:** recipes show Ricette's automatic tags (with your renames and keywords from
+  `data/tags.json`) and your own tags, pinned tags first; folders and subfolders come from `data/folders.json`;
+  cooking times like "30 min + 4 ore di riposo" are read the same way; salt, pepper, oil and water count as always
+  at home. Ticking an item in a grocery block only marks it bought on Ricette's list: it goes into the pantry when
+  you put the shopping away in Ricette (with expiry dates and barcodes), as Ricette does.
 - **Pantry maths (with Ricette):** the ingredient check counts the pantry, what's already on the shopping list, and
   what earlier planned meals (and earlier recipes in the same meal) will use up. In the grocery block you tick items
   off and the pantry restocks, exactly as in Ricette. Marking a meal done uses its ingredients up.
@@ -50,7 +55,11 @@ The smart features are plain rules that run on the device: no AI and no paid ser
   Each card shows what's missing from the pantry; ⓘ opens the recipe with every ingredient marked.
 - **Rules:** any task, preparation step or meal type can have rules: *when this* is done / couldn't be done / was
   missed (its time passed) → *add a task* (right before what it prepares, right after, at the next free time
-  today, or tomorrow) or *plan a grocery trip*. Every block can be marked **Couldn't do it**; undoing that takes back
+  today, or tomorrow) or *plan a grocery trip*. The task a rule adds is a real task: pick an existing one, or type
+  a new name and it becomes a step of its own (under Tasks → Preparations) that can have its own checklist and
+  rules, so rules can chain. Example: *Go to the gym* → step *Check the backpack* → rule "couldn't be done → *Prepare
+  clothes*, right before the gym". Ticking a step that has a "couldn't be done" rule asks how it went
+  (**Done, all good** / **Couldn't do it**) and says what follows if not. Every block can be marked **Couldn't do it**; undoing that takes back
   what the rules added. Built in: each meal with recipes gets a **Check ingredients** step (earlier that day; the
   evening before for breakfast). It runs by itself when its time comes, or when you tick it: if everything's in the
   pantry it's done; if not, the missing items go on Ricette's shopping list, the step "couldn't be done", and its
@@ -92,7 +101,8 @@ When two devices change the same thing, the most recent change wins, record by r
      (the second one isn't used yet, but the meal-planning step will need it, and this saves making a new token later).
    - Permissions → Repository → **Contents: Read and write**
 4. **Each device:** open the app → **Settings → Sync with GitHub** → your GitHub user, `everyday-data` and the token → **Save and test**.
-   Then, under **Ricette**, check the repository name (`ricette-data`) and press **Connect**.
+   Then, under **Ricette**, enter the repository that holds Ricette's `data/` folder (`ricette` if you keep app and
+   data together, as the latest Ricette does; `ricette-data` for the older two-repo setup) and press **Connect**.
 5. **Install it like an app:**
    - Android (Chrome): ⋮ → *Install app*
    - Linux / Windows (Chrome or Edge): the install icon in the address bar

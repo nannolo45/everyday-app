@@ -11,7 +11,8 @@ import {
   candidates, suggestDay, spareTime, scoreTask, nearestSlot, placePrep, placeGroceries, findConflicts, recipeMinutes,
 } from './smart.js';
 import { makeKitchen } from './kitchen.js';
-import { tagsOf, foldersOf, folderList, filterRecipes, tagCounts, minutesOf } from './recipes.js';
+import { tagsOf, tagLabel, folderOfRecipe, folderTree, filterRecipes, tagCounts, minutesOf } from './recipes.js';
+import { pantryCoverage } from './recipe-tools.js';
 import { formatQty, setDecimalSeparator, namesMatch, addQuantities } from './parse.js';
 import { t, setLang, getLang, LANGS, detectLang } from './i18n.js';
 import { setupDrag } from './drag.js';
@@ -148,7 +149,7 @@ const isCheckStep = (b) => get('tasks', b?.taskId)?.check === 'ingredients';
 // Create the linked blocks a block needs: preparations for its task, and keep them in order.
 function linkFor(block) {
   const td = today();
-  if (!block || block.done || block.outcome || block.date < td || block.kind === 'prep' || block.kind === 'followup') return;
+  if (!block || block.done || block.outcome || block.date < td || block.kind === 'prep') return;
   const task = block.taskId && get('tasks', block.taskId);
   if (!task || block.partial) return;
   for (const p of prepOf(task)) {
@@ -231,7 +232,7 @@ function fireRules(block, when) {
     }
     const linked = rule.taskId && get('tasks', rule.taskId);
     const minutes = Number(rule.minutes) || linked?.minutes || 30;
-    const title = rule.title || linked?.title || t('followUp');
+    const title = linked?.title || rule.title || t('followUp');
     const s = planSettings();
     let date = block.date; let start;
     if (rule.place === 'before') {
@@ -294,6 +295,7 @@ function autoChecks(date) {
 function trySetBlockDone(block, done) {
   if (done && isCheckStep(block)) { runCheck(block); return true; }
   if (done && checklistLeft(checklistOf(block), block.checked) > 0) { openChecklist(block); return false; }
+  if (done && rulesOf(block).some((r) => r.when === 'failed')) { openOutcome(block); return false; }
   setOutcome(block, done ? 'done' : null);
   if (done && block.kind === 'meal' && ricetteConfigured()) {
     const list = mealRecipes(block).map((x) => ({ r: recipeOf(x.recipeId), n: x.servings })).filter((x) => x.r);
@@ -304,6 +306,23 @@ function trySetBlockDone(block, done) {
     }
   }
   return true;
+}
+
+// A step whose result matters ("Check the backpack": ready, or not?): ticking it asks how it went.
+function openOutcome(block) {
+  const failRules = rulesOf(block).filter((r) => r.when === 'failed');
+  const what = failRules.map((r) => (r.then === 'groceries' ? t('groceryTitle') : get('tasks', r.taskId)?.title || r.title)).filter(Boolean);
+  setTimeout(() => openModal(`
+    <h2>${esc(t('howDidItGo', block.title))}</h2>
+    ${what.length ? `<p class="hint">${esc(t('ifNotThen', what.join(', ')))}</p>` : ''}
+    <div class="outcome-choice">
+      <button class="btn primary" value="done">✓ ${esc(t('wentOk'))}</button>
+      <button class="btn" value="fail">✕ ${esc(t('couldntDo'))}</button>
+    </div>
+    <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('cancel'))}</button></div>`, (form, action) => {
+    setOutcome(get('blocks', block.id), action === 'done' ? 'done' : 'failed');
+    changed();
+  }), 0);
 }
 
 // ---------- meals (Ricette) ----------
@@ -931,7 +950,11 @@ function suggestPanel(sug) {
 
 // ---------- meals: the meal dialog and the recipe picker ----------
 
-const canCookNow = (r) => kitchen.missingFor(r, r.servings || 2, live('r_pantry')).length === 0;
+// "Can I cook it?" exactly as Ricette answers it (salt, pepper, oil and water count as always there).
+const coverage = (r, people) => pantryCoverage(r, live('r_pantry'), { servings: people || r.servings || 2 });
+const tagDefs = () => live('r_tagdefs');
+const pinnedTags = () => { const v = get('r_prefs', 'pinnedTags')?.value; return Array.isArray(v) ? v : []; };
+const tagName = (tg) => tagLabel(tg, tagDefs(), (id) => t(`tag_${id}`));
 const coverOf = (r) => (r?.photos && r.photos[0]) || r?.image || '';
 
 // Photos: from Ricette's repo (images/...) via GitHub, cached on the device; web images directly.
@@ -1059,31 +1082,31 @@ function openMeal(block, draft = null) {
 // The recipe picker: a full sheet with photos, search, folders, tags and quick filters.
 // Tap cards to select one or more recipes; ⓘ shows the recipe with what's in the pantry.
 function openPicker({ people = 2, selected = [], onDone, onBack }) {
-  const st = { q: '', folder: '', tags: new Set(), canCook: false, quick: false, sel: [...selected], preview: null };
+  const st = { q: '', folder: '', tags: new Set(), canCook: false, quick: false, sort: 'name', sel: [...selected], preview: null };
   const folders = live('r_folders');
+  const defs = tagDefs();
   const all = recipes();
-  const flist = folderList(all, folders);
-  const tags = tagCounts(all);
-  const unfiled = all.some((r) => !foldersOf(r, folders).length);
-  const tree = [];
-  const walk = (parent, depth) => { for (const f of flist.filter((y) => String(y.parent ?? '') === String(parent ?? ''))) { tree.push({ ...f, depth }); walk(f.id, depth + 1); } };
-  walk(null, 0);
-  for (const f of flist) if (!tree.some((y) => y.id === f.id)) tree.push({ ...f, depth: 0 });
+  const tree = folderTree(folders);
+  const fname = (id) => tree.find((f) => f.id === id)?.name || '';
+  const tags = tagCounts(all, defs, pinnedTags());
+  const unfiled = all.some((r) => !folderOfRecipe(r, folders));
+  const canCook = (r) => coverage(r, people).missing.length === 0;
 
-  const list = () => filterRecipes(all, { q: st.q, folder: st.folder, tags: st.tags, canCook: st.canCook ? canCookNow : null, maxMinutes: st.quick ? 30 : null }, folders);
+  const list = () => filterRecipes(all, { q: st.q, folder: st.folder, tags: st.tags, canCook: st.canCook ? canCook : null, maxMinutes: st.quick ? 30 : null, sort: st.sort },
+    { folders, defs, label: tagName });
   const card = (r) => {
     const on = st.sel.includes(r.id);
-    const miss = kitchen.missingFor(r, people, live('r_pantry')).length;
+    const miss = coverage(r, people).missing.length;
     const m = minutesOf(r);
-    const fname = foldersOf(r, folders).map((id) => flist.find((f) => f.id === id)?.name || id)[0];
+    const folder = fname(folderOfRecipe(r, folders));
     return `<div class="pk-card${on ? ' on' : ''}">
       <button class="pk-pick" value="tog:${esc(r.id)}" formnovalidate aria-pressed="${on}">
         <span class="pk-photo">${coverOf(r) ? photoTag(coverOf(r)) : ''}<span class="pk-letter">${esc((r.title || '?').charAt(0))}</span>
           <span class="stock ${miss ? 'miss' : 'ok'}">${miss ? esc(t('nMissing', miss)) : `✓ ${esc(t('inPantryShort'))}`}</span>
           <span class="pk-tick">${on ? st.sel.indexOf(r.id) + 1 : ''}</span></span>
         <span class="pk-body"><b>${esc(r.title)}</b>
-          <small>${[m ? `⏱ ${fmtDur(m)}` : '', fname ? `📁 ${fname}` : ''].filter(Boolean).map(esc).join(' · ')}</small>
-          ${tagsOf(r).length ? `<span class="card-tags">${tagsOf(r).slice(0, 3).map((x) => `<span>#${esc(x)}</span>`).join('')}</span>` : ''}</span>
+          <small>${[m ? `⏱ ${fmtDur(m)}` : '', folder ? `📁 ${folder}` : ''].filter(Boolean).map(esc).join(' · ')}</small>
+          ${tagsOf(r, defs).length ? `<span class="card-tags">${tagsOf(r, defs).slice(0, 3).map((x) => `<span>${esc(tagName(x))}</span>`).join('')}</span>` : ''}</span>
       </button>
       <button class="pk-info" value="info:${esc(r.id)}" formnovalidate aria-label="${esc(t('details'))}">i</button>
     </div>`;
@@ -1105,7 +1128,8 @@ function openPicker({ people = 2, selected = [], onDone, onBack }) {
       </div>
       <input type="search" id="pk-q" value="${esc(st.q)}" placeholder="${esc(t('recSearch'))}" autocomplete="off">
       ${tree.length ? `<div class="pills">${pill('folder:', t('allFolders'), !st.folder)}${tree.map((f) => pill(`folder:${f.id}`, `${f.depth ? '· '.repeat(f.depth) : '📁 '}${f.name}`, st.folder === f.id)).join('')}${unfiled ? pill('folder:__none', t('noFolder'), st.folder === '__none') : ''}</div>` : ''}
-      <div class="pills">${pill('cook', `✓ ${t('canCookNow')}`, st.canCook)}${pill('quick', `⏱ ${t('underMin', 30)}`, st.quick)}${tags.map(([tg]) => pill(`tag:${tg}`, `#${tg}`, st.tags.has(tg))).join('')}</div>
+      <div class="pills">${pill('cook', `✓ ${t('canCookNow')}`, st.canCook)}${pill('quick', `⏱ ${t('underMin', 30)}`, st.quick)}${pill('sort', st.sort === 'cooked' ? `↕ ${t('sortCooked')}` : `↕ ${t('sortAZ')}`, st.sort === 'cooked')}</div>
+      ${tags.length ? `<div class="pills">${tags.map((x) => pill(`tag:${x.tag}`, `${x.pinned ? '📌 ' : ''}${tagName(x.tag)}`, st.tags.has(x.tag))).join('')}</div>` : ''}
       <div class="pk-grid" id="pk-grid">${grid()}</div>
       <div class="pk-foot">
         <button class="btn primary" value="done" ${n ? '' : 'disabled'}>${esc(n ? t('addNRecipes', n) : t('pickSome'))}</button>
@@ -1126,7 +1150,7 @@ function openPicker({ people = 2, selected = [], onDone, onBack }) {
         <h2>${esc(r.title)}</h2><span></span>
       </div>
       ${coverOf(r) ? `<div class="rec-hero">${photoTag(coverOf(r))}</div>` : ''}
-      <p class="hint">${[m ? `⏱ ${fmtDur(m)}` : '', t('forPeople', people), ...foldersOf(r, folders).map((id) => `📁 ${flist.find((f) => f.id === id)?.name || id}`), ...tagsOf(r).map((x) => `#${x}`)].map(esc).join(' · ')}</p>
+      <p class="hint">${[m ? `⏱ ${fmtDur(m)}` : '', t('forPeople', people), fname(folderOfRecipe(r, folders)) ? `📁 ${fname(folderOfRecipe(r, folders))}` : '', ...tagsOf(r, defs).map(tagName)].filter(Boolean).map(esc).join(' · ')}</p>
       <ul class="list ing">${plan.map((p) => `<li class="${p.covered ? 'have' : p.need == null && !p.tracked ? '' : 'need'}"><span class="q">${esc(qtyText(p.need, p.unit))}</span><span class="item-text">${esc(p.name)}${!p.covered && p.buy ? `<small>${esc(t('buyAmount', qtyText(p.buy, p.unit)))}</small>` : ''}</span><span class="mark">${p.covered ? '✓' : p.need == null && !p.tracked ? '' : '✕'}</span></li>`).join('')}</ul>
       ${steps.length ? `<details class="steps-box"><summary>${esc(t('stepsN', steps.length))}</summary><ol>${steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></details>` : ''}
       <div class="pk-foot">
@@ -1150,6 +1174,7 @@ function openPicker({ people = 2, selected = [], onDone, onBack }) {
     else if (action.startsWith('tag:')) { const tg = action.slice(4); if (st.tags.has(tg)) st.tags.delete(tg); else st.tags.add(tg); }
     else if (action === 'cook') st.canCook = !st.canCook;
     else if (action === 'quick') st.quick = !st.quick;
+    else if (action === 'sort') st.sort = st.sort === 'cooked' ? 'name' : 'cooked';
     const scroll = modal.querySelector('form')?.scrollTop;
     draw();
     if (scroll) modal.querySelector('form').scrollTop = scroll;
@@ -1502,7 +1527,8 @@ function openTask(task, draft = null) {
       <div class="rule-line"><span>→</span>
         <select name="rt_${i}" data-rule="${i}"><option value="task" ${r.then !== 'groceries' ? 'selected' : ''}>${esc(t('rt_task'))}</option><option value="groceries" ${r.then === 'groceries' ? 'selected' : ''}>${esc(t('rt_groceries'))}</option></select></div>
       <div class="rule-line rt-task">
-        <input name="rti_${i}" value="${esc(r.title || '')}" placeholder="${esc(t('rulePh'))}" autocomplete="off">
+        <select name="rk_${i}" data-rulekind="${i}"><option value="">${esc(t('ruleNewTask'))}</option>${ruleTargets(x).map((y) => `<option value="${esc(y.id)}" ${y.id === r.taskId ? 'selected' : ''}>${y.helper ? '↳ ' : ''}${esc(y.title)}</option>`).join('')}</select>
+        <input class="rule-title${r.taskId ? ' hide' : ''}" name="rti_${i}" value="${esc(r.taskId ? '' : r.title || '')}" placeholder="${esc(t('rulePh'))}" autocomplete="off">
         <select name="rm_${i}">${durOptions(Number(r.minutes) || 30, [5, 10, 15, 20, 30, 45, 60, 90, 120])}</select>
         <select name="rp_${i}">${RULE_PLACES.map((p) => `<option value="${p}" ${p === (r.place || 'next') ? 'selected' : ''}>${esc(t(`rp_${p}`))}</option>`).join('')}</select>
       </div>
@@ -1565,7 +1591,7 @@ function openTask(task, draft = null) {
         const then = form[`rt_${i}`].value;
         return then === 'groceries'
           ? { id: r.id, when: form[`rw_${i}`].value, then }
-          : { id: r.id, when: form[`rw_${i}`].value, then, title: form[`rti_${i}`].value.trim(), minutes: Number(form[`rm_${i}`].value) || 30, place: form[`rp_${i}`].value };
+          : { id: r.id, when: form[`rw_${i}`].value, then, taskId: form[`rk_${i}`].value || null, title: form[`rk_${i}`].value ? get('tasks', form[`rk_${i}`].value)?.title : form[`rti_${i}`].value.trim(), minutes: Number(form[`rm_${i}`].value) || 30, place: form[`rp_${i}`].value };
       });
     };
     collect();
@@ -1598,8 +1624,13 @@ function openTask(task, draft = null) {
       return;
     }
     if (!x.title) { e.preventDefault(); return; }
-    // A rule that adds a task needs a name: drop the ones left empty.
-    x.rules = x.rules.filter((r) => r.then === 'groceries' || r.title);
+    // A rule that adds a task needs a name: drop the ones left empty. A new name becomes a small task of
+    // its own (listed under Preparations), so it can get a checklist and rules too: rules can chain.
+    x.rules = x.rules.filter((r) => r.then === 'groceries' || r.taskId || r.title).map((r) => {
+      if (r.then === 'groceries' || r.taskId) return r;
+      const step = upsert('tasks', { id: uid(), createdAt: Date.now(), helper: true, title: r.title, minutes: r.minutes, category: x.category || null, checklist: [], rules: [], notes: '', done: false }, { silent: true });
+      return { ...r, taskId: step.id };
+    });
     const rec = saveTask(x);
     if (action.startsWith('edit-prep:')) {
       const p = rec.prep[Number(action.slice(10))];
@@ -1613,11 +1644,18 @@ function openTask(task, draft = null) {
     }
     changed();
   });
-  // Switching a rule between "add a task" and "plan a grocery trip" shows the right fields.
+  // Switching a rule between "add a task" and "plan a grocery trip", or between an existing task and
+  // a new one, shows the right fields.
   modal.querySelector('form').addEventListener('change', (ev) => {
-    if (ev.target.dataset.rule == null) return;
-    ev.target.closest('.rule').classList.toggle('is-groceries', ev.target.value === 'groceries');
+    if (ev.target.dataset.rule != null) ev.target.closest('.rule').classList.toggle('is-groceries', ev.target.value === 'groceries');
+    if (ev.target.dataset.rulekind != null) ev.target.closest('.rule').querySelector('.rule-title').classList.toggle('hide', Boolean(ev.target.value));
   });
+}
+
+// Tasks a rule can add: your to-dos and small steps, not meal types, and not the task itself.
+function ruleTargets(x) {
+  return live('tasks').filter((y) => y.id !== x.id && !y.routine && !y.check && (!y.done || y.repeat))
+    .sort((a, b) => Number(Boolean(b.helper)) - Number(Boolean(a.helper)) || a.title.localeCompare(b.title));
 }
 
 function saveTask(x) {

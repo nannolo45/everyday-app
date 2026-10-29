@@ -1,9 +1,9 @@
 // Offline support: the app shell is cached; it updates itself in the background.
 // After changing any app file, bump VERSION so installed copies pick up the update.
-const VERSION = 'everyday-v5';
+const VERSION = 'everyday-v6';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest',
-  'js/app.js', 'js/store.js', 'js/sync.js', 'js/plan.js', 'js/smart.js', 'js/kitchen.js', 'js/parse.js', 'js/recipes.js', 'js/drag.js', 'js/i18n.js',
+  'js/app.js', 'js/store.js', 'js/sync.js', 'js/plan.js', 'js/smart.js', 'js/kitchen.js', 'js/parse.js', 'js/recipes.js', 'js/recipe-tools.js', 'js/drag.js', 'js/i18n.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/icon-maskable.png', 'icons/sc-today.png', 'icons/sc-add.png', 'icons/sc-time.png', 'icons/sc-meal.png',
 ];
 

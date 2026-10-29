@@ -164,8 +164,8 @@ export function tidy(qty, unit) {
   if (qty == null) return { qty, unit };
   if (unit === 'g' && qty >= 1000) return { qty: qty / 1000, unit: 'kg' };
   if (unit === 'ml' && qty >= 1000) return { qty: qty / 1000, unit: 'l' };
-  if (unit === 'kg' && qty < 1) return { qty: qty * 1000, unit: 'g' };
-  if (unit === 'l' && qty < 1) return { qty: qty * 1000, unit: 'ml' };
+  if (unit === 'kg' && qty > 0 && qty < 1) return { qty: qty * 1000, unit: 'g' };
+  if (unit === 'l' && qty > 0 && qty < 1) return { qty: qty * 1000, unit: 'ml' };
   return { qty, unit };
 }
 
