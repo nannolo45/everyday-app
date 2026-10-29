@@ -544,3 +544,38 @@ dialog > form.form > .button-row:last-child { position: sticky; bottom: -10px; m
 .rule-line .rule-subj { padding: 0 4px; }
 .blk-step.tight { padding-top: 0; align-items: center; font-size: .66rem; }
 .blk-step.tight input { width: 10px; height: 10px; margin: 0; }
+
+/* Collapsible sections in the Tasks tab (Saved tasks, Preparations) */
+.fold-sec { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 6px; }
+.fold { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 2px; border: 0; background: none; color: var(--ink); font: inherit; font-weight: 700; font-size: 1.05rem; cursor: pointer; text-align: left; }
+.fold small { color: var(--muted); font-weight: 500; }
+.fold .fold-ico { display: inline-block; transition: transform .15s; color: var(--muted); }
+.fold[aria-expanded="true"] .fold-ico { transform: rotate(90deg); }
+.list.saved .task-main { width: 100%; text-align: left; }
+
+/* Editor: each step is a card with its own rules */
+.steps-edit { gap: 10px; }
+.step-card { border: 1px solid var(--line); border-radius: 12px; padding: 8px; background: color-mix(in srgb, var(--surface) 60%, transparent); }
+.step-card .rule { margin: 6px 0 0 28px; background: var(--bg); }
+.step-sub { display: flex; align-items: center; gap: 8px; margin: 6px 0 0 28px; font-size: .85rem; color: var(--muted); }
+.step-sub select { width: auto; margin: 0; padding: 6px 8px; }
+.step-rule-add { margin: 6px 0 0 24px; }
+.anchor-hint { margin-top: 4px; }
+/* Meal dialog: steps with their times and lengths */
+.meal-steps { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 6px; }
+.meal-steps li { display: grid; grid-template-columns: auto 3.2em 1fr 7.5em; gap: 8px; align-items: center; }
+.meal-steps li:not(:has(input)) { grid-template-columns: 3.2em 1fr 7.5em; }
+.meal-steps input[type=checkbox] { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+.meal-steps .ms-time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: .85rem; }
+.meal-steps .ms-title { min-width: 0; line-height: 1.2; }
+.meal-steps .ms-title small { display: block; color: var(--muted); font-size: .76rem; }
+.meal-steps select { margin: 0; padding: 6px 8px; }
+.meal-steps li.done .ms-title { text-decoration: line-through; color: var(--muted); }
+/* Step cards fit a phone: compact grid, nested rules marked by a left line instead of an indent. */
+.step-card { min-width: 0; }
+.step-card .step-row { grid-template-columns: 18px minmax(0, 1fr) 108px 26px 26px; gap: 5px; }
+.step-card .step-row input, .step-card .step-row select { width: 100%; min-width: 0; padding-left: 8px; padding-right: 4px; }
+.step-card .icon { width: 26px; padding: 0; }
+.step-card .rule { margin: 8px 0 0; border-left: 3px solid var(--accent); }
+.step-card .rule-line select, .step-card .rule-line input { min-width: 0; }
+.step-sub, .step-rule-add { margin-left: 22px; }

@@ -18,6 +18,34 @@ export function tagLabel(tag, defs = [], autoName = null) {
 
 export function minutesOf(r) { return r ? ricetteMinutes(r.time) : null; }
 
+// Ricette's time is free text: "30 min + 4 ore di riposo", "1 h 15 min", "45 Minuten".
+// Split it into active time (you're cooking) and waiting time (resting, rising, marinating,
+// chilling…), which doesn't keep you in the kitchen. Returns null if there's no time at all.
+const WAITING = /riposo|riposare|lievit|marin|frigo|raffredd|congel|ammoll|in posa|notte|\brest|resting|chill|\brise|rising|proof|soak|overnight|ruhe|ruhen|gehen lassen|kühl|kuhl|ziehen|einweich|über nacht|uber nacht/;
+export function timeParts(time) {
+  const s = String(time || '').toLowerCase();
+  if (!s.trim()) return null;
+  let active = 0; let waiting = 0; let found = false;
+  for (const part of s.split(/\+|,|;|\bpiù\b|\bpiu\b|\bplus\b|\be\b(?=\s*\d)|\band\b(?=\s*\d)|\bund\b(?=\s*\d)/)) {
+    const m = ricetteMinutes(part);
+    if (m == null) continue;
+    found = true;
+    if (WAITING.test(part)) waiting += m; else active += m;
+  }
+  return found ? { active, waiting } : null;
+}
+
+// How long preparing a meal takes, from its recipes: the longest one (you cook in parallel), plus
+// 10 minutes for each other recipe, rounded up to 5. Recipes without a time count only as "another
+// recipe". Null when none of them has a time.
+export function prepMinutes(recipes) {
+  const list = recipes.filter(Boolean);
+  const times = list.map((r) => timeParts(r.time)?.active || null).filter((m) => m);
+  if (!times.length) return null;
+  const n = Math.max(...times) + 10 * (list.length - 1);
+  return Math.ceil(n / 5) * 5;
+}
+
 const live = (folders) => folders.filter((f) => f && !f.deleted);
 
 // A recipe's folder, or null if it has none (or its folder was deleted).

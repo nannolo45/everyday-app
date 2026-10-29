@@ -13,7 +13,7 @@ import {
 import { makeKitchen } from './kitchen.js';
 import { DEPTS, DEPT_IDS, NONFOOD, deptIcon, deptOf } from './depts.js';
 import { reorderSubset, byOrder, isDragging } from './sortable.js';
-import { tagsOf, tagLabel, folderOfRecipe, folderTree, filterRecipes, tagCounts, minutesOf } from './recipes.js';
+import { tagsOf, tagLabel, folderOfRecipe, folderTree, filterRecipes, tagCounts, minutesOf, timeParts, prepMinutes } from './recipes.js';
 import { pantryCoverage } from './recipe-tools.js';
 import { formatQty, setDecimalSeparator, namesMatch, addQuantities, parseIngredient } from './parse.js';
 import { t, setLang, getLang, LANGS, detectLang } from './i18n.js';
@@ -235,16 +235,36 @@ function stepsOf(b) {
   const task = b?.taskId && get('tasks', b.taskId);
   return (task?.steps || []).filter((x) => x.title);
 }
-// Each step's time inside the block (scaled if the block was made longer or shorter).
+// A step's length on a block: your own length for this one (✎ in the meal dialog), else, for a
+// step that takes its length from the recipes, the meal's prep time; else its usual length.
+function recipePrep(b) {
+  if (b?.kind !== 'meal') return null;
+  return prepMinutes(mealRecipes(b).map((x) => recipeOf(x.recipeId)));
+}
+function stepLen(b, y) {
+  const own = Number(b?.stepMinutes?.[y.id]);
+  if (own) return own;
+  if (y.from === 'recipes') return recipePrep(b) ?? (Number(y.minutes) || 15);
+  return Number(y.minutes) || 10;
+}
+// The step a saved task's usual time refers to: for a meal whose prep depends on the recipes, the
+// step right after the prep (you eat at 19:30; preparing grows earlier). Otherwise the first step.
+// Returns an index; steps.length means "the end".
+function anchorIndex(steps) {
+  const last = steps.map((y) => y.from).lastIndexOf('recipes');
+  return last < 0 ? 0 : last + 1;
+}
+// Each step's time inside the block (scaled if the block was made longer or shorter by hand).
 function stepTimes(b) {
   const steps = stepsOf(b);
-  const total = steps.reduce((n, x) => n + (Number(x.minutes) || 0), 0) || 1;
+  const lens = steps.map((y) => stepLen(b, y));
+  const total = lens.reduce((n, m) => n + m, 0) || 1;
   const k = b.minutes / total;
   let cum = 0;
-  return steps.map((x) => {
+  return steps.map((x, i) => {
     const start = b.start + Math.round(cum * k);
-    cum += Number(x.minutes) || 0;
-    return { ...x, start, end: b.start + Math.round(cum * k), state: b.stepState?.[x.id] || null };
+    cum += lens[i];
+    return { ...x, len: lens[i], start, end: b.start + Math.round(cum * k), state: b.stepState?.[x.id] || null };
   });
 }
 function setStepOutcome(block, sid, outcome, { parent = true } = {}) {
@@ -446,7 +466,7 @@ function savedGroups() {
 function savedInfo(x) {
   const when = x.defaultStart != null ? fmtTime(x.defaultStart) : t(`when_${x.when || 'any'}`);
   const bits = [when, fmtDur(x.minutes || 30)];
-  if ((x.steps || []).length) bits.push(`▤ ${x.steps.map((y) => y.title).join(', ')}`);
+  if ((x.steps || []).length) bits.push(`▤ ${x.steps.map((y) => (y.from === 'recipes' ? `${y.title} ⟲` : y.title)).join(', ')}`);
   if (prepOf(x).length) bits.push(`↳ ${prepOf(x).map((p) => p.task.title).join(', ')}`);
   return bits.join(' · ');
 }
@@ -1180,7 +1200,7 @@ function openMeal(block, draft = null) {
   if (!types.length) { toast(t('noMealTypes')); return; }
   const isNew = !block;
   const x = draft || (block
-    ? { ...block, typeId: block.taskId || types.find((tp) => block.title?.startsWith(tp.title))?.id || types[0].id, recipes: mealRecipes(block).map((r) => ({ ...r })), people: block.servings || mealRecipes(block)[0]?.servings || 2 }
+    ? { ...block, typeId: block.taskId || types.find((tp) => block.title?.startsWith(tp.title))?.id || types[0].id, recipes: mealRecipes(block).map((r) => ({ ...r })), people: block.servings || mealRecipes(block)[0]?.servings || 2, stepMinutes: { ...(block.stepMinutes || {}) } }
     : (() => {
       const now = nowMinutes(); const date = ui.mealDate || currentDate();
       // The next meal of the day by default.
@@ -1188,6 +1208,18 @@ function openMeal(block, draft = null) {
       return { kind: 'meal', date, typeId: tp.id, start: tp.defaultStart ?? 1170, minutes: tp.minutes || 45, recipes: [], people: 2, notes: '' };
     })());
   const type = get('tasks', x.typeId) || types[0];
+  // A meal type split into steps: you set when you eat (or whichever step its usual time refers
+  // to); the steps before it, prep from the recipes among them, are laid out backwards from there.
+  const steps = (type.steps || []).filter((y) => y.title);
+  x.stepMinutes = x.stepMinutes || {};
+  if (steps.length && x.anchorAt == null) {
+    const ai = anchorIndex(steps);
+    if (block && block.taskId === type.id) {
+      const st = stepTimes(block);
+      x.anchorAt = ai < st.length ? st[ai].start : block.start + block.minutes;
+    } else x.anchorAt = type.defaultStart ?? x.start ?? 1170;
+  }
+  const plan = steps.length ? mealPlan(x, type) : null;
   const rows = x.recipes.map((r, i) => {
     const rec = recipeOf(r.recipeId);
     const m = rec && minutesOf(rec);
@@ -1198,16 +1230,21 @@ function openMeal(block, draft = null) {
   openModal(`
     <h2>🍽 ${esc(isNew ? t('newMeal') : t('meal'))}</h2>
     <div class="days meal-types">${types.map((tp) => `<label class="day-pill"><input type="radio" name="type" value="${esc(tp.id)}" ${tp.id === type.id ? 'checked' : ''}><span>${esc(tp.title)}</span></label>`).join('')}</div>
+    ${plan ? `
+    <div class="two">
+      <label>${esc(t('date'))}<input name="date" type="date" required value="${esc(x.date)}"></label>
+      <label>${esc(plan.anchorTitle ? t('anchorAt', plan.anchorTitle) : t('endsAt'))}<input name="start" type="time" required step="300" value="${fmtTime(x.anchorAt)}"></label>
+    </div>` : `
     <div class="three">
       <label>${esc(t('date'))}<input name="date" type="date" required value="${esc(x.date)}"></label>
       <label>${esc(t('start'))}<input name="start" type="time" required step="300" value="${fmtTime(x.start)}"></label>
       <label>${esc(t('duration'))}<select name="minutes">${durOptions(x.minutes)}</select></label>
-    </div>
+    </div>`}
     <label>${esc(t('servings'))}<input name="people" type="number" min="1" max="30" step="1" value="${esc(x.people)}"></label>
     <div class="field-label">${esc(t('recipesInMeal'))}</div>
     ${rows ? `<ul class="meal-recipes">${rows}</ul>` : `<p class="hint">${esc(ricetteConfigured() ? t('noRecipeYet') : t('ricetteNeeded'))}</p>`}
     ${ricetteConfigured() ? `<button class="btn add-recipe" value="pick" formnovalidate>＋ ${esc(t('addRecipe'))}</button>` : ''}
-    ${stepsSection(block)}
+    ${plan ? mealStepsHtml(plan, block) : stepsSection(block)}
     <label>${esc(t('notes'))}<textarea name="notes" rows="2">${esc(x.notes || '')}</textarea></label>
     <div class="button-row">
       <button class="btn primary" value="ok">${esc(t('save'))}</button>
@@ -1218,8 +1255,15 @@ function openMeal(block, draft = null) {
     const collect = () => {
       x.typeId = form.querySelector('input[name=type]:checked')?.value || x.typeId;
       x.date = form.date.value || x.date;
-      x.start = parseTime(form.start.value) ?? x.start;
-      x.minutes = Number(form.minutes.value) || x.minutes;
+      if (plan) {
+        x.anchorAt = parseTime(form.start.value) ?? x.anchorAt;
+        for (const el of form.querySelectorAll('select[data-sm]')) {
+          if (el.value) x.stepMinutes[el.dataset.sm] = Number(el.value); else delete x.stepMinutes[el.dataset.sm];
+        }
+      } else {
+        x.start = parseTime(form.start.value) ?? x.start;
+        x.minutes = Number(form.minutes.value) || x.minutes;
+      }
       x.people = Math.max(1, Number(form.people.value) || 2);
       x.notes = form.notes.value.trim();
       x.recipes = x.recipes.map((r) => ({ ...r, servings: x.people }));
@@ -1233,9 +1277,9 @@ function openMeal(block, draft = null) {
         people: x.people, selected: x.recipes.map((r) => r.recipeId),
         onDone: (ids) => {
           x.recipes = ids.map((id) => ({ recipeId: id, servings: x.people }));
-          // A meal takes at least as long as its longest recipe.
+          // A meal takes at least as long as its longest recipe (with steps, the prep step follows the recipes).
           const longest = Math.max(0, ...ids.map((id) => minutesOf(recipeOf(id)) || 0));
-          if (longest > x.minutes) x.minutes = Math.ceil(longest / 5) * 5;
+          if (!plan && longest > x.minutes) x.minutes = Math.ceil(longest / 5) * 5;
           openMeal(block, x);
         },
         onBack: () => openMeal(block, x),
@@ -1245,8 +1289,13 @@ function openMeal(block, draft = null) {
     if (action.startsWith('rm-rec:')) { e.preventDefault(); x.recipes.splice(Number(action.slice(7)), 1); openMeal(block, x); return; }
     const tp = get('tasks', x.typeId);
     const before = JSON.stringify(mealRecipes(block || {}));
-    const { typeId, people, ...rest } = x;
-    void typeId;
+    if ((tp.steps || []).some((y) => y.title)) {
+      const p = mealPlan(x, tp);
+      x.start = Math.max(0, x.anchorAt - p.before);
+      x.minutes = p.total;
+    }
+    const { typeId, people, anchorAt, ...rest } = x;
+    void typeId; void anchorAt;
     const saved = upsert('blocks', {
       ...rest, id: x.id || uid(), kind: 'meal', taskId: tp.id, servings: people, recipes: x.recipes, recipeId: undefined,
       title: mealTitle(tp.title, x.recipes), category: 'meals', auto: block && (block.date !== x.date || block.start !== x.start) ? false : rest.auto,
@@ -1264,14 +1313,60 @@ function openMeal(block, draft = null) {
   });
   hydratePhotos(modal);
   if (block) wireSteps(block, (nb) => openMeal(nb));
-  // Picking a type moves a new meal to that type's usual time.
+  // Picking a type moves a new meal to that type's usual time (and its steps); changing a step's
+  // length or the time updates the steps' times.
   modal.querySelector('form').addEventListener('change', (ev) => {
-    if (ev.target.name !== 'type' || !isNew) return;
-    const tp = get('tasks', ev.target.value);
     const f = ev.target.form;
-    if (tp?.defaultStart != null) f.start.value = fmtTime(tp.defaultStart);
-    if (tp?.minutes) f.minutes.innerHTML = durOptions(Math.max(tp.minutes, ...x.recipes.map((r) => minutesOf(recipeOf(r.recipeId)) || 0)));
+    if (ev.target.name === 'type') {
+      x.typeId = ev.target.value;
+      const tp = get('tasks', x.typeId);
+      x.stepMinutes = {};
+      if (isNew) { x.anchorAt = null; x.start = tp?.defaultStart ?? x.start; x.minutes = Math.max(tp?.minutes || 30, ...x.recipes.map((r) => minutesOf(recipeOf(r.recipeId)) || 0)); }
+      else if (x.anchorAt == null && f.start) x.anchorAt = parseTime(f.start.value);
+      x.date = f.date.value || x.date; x.people = Math.max(1, Number(f.people.value) || 2); x.notes = f.notes.value.trim();
+      openMeal(block, x);
+      return;
+    }
+    if (plan && (ev.target.dataset.sm != null || ev.target.name === 'start')) {
+      x.anchorAt = parseTime(f.start.value) ?? x.anchorAt;
+      for (const el of f.querySelectorAll('select[data-sm]')) { if (el.value) x.stepMinutes[el.dataset.sm] = Number(el.value); else delete x.stepMinutes[el.dataset.sm]; }
+      x.date = f.date.value || x.date; x.people = Math.max(1, Number(f.people.value) || 2); x.notes = f.notes.value.trim();
+      openMeal(block, x);
+    }
   });
+}
+
+// A meal's steps laid out around the time its usual time refers to: what each takes and why.
+function mealPlan(x, type) {
+  const steps = (type.steps || []).filter((y) => y.title);
+  const fake = { kind: 'meal', recipes: x.recipes, stepMinutes: x.stepMinutes || {} };
+  const recs = x.recipes.map((r) => recipeOf(r.recipeId)).filter(Boolean);
+  const auto = (y) => stepLen({ ...fake, stepMinutes: {} }, y);
+  const rows = steps.map((y) => ({ ...y, len: stepLen(fake, y), auto: auto(y), own: Boolean(fake.stepMinutes[y.id]) }));
+  const ai = anchorIndex(steps);
+  const before = rows.slice(0, ai).reduce((n, y) => n + y.len, 0);
+  let at = (x.anchorAt ?? 0) - before;
+  for (const y of rows) { y.start = at; at += y.len; }
+  const timed = recs.filter((r) => timeParts(r.time)?.active);
+  const waiting = recs.reduce((n, r) => n + (timeParts(r.time)?.waiting || 0), 0);
+  return {
+    steps: rows, before, total: rows.reduce((n, y) => n + y.len, 0), start: (x.anchorAt ?? 0) - before,
+    anchorTitle: ai < steps.length ? steps[ai].title : null,
+    source: timed.length ? (recs.length > 1 ? t('prepFromMany', timed.map((r) => r.title).join(', ')) : t('prepFrom', timed[0].title)) : recs.length ? t('prepNoTime') : t('prepNoRecipe'),
+    waiting,
+  };
+}
+function mealStepsHtml(plan, block) {
+  const st = block ? Object.fromEntries(stepTimes(block).map((y) => [y.id, y.state])) : {};
+  const whole = block && outcomeOf(block) === 'done';
+  return `<div class="field-label">▤ ${esc(t('steps'))} <small>${esc(range(plan.start, plan.total))}</small></div>
+    <ul class="meal-steps">${plan.steps.map((y) => `<li class="${st[y.id] || (whole ? 'done' : '')}">
+      ${block ? `<input type="checkbox" data-sstep="${esc(y.id)}" ${st[y.id] === 'done' || whole ? 'checked' : ''} aria-label="${esc(y.title)}">` : ''}
+      <span class="ms-time">${fmtTime(y.start)}</span>
+      <span class="ms-title">${esc(y.title)}${y.from === 'recipes' ? `<small>${esc(y.own ? t('ownLength') : plan.source)}</small>` : ''}${st[y.id] === 'failed' ? `<small class="late">${esc(t('couldnt'))}</small>` : ''}</span>
+      <select data-sm="${esc(y.id)}" aria-label="${esc(t('duration'))}"><option value="">${esc(fmtDur(y.auto))}${y.from === 'recipes' ? ' ⟲' : ''}</option>${[5, 10, 15, 20, 25, 30, 40, 45, 60, 75, 90, 120, 150, 180].map((m) => `<option value="${m}" ${y.own && y.len === m ? 'selected' : ''}>✎ ${esc(fmtDur(m))}</option>`).join('')}</select>
+    </li>`).join('')}</ul>
+    ${plan.waiting ? `<p class="hint">⏳ ${esc(t('waitingNotCounted', fmtDur(plan.waiting)))}</p>` : ''}`;
 }
 
 // The recipe picker: a full sheet with photos, search, folders, tags and quick filters.
@@ -1571,10 +1666,19 @@ function viewTasks() {
   <div class="button-row">
     ${g.done.length ? `<button class="btn small ghost" type="button" data-action="toggle-done">${esc(ui.showDone ? t('hideDone') : t('showDone', g.done.length))}</button>` : ''}
     ${ui.showDone && g.done.length ? `<button class="btn small ghost" type="button" data-action="clear-done">${esc(t('clearDone'))}</button>` : ''}
-    ${helpers.length ? `<button class="btn small ghost" type="button" data-action="toggle-helpers">${esc(ui.showHelpers ? t('hidePreps') : t('showPreps', helpers.length))}</button>` : ''}
   </div>
   ${ui.showDone && g.done.length ? `<ul class="list tasks done">${g.done.slice(0, 50).map(taskRow).join('')}</ul>` : ''}
-  ${ui.showHelpers && helpers.length ? `<h2>${esc(t('preparations'))}</h2><p class="hint">${esc(t('prepsHint'))}</p><ul class="list tasks">${helpers.map(taskRow).join('')}</ul>` : ''}`;
+  <section class="fold-sec">
+    <button class="fold" type="button" data-action="toggle-saved" aria-expanded="${Boolean(ui.showSaved)}"><span class="fold-ico">▸</span> ${esc(t('savedTasks'))} <small>${savedTasks().length}</small></button>
+    ${ui.showSaved ? `<p class="hint">${esc(t('savedHint'))}</p>
+    ${savedGroups().map(([cat, list]) => `<div class="sub">${esc(cat ? catName(cat) : t('noCategory'))}</div>
+    <ul class="list saved">${list.map((tp) => `<li><button class="task-main" type="button" data-action="task-edit" data-id="${esc(tp.id)}"><span class="item-text">${tp.meal ? '🍽 ' : ''}${impBadge(tp) ? `${impBadge(tp)} ` : ''}${esc(tp.title)}<small>${esc(savedInfo(tp))}</small></span></button></li>`).join('')}</ul>`).join('')}
+    <button class="btn small" type="button" data-action="saved-new">+ ${esc(t('newSaved'))}</button>` : ''}
+  </section>
+  ${helpers.length ? `<section class="fold-sec">
+    <button class="fold" type="button" data-action="toggle-helpers" aria-expanded="${Boolean(ui.showHelpers)}"><span class="fold-ico">▸</span> ${esc(t('preparations'))} <small>${helpers.length}</small></button>
+    ${ui.showHelpers ? `<p class="hint">${esc(t('prepsHint'))}</p><ul class="list tasks">${helpers.map(taskRow).join('')}</ul>` : ''}
+  </section>` : ''}`;
 }
 
 function taskRow(x) {
@@ -1634,12 +1738,6 @@ function viewSettings() {
     <label>${esc(t('maxLoad'))}<select name="maxLoad">${opts([4, 5, 6, 7, 8, 9, 10, 11, 12, 14], s.maxLoad ?? 8, (h) => `${h} h`)}</select>
       <small>${esc(t('maxLoadHint'))}</small></label>
   </form>
-
-  <h2>${esc(t('savedTasks'))}</h2>
-  <p class="hint">${esc(t('savedHint'))}</p>
-  ${savedGroups().map(([cat, list]) => `<div class="sub">${esc(cat ? catName(cat) : t('noCategory'))}</div>
-  <ul class="list">${list.map((tp) => `<li><button class="task-main" type="button" data-action="task-edit" data-id="${esc(tp.id)}"><span class="item-text">${tp.meal ? '🍽 ' : ''}${esc(tp.title)}<small>${esc(savedInfo(tp))}</small></span></button></li>`).join('')}</ul>`).join('')}
-  <button class="btn small" type="button" data-action="saved-new">+ ${esc(t('newSaved'))}</button>
 
   <h2>${esc(t('templates'))}</h2>
   <p class="hint">${esc(t('templatesHint'))}</p>
@@ -1889,23 +1987,24 @@ function openTask(task, draft = null) {
   const helper = Boolean(x.helper);
   const routine = Boolean(x.routine);
   const todo = !helper && !routine;
-  const stepTotal = x.steps.reduce((n, y) => n + (Number(y.minutes) || 0), 0);
-  const whenOpts = helper ? RULE_WHEN.filter((w) => w !== 'planned') : RULE_WHEN;
-  const stepRows = x.steps.map((y, i) => `<li class="step-row">
-      <span class="step-n">${i + 1}</span>
-      <input name="st_t_${i}" value="${esc(y.title)}" placeholder="${esc(t('stepPh'))}" autocomplete="off" aria-label="${esc(t('title'))}">
-      <select name="st_m_${i}" aria-label="${esc(t('duration'))}">${durOptions(Number(y.minutes) || 10, [5, 10, 15, 20, 25, 30, 45, 60, 90, 120])}</select>
-      ${i ? `<button class="icon" value="up-step:${i}" formnovalidate aria-label="↑">↑</button>` : '<span class="icon-sp"></span>'}
-      <button class="icon" value="rm-step:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></li>`).join('');
-  const ruleRows = x.allRules.map((r, i) => {
+  const lenOf = (y) => Number(y.minutes) || 10;
+  const stepTotal = x.steps.reduce((n, y) => n + lenOf(y), 0);
+  const fromRecipes = x.steps.some((y) => y.from === 'recipes');
+  const anchor = x.steps[anchorIndex(x.steps)];
+  const WHEN_TASK = helper ? ['done', 'failed', 'missed'] : RULE_WHEN;
+  const WHEN_STEP = ['done', 'failed'];
+
+  // One rule as a sentence: "When [this task / this step] [is done…] → [add a task / plan groceries] …".
+  const ruleCard = (r, i) => {
+    const onStep = Boolean(r.stepId);
     const planned = r.when === 'planned';
     const places = planned ? PREP_PLACES : RULE_PLACES;
     const linked = r.taskId && get('tasks', r.taskId);
     return `
     <div class="rule ${r.then === 'groceries' ? 'is-groceries' : ''}">
-      <div class="rule-line"><span>${esc(t('ruleWhenGen'))}</span>
-        ${x.steps.length && !planned ? `<select name="rs_${i}" data-rerender="1"><option value="">${esc(t('ruleSubjectTask'))}</option>${x.steps.map((y) => `<option value="${esc(y.id)}" ${y.id === r.stepId ? 'selected' : ''}>${esc(t('ruleSubjectStep', y.title || '…'))}</option>`).join('')}</select>` : `<span class="rule-subj">${esc(t('ruleSubjectTask'))}</span>`}
-        <select name="rw_${i}" data-rerender="1">${whenOpts.filter((w) => !(r.stepId && (w === 'planned' || w === 'missed'))).map((w) => `<option value="${w}" ${w === r.when ? 'selected' : ''}>${esc(t(`rw_${w}`))}</option>`).join('')}</select>
+      <input type="hidden" name="rs_${i}" value="${esc(r.stepId || '')}">
+      <div class="rule-line"><span>${esc(t('ruleWhenGen'))} ${esc(onStep ? t('ruleThisStep') : t('ruleSubjectTask'))}</span>
+        <select name="rw_${i}" data-rerender="1">${(onStep ? WHEN_STEP : WHEN_TASK).map((w) => `<option value="${w}" ${w === r.when ? 'selected' : ''}>${esc(t(onStep ? `rws_${w}` : `rw_${w}`))}</option>`).join('')}</select>
         <button class="icon" value="rm-rule:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></div>
       <div class="rule-line"><span>→</span>
         ${planned ? `<span class="rule-subj">${esc(t('rt_task'))}</span><input type="hidden" name="rt_${i}" value="task">`
@@ -1918,14 +2017,34 @@ function openTask(task, draft = null) {
         <button class="btn small ghost" value="edit-rule:${i}" formnovalidate title="${esc(t('editRuleTask'))}">${esc(t('edit'))}${linked?.steps?.length ? ` · ▤ ${linked.steps.length}` : ''}${linked?.checklist?.length ? ` · ☑ ${linked.checklist.length}` : ''}${linked?.rules?.length ? ` · ⚙ ${linked.rules.length}` : ''}</button>
       </div>
     </div>`;
+  };
+  const rulesFor = (sid) => x.allRules.map((r, i) => [r, i]).filter(([r]) => (r.stepId || null) === sid);
+
+  const stepCards = x.steps.map((y, i) => {
+    const mine = rulesFor(y.id);
+    return `<li class="step-card">
+      <div class="step-row">
+        <span class="step-n">${i + 1}</span>
+        <input name="st_t_${i}" value="${esc(y.title)}" placeholder="${esc(t('stepPh'))}" autocomplete="off" aria-label="${esc(t('title'))}">
+        <select name="st_m_${i}" data-rerender="1" aria-label="${esc(t('duration'))}">
+          ${x.meal || y.from === 'recipes' ? `<option value="recipes" ${y.from === 'recipes' ? 'selected' : ''}>⟲ ${esc(t('stepFromRecipes'))}</option>` : ''}
+          ${durOptions(y.from === 'recipes' ? null : lenOf(y), [5, 10, 15, 20, 25, 30, 45, 60, 90, 120])}</select>
+        ${i ? `<button class="icon" value="up-step:${i}" formnovalidate aria-label="↑">↑</button>` : '<span class="icon-sp"></span>'}
+        <button class="icon" value="rm-step:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button>
+      </div>
+      ${y.from === 'recipes' ? `<div class="step-sub"><span>${esc(t('stepFallback'))}</span><select name="st_f_${i}">${durOptions(lenOf(y), [5, 10, 15, 20, 30, 45, 60, 90])}</select></div>` : ''}
+      ${mine.map(([r, k]) => ruleCard(r, k)).join('')}
+      <button class="btn small ghost step-rule-add" value="add-rule:${esc(y.id)}" formnovalidate>⚙ + ${esc(t('addStepRule'))}</button>
+    </li>`;
   }).join('');
+  const taskRules = rulesFor(null);
   const heading = routine ? (x.meal ? (isNew ? t('newMealType') : t('mealType')) : (isNew ? t('newSaved') : t('savedTask'))) : helper ? t('editPrep') : isNew ? t('newTask') : t('editTask');
   openModal(`
     <h2>${esc(heading)}</h2>
     ${x.check === 'ingredients' ? `<p class="hint">${esc(t('checkStepHint'))}</p>` : ''}
     <label>${esc(t('title'))}<input name="title" required value="${esc(x.title)}" autocomplete="off"></label>
     <div class="two">
-      ${x.steps.length ? `<label>${esc(t('duration'))}<span class="static">${esc(t('durationFromSteps', fmtDur(stepTotal)))}</span><input type="hidden" name="minutes" value="${stepTotal}"></label>`
+      ${x.steps.length ? `<label>${esc(t('duration'))}<span class="static">${esc(fromRecipes ? t('durationRecipes', fmtDur(stepTotal)) : t('durationFromSteps', fmtDur(stepTotal)))}</span><input type="hidden" name="minutes" value="${stepTotal}"></label>`
     : `<label>${esc(t('duration'))}<select name="minutes">${durOptions(x.minutes || 30)}</select></label>`}
       ${helper ? '' : `<label>${esc(t('importance'))}<select name="importance">${IMPORTANCE.map((n) => `<option value="${n}" ${n === x.importance ? 'selected' : ''}>${'★'.repeat(n)}${'☆'.repeat(5 - n)} ${esc(t(`imp_${n}`))}</option>`).join('')}</select></label>`}
     </div>
@@ -1945,17 +2064,21 @@ function openTask(task, draft = null) {
       ${todo ? `<label>${esc(t('bestTime'))}<select name="when">${['', 'morning', 'afternoon', 'evening'].map((w) => `<option value="${w}" ${w === (x.when || '') ? 'selected' : ''}>${esc(t(`when_${w || 'any'}`))}</option>`).join('')}</select></label>` : ''}
       <label>${esc(t('category'))}<select name="category">${catOptions(x.category)}</select></label>
     </div>`}
-    ${routine ? `<label class="check"><input type="checkbox" name="meal" ${x.meal ? 'checked' : ''}> <span>${esc(t('isMeal'))}</span></label>` : ''}
+    ${routine ? `<label class="check"><input type="checkbox" name="meal" data-rerender="1" ${x.meal ? 'checked' : ''}> <span>${esc(t('isMeal'))}</span></label>` : ''}
+
     <div class="field-label">▤ ${esc(t('steps'))}</div>
-    <p class="hint">${esc(t('stepsHint'))}</p>
-    ${stepRows ? `<ol class="steps-edit">${stepRows}</ol>` : ''}
+    <p class="hint">${esc(t(x.meal ? 'stepsHintMeal' : 'stepsHint'))}</p>
+    ${stepCards ? `<ol class="steps-edit">${stepCards}</ol>` : ''}
+    ${fromRecipes && routine ? `<p class="hint anchor-hint">⚓ ${esc(anchor ? t('anchorHint', x.defaultStart != null ? fmtTime(x.defaultStart) : t('usualTime').toLowerCase(), anchor.title) : t('anchorHintEnd'))}</p>` : ''}
     <button class="btn small" value="add-step" formnovalidate>+ ${esc(t('addStep'))}</button>
+
     ${x.check ? '' : `<label>${esc(t('checklist'))}<textarea name="checklist" rows="3" placeholder="${esc(t('checklistPh'))}">${esc((x.checklist || []).join('\n'))}</textarea>
       <small>${esc(t('checklistHint'))}</small></label>`}
-    <div class="field-label">⚙ ${esc(t('rules'))}</div>
+
+    <div class="field-label">⚙ ${esc(t(x.steps.length ? 'rulesWhole' : 'rules'))}</div>
     <p class="hint">${esc(t(helper ? 'rulesHint' : 'rulesHintPrep'))}</p>
-    ${ruleRows}
-    <button class="btn small" value="add-rule" formnovalidate>+ ${esc(t('addRule'))}</button>
+    ${taskRules.map(([r, i]) => ruleCard(r, i)).join('')}
+    <button class="btn small" value="add-rule:" formnovalidate>+ ${esc(t('addRule'))}</button>
     <label>${esc(t('notes'))}<textarea name="notes" rows="2">${esc(x.notes || '')}</textarea></label>
     <div class="button-row">
       <button class="btn primary" value="ok">${esc(t('save'))}</button>
@@ -1964,16 +2087,15 @@ function openTask(task, draft = null) {
       ${isNew || x.id === 'meal_check' ? '' : `<button class="btn danger" value="delete" formnovalidate>${esc(t('delete'))}</button>`}
     </div>`, (form, action, e) => {
     collect(form);
-    const again = () => { e.preventDefault(); openTask(task, x); };
+    const again = (focus) => { e.preventDefault(); const y = window.scrollY; openTask(task, x); if (focus) modal.querySelector(focus)?.focus(); window.scrollTo(0, y); };
     if (action === 'add-step') {
       x.steps.push({ id: uid().slice(0, 6), title: '', minutes: 10 });
-      again();
-      modal.querySelector(`input[name=st_t_${x.steps.length - 1}]`)?.focus();
+      again(`input[name=st_t_${x.steps.length - 1}]`);
       return;
     }
     if (action.startsWith('rm-step:')) {
       const [gone] = x.steps.splice(Number(action.slice(8)), 1);
-      x.allRules = x.allRules.map((r) => (r.stepId === gone.id ? { ...r, stepId: null } : r));
+      x.allRules = x.allRules.filter((r) => r.stepId !== gone.id); // its rules go with it
       again(); return;
     }
     if (action.startsWith('up-step:')) {
@@ -1981,9 +2103,10 @@ function openTask(task, draft = null) {
       [x.steps[i - 1], x.steps[i]] = [x.steps[i], x.steps[i - 1]];
       again(); return;
     }
-    if (action === 'add-rule') {
-      x.allRules.push({ id: uid().slice(0, 6), when: helper ? 'failed' : 'planned', then: 'task', title: '', minutes: helper ? 15 : 10, place: 'before', stepId: null });
-      again(); return;
+    if (action.startsWith('add-rule:')) {
+      const stepId = action.slice(9) || null;
+      x.allRules.push({ id: uid().slice(0, 6), when: stepId || helper ? 'failed' : 'planned', then: 'task', title: '', minutes: helper ? 15 : 10, place: stepId ? 'after' : 'before', stepId });
+      again(`input[name=rti_${x.allRules.length - 1}]`); return;
     }
     if (action.startsWith('rm-rule:')) { x.allRules.splice(Number(action.slice(8)), 1); again(); return; }
     if (action === 'delete') {
@@ -2010,8 +2133,13 @@ function openTask(task, draft = null) {
 
   function collect(form) {
     x.title = form.elements.namedItem('title').value.trim();
-    x.steps = x.steps.map((y, i) => ({ ...y, title: form[`st_t_${i}`].value.trim(), minutes: Number(form[`st_m_${i}`].value) || 10 }));
-    x.minutes = x.steps.length ? x.steps.reduce((n, y) => n + y.minutes, 0) || 30 : Number(form.minutes.value) || 30;
+    x.steps = x.steps.map((y, i) => {
+      const v = form[`st_m_${i}`].value;
+      if (v === 'recipes') return { ...y, title: form[`st_t_${i}`].value.trim(), from: 'recipes', minutes: Number(form[`st_f_${i}`]?.value) || Number(y.minutes) || 15 };
+      const { from, ...rest } = y; void from;
+      return { ...rest, title: form[`st_t_${i}`].value.trim(), minutes: Number(v) || 10 };
+    });
+    x.minutes = x.steps.length ? x.steps.reduce((n, y) => n + lenOf(y), 0) || 30 : Number(form.minutes.value) || 30;
     if (form.checklist) x.checklist = lines(form.checklist.value);
     x.notes = form.notes.value.trim();
     if (form.importance) x.importance = Number(form.importance.value) || 3;
@@ -2026,29 +2154,22 @@ function openTask(task, draft = null) {
       x.meal = form.meal.checked;
     }
     x.allRules = x.allRules.map((r, i) => {
+      const stepId = form[`rs_${i}`]?.value || null;
       const when = form[`rw_${i}`].value;
       const then = when === 'planned' ? 'task' : form[`rt_${i}`].value;
-      const stepId = when === 'planned' ? null : form[`rs_${i}`]?.value || null;
       if (then === 'groceries') return { id: r.id, when, then, stepId };
       const kind = form[`rk_${i}`].value;
       const places = when === 'planned' ? PREP_PLACES : RULE_PLACES;
-      const place = places.includes(form[`rp_${i}`].value) ? form[`rp_${i}`].value : (when === 'planned' ? 'before' : r.when === 'planned' ? 'before' : 'next');
+      const place = places.includes(form[`rp_${i}`].value) ? form[`rp_${i}`].value : (when === 'planned' || r.when === 'planned' ? 'before' : 'next');
       return { id: r.id, when, then, stepId, taskId: kind || null, title: kind ? get('tasks', kind)?.title : form[`rti_${i}`].value.trim(), minutes: Number(form[`rm_${i}`].value) || 30, place };
     });
   }
   const form = modal.querySelector('form');
   form.addEventListener('change', (ev) => {
-    // Changing what a rule listens to changes its choices (e.g. "planned" → when to prepare it).
-    if (ev.target.dataset.rerender) { collect(form); openTask(task, x); return; }
+    // Changing what a rule listens to, a step's length source, or "is a meal" changes the choices shown.
+    if (ev.target.dataset.rerender) { const y = window.scrollY; const top = modal.querySelector('form').scrollTop; collect(form); openTask(task, x); modal.querySelector('form').scrollTop = top; window.scrollTo(0, y); return; }
     if (ev.target.dataset.rule != null) ev.target.closest('.rule').classList.toggle('is-groceries', ev.target.value === 'groceries');
     if (ev.target.dataset.rulekind != null) ev.target.closest('.rule').querySelector('.rule-title').classList.toggle('hide', Boolean(ev.target.value));
-  });
-  // The total length follows the steps as you change them.
-  form.addEventListener('input', (ev) => {
-    if (!/^st_m_/.test(ev.target.name || '')) return;
-    const n = [...form.querySelectorAll('select[name^=st_m_]')].reduce((a, el) => a + Number(el.value), 0);
-    const st = form.querySelector('.static');
-    if (st) st.textContent = t('durationFromSteps', fmtDur(n));
   });
 }
 
@@ -2590,6 +2711,7 @@ view.addEventListener('click', (e) => {
     }
     case 'toggle-done': ui.showDone = !ui.showDone; render(); break;
     case 'toggle-helpers': ui.showHelpers = !ui.showHelpers; render(); break;
+    case 'toggle-saved': ui.showSaved = !ui.showSaved; render(); break;
     case 'clear-done':
       for (const x of live('tasks').filter((y) => y.done)) remove('tasks', x.id);
       changed();
