@@ -21,7 +21,7 @@ export function setupDrag(root, hooks) {
     if (e.button !== 0 || d) return;
     if (e.target.closest('input, button.blk-btn, a')) return;
     const handle = e.target.closest('.resize');
-    const block = e.target.closest('.block');
+    const block = e.target.closest('.block:not(.event)'); // calendar events can't be moved here
     const chip = e.target.closest('.chip[data-task]');
     if (!handle && !block && !chip) return;
     const el = handle ? handle.closest('.block') : (block || chip);

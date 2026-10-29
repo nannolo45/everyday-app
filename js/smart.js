@@ -75,6 +75,18 @@ export function fit(intervals, need, { snap = 5, window = null, prefer = 'early'
   return prefer === 'early' ? Math.min(...opts) : Math.max(...opts);
 }
 
+// The free spot closest to `target` (earlier or later), e.g. to move a block out of a clash.
+export function nearestSlot(blocks, minutes, target, { from = 0, dayStart = 0, dayEnd = 1440, snap = 15, buffer = 0 } = {}) {
+  let best = null;
+  for (const [s, e] of freeIntervals(blocks, { from, dayStart, dayEnd, buffer })) {
+    const lo = Math.ceil(s / snap) * snap; const hi = Math.floor((e - minutes) / snap) * snap;
+    if (hi < lo) continue;
+    const c = Math.min(Math.max(Math.round(target / snap) * snap, lo), hi);
+    if (best == null || Math.abs(c - target) < Math.abs(best - target)) best = c;
+  }
+  return best;
+}
+
 // ---------- "suggest a plan" ----------
 // Greedy: most important first, each into the earliest gap that fits (inside its preferred
 // time of day when it has one), leaving room before it for "right before" preparations,
@@ -194,7 +206,7 @@ export function findConflicts(dayBlocks, { getBlock = () => null, getTask = () =
     for (let j = i + 1; j < list.length; j++) {
       const a = list[i]; const b = list[j];
       if (b.start >= end(a)) continue;
-      if (a.allowOverlap || b.allowOverlap || (a.done && b.done)) continue;
+      if (a.allowOverlap || b.allowOverlap || (a.done && b.done) || (a.fixed && b.fixed)) continue; // two calendar events: not ours to fix
       out.push({ type: 'overlap', ids: [a.id, b.id] });
     }
   }

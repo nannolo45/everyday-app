@@ -93,7 +93,7 @@ async function syncFile(c, shard, repo = state.settings.repo, path = pathFor(c, 
   const inFile = (x) => shard == null || shardOf(c, x) === shard;
   for (let attempt = 0; attempt < 4; attempt++) {
     const remote = await getFile(path, repo);
-    if (READ_ONLY.has(c)) { await replaceCollection(c, remote.data); return; }
+    if (READ_ONLY.has(c)) { await replaceCollection(c, [...state[c].filter((x) => !inFile(x)), ...remote.data]); return; }
     const merged = purgeTombstones(mergeLists(remote.data, state[c]));
     const content = merged.filter(inFile);
     const text = serialize(content);
@@ -172,6 +172,28 @@ export function syncNow() {
 }
 
 export function isSyncing() { return Boolean(running); }
+
+// A photo from Ricette's repo (images/...), as a blob.
+export async function fetchRicettePhoto(path) {
+  if (!ricetteConfigured()) return null;
+  try {
+    const res = await api(`contents/${path}?ref=${encodeURIComponent(branch())}`, { headers: { Accept: 'application/vnd.github.raw' } }, state.settings.ricetteRepo);
+    return res.ok ? await res.blob() : null;
+  } catch { return null; }
+}
+
+// Ask GitHub to run a workflow in the data repo now (the Google Calendar sync).
+// Needs the token to have "Actions: Read and write"; returns 'ok', 'forbidden' or 'error'.
+export async function runWorkflow(file) {
+  if (!isConfigured()) return 'error';
+  try {
+    const res = await api(`actions/workflows/${file}/dispatches`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ref: branch() }),
+    });
+    if (res.status === 204 || res.ok) return 'ok';
+    return res.status === 403 || res.status === 404 ? 'forbidden' : 'error';
+  } catch { return 'error'; }
+}
 
 export async function testConnection(repo = state.settings.repo) {
   if (!isConfigured()) return { error: 'missing' };

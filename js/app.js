@@ -1,16 +1,17 @@
 import {
-  state, load, live, get, has, upsert, remove, uid, onChange, saveSettings, saveMeta, COLLECTIONS, RICETTE,
+  state, load, live, get, has, upsert, remove, uid, onChange, saveSettings, saveMeta, COLLECTIONS, RICETTE, kvGet, kvSet,
 } from './store.js';
-import { syncNow, isConfigured, isSyncing, testConnection, watchMonth, ricetteConfigured } from './sync.js';
+import { syncNow, isConfigured, isSyncing, testConnection, watchMonth, ricetteConfigured, runWorkflow, fetchRicettePhoto } from './sync.js';
 import {
   today, addDays, parseDate, isDate, nowMinutes, fmtTime, fmtDur, parseTime, quickAdd,
   REPEATS, completeTask, reopenTask, groupTasks, sortTasks, layoutBlocks, freeSlot, dayTotals,
   parseTemplateLines, formatTemplateLines, templateBlocks, autoTemplatesFor,
 } from './plan.js';
 import {
-  candidates, suggestDay, spareTime, scoreTask, placePrep, placeGroceries, findConflicts, recipeMinutes,
+  candidates, suggestDay, spareTime, scoreTask, nearestSlot, placePrep, placeGroceries, findConflicts, recipeMinutes,
 } from './smart.js';
 import { makeKitchen } from './kitchen.js';
+import { tagsOf, foldersOf, folderList, filterRecipes, tagCounts, minutesOf } from './recipes.js';
 import { formatQty, setDecimalSeparator } from './parse.js';
 import { t, setLang, getLang, LANGS, detectLang } from './i18n.js';
 import { setupDrag } from './drag.js';
@@ -20,7 +21,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 
 const view = $('#view');
 const modal = $('#modal');
-const ui = { connMsg: '', ricMsg: '', dragging: false, scrolledFor: null, showDone: false, showHelpers: false, suggest: null, showConflicts: false };
+const ui = { rec: { q: '', folder: '', tags: new Set(), canCook: false, maxMinutes: null, sort: 'name' }, connMsg: '', ricMsg: '', dragging: false, scrolledFor: null, showDone: false, showHelpers: false, suggest: null, showConflicts: false };
 
 const PPM = 1.2; // timeline pixels per minute (72 px per hour)
 const GROCERY_MINUTES = 45;
@@ -56,7 +57,7 @@ function route() {
   return { name, id: id && decodeURIComponent(id) };
 }
 
-const TAB_OF = { plan: 'plan', tasks: 'tasks', settings: 'settings' };
+const TAB_OF = { plan: 'plan', tasks: 'tasks', settings: 'settings', recipes: 'recipes' };
 
 function planSettings() {
   const s = state.settings;
@@ -91,6 +92,12 @@ function catOptions(selected) {
 // ---------- tasks, preparations, checklists ----------
 
 function blocksOn(date) { return live('blocks').filter((b) => b.date === date); }
+// Google Calendar events that day (read-only; see data-repo/scripts/gcal-sync.mjs).
+function eventsOn(date) { return state.settings.showEvents === false ? [] : live('events').filter((e) => e.date === date); }
+function timedEventsOn(date) { return eventsOn(date).filter((e) => !e.allDay).map((e) => ({ ...e, isEvent: true, fixed: true })); }
+// Everything that takes up time: your blocks plus busy calendar events.
+function busyOn(date) { return [...blocksOn(date), ...timedEventsOn(date).filter((e) => e.busy !== false)]; }
+const itemById = (id) => get('blocks', id) || get('events', id);
 function scheduledOn(taskId, date) { return blocksOn(date).some((b) => b.taskId === taskId); }
 function openTasks() { return live('tasks').filter((x) => !x.done && !x.helper); }
 
@@ -128,7 +135,7 @@ function planTask(task, date, start = null, extra = {}) {
   let at = start;
   if (at == null) {
     const from = (date === today() ? nowMinutes() : s.dayStart) + leadOf(task);
-    at = freeSlot(blocksOn(date), minutes, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap });
+    at = freeSlot(busyOn(date), minutes, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap });
     if (at == null) at = Math.min(Math.ceil(Math.max(nowMinutes(), s.dayStart) / s.snap) * s.snap, 1440 - minutes);
   }
   return newBlock({ date, start: at, minutes, title: task.title, category: task.category || null, taskId: task.id, ...extra });
@@ -145,7 +152,7 @@ function linkFor(block) {
     const cur = state.blocks.find((x) => x.id === id);
     if (cur && (cur.deleted || cur.done || !cur.auto)) continue; // deleted or moved by hand: leave it
     const pos = placePrep({
-      parent: block, minutes: p.task.minutes || 10, mode: p.when, blocksOn: (d) => blocksOn(d).filter((x) => x.id !== id),
+      parent: block, minutes: p.task.minutes || 10, mode: p.when, blocksOn: (d) => busyOn(d).filter((x) => x.id !== id),
       today: td, nowMin: nowMinutes(), settings: planSettings(),
     });
     if (cur && cur.date === pos.date && cur.start === pos.start) continue;
@@ -163,7 +170,7 @@ function followParent(block) {
   if (block.kind === 'meal' && block.groceryId) {
     const g = get('blocks', block.groceryId);
     if (g && g.auto && !g.done && !(g.date < block.date || (g.date === block.date && g.start + g.minutes <= block.start))) {
-      const pos = placeGroceries({ meal: block, minutes: g.minutes, blocksOn: (d) => blocksOn(d).filter((x) => x.id !== g.id), today: today(), nowMin: nowMinutes(), settings: planSettings() });
+      const pos = placeGroceries({ meal: block, minutes: g.minutes, blocksOn: (d) => busyOn(d).filter((x) => x.id !== g.id), today: today(), nowMin: nowMinutes(), settings: planSettings() });
       upsert('blocks', { ...g, ...pos }, { silent: true });
     }
   }
@@ -253,7 +260,7 @@ function ensureGroceries(meal) {
     .sort((a, b) => (isBefore(a, b) ? 1 : -1))[0];
   let g = existing;
   if (!g) {
-    const pos = placeGroceries({ meal, minutes: GROCERY_MINUTES, blocksOn, today: td, nowMin: nowMinutes(), settings: planSettings() });
+    const pos = placeGroceries({ meal, minutes: GROCERY_MINUTES, blocksOn: busyOn, today: td, nowMin: nowMinutes(), settings: planSettings() });
     g = newBlock({ ...pos, kind: 'groceries', title: t('groceryTitle'), minutes: GROCERY_MINUTES, category: 'meals', auto: true });
   }
   upsert('blocks', { ...get('blocks', meal.id), groceryId: g.id }, { silent: true });
@@ -292,7 +299,7 @@ function autoApply(date) {
 // ---------- conflicts ----------
 
 function conflictsOn(date) {
-  return findConflicts(blocksOn(date), { getBlock: (id) => get('blocks', id), getTask: (id) => get('tasks', id) });
+  return findConflicts([...blocksOn(date), ...timedEventsOn(date).filter((e) => e.busy !== false)], { getBlock: (id) => get('blocks', id), getTask: (id) => get('tasks', id) });
 }
 
 function warnConflicts(block) {
@@ -303,7 +310,7 @@ function warnConflicts(block) {
 }
 
 function conflictText(c) {
-  const [a, b] = c.ids.map((id) => get('blocks', id));
+  const [a, b] = c.ids.map(itemById);
   if (c.type === 'overlap') return t('cf_overlap', a?.title, b?.title);
   if (c.type === 'order') return t('cf_order', a?.title, b?.title);
   const task = get('tasks', a?.taskId);
@@ -316,18 +323,19 @@ function fixConflict(c) {
     // Move the later block to the next free gap, keeping its length.
     // Move the less important one: never a meal or something already done, otherwise the
     // block whose task scores lower (priority, due date), and on a tie the later one.
-    const [a, b] = c.ids.map((id) => get('blocks', id));
-    const weight = (x) => (x.done ? 1e6 : x.kind === 'meal' ? 1e5 : x.taskId && get('tasks', x.taskId) ? scoreTask(get('tasks', x.taskId), x.date).score : 20);
+    const [a, b] = c.ids.map((id) => itemById(id) && { ...itemById(id), fixed: !get('blocks', id) });
+    const weight = (x) => (x.fixed ? 1e7 : x.done ? 1e6 : x.kind === 'meal' ? 1e5 : x.taskId && get('tasks', x.taskId) ? scoreTask(get('tasks', x.taskId), x.date).score : 20);
     const mover = weight(a) < weight(b) ? a : b;
-    const others = blocksOn(mover.date).filter((x) => x.id !== mover.id && !x.allowOverlap);
-    const at = freeSlot(others, mover.minutes, { from: mover.start, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap });
+    const others = busyOn(mover.date).filter((x) => x.id !== mover.id && !x.allowOverlap);
+    const from = mover.date === today() ? nowMinutes() : s.dayStart;
+    const at = nearestSlot(others, mover.minutes, mover.start, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap, buffer: s.buffer });
     if (at == null) { toast(t('noRoom')); return; }
     const moved = upsert('blocks', { ...mover, start: at, auto: false }, { silent: true });
     followParent(moved);
     toast(t('movedTo', mover.title, fmtTime(at)));
   } else if (c.type === 'order') {
     const [first, then] = c.ids.map((id) => get('blocks', id));
-    const others = (d) => blocksOn(d).filter((x) => x.id !== first.id);
+    const others = (d) => busyOn(d).filter((x) => x.id !== first.id);
     const pos = first.kind === 'groceries'
       ? placeGroceries({ meal: then, minutes: first.minutes, blocksOn: others, today: today(), nowMin: nowMinutes(), settings: s })
       : placePrep({ parent: then, minutes: first.minutes, mode: 'before', blocksOn: others, today: today(), nowMin: nowMinutes(), settings: s });
@@ -337,7 +345,7 @@ function fixConflict(c) {
     const due = get('tasks', b.taskId)?.due;
     if (!due || due < today()) return;
     const from = due === today() ? nowMinutes() : s.dayStart;
-    const at = freeSlot(blocksOn(due), b.minutes, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap });
+    const at = freeSlot(busyOn(due), b.minutes, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap });
     if (at == null) { toast(t('noRoom')); return; }
     followParent(upsert('blocks', { ...b, date: due, start: at }, { silent: true }));
     toast(t('movedTo', b.title, `${relDay(due)} ${fmtTime(at)}`));
@@ -357,7 +365,10 @@ function changed() {
 async function runSync() {
   if (!isConfigured()) { updateSyncBadge(); return; }
   updateSyncBadge(true);
+  const planChanged = Object.keys(state.meta.dirtyShards || {}).some((k) => k.startsWith('blocks/'));
   await syncNow();
+  // Plan changed and Google Calendar is set up: push it there soon (at most every 10 minutes).
+  if (planChanged && !state.meta.lastError && get('gcal', 'status') && Date.now() - (ui.lastDispatch || 0) > 600_000) gcalNow(true);
   if (ricetteConfigured()) kitchen.ensureLowItems();
   updateSyncBadge();
   renderIfSafe();
@@ -418,20 +429,22 @@ function viewPlan(date) {
   for (const b of [...blocksOn(date), ...blocksOn(addDays(date, 1))]) if (b.taskId && b.kind !== 'prep' && !b.done) linkFor(b);
   const s = state.settings;
   const blocks = blocksOn(date);
+  const events = timedEventsOn(date);
+  const allDay = eventsOn(date).filter((e) => e.allDay);
   const totals = dayTotals(blocks);
   const sug = ui.suggest?.date === date ? ui.suggest : null;
   const ghosts = sug ? sug.placed.filter((p) => !sug.off.has(p.taskId)) : [];
 
   // Timeline range: the planner hours, stretched to fit any block outside them.
   let startMin = s.dayStart * 60; let endMin = s.dayEnd * 60;
-  for (const b of [...blocks, ...ghosts]) { startMin = Math.min(startMin, Math.floor((b.start - (b.lead || 0)) / 60) * 60); endMin = Math.max(endMin, Math.ceil((b.start + b.minutes) / 60) * 60); }
+  for (const b of [...blocks, ...events, ...ghosts]) { startMin = Math.min(startMin, Math.floor((b.start - (b.lead || 0)) / 60) * 60); endMin = Math.max(endMin, Math.ceil((b.start + b.minutes) / 60) * 60); }
   startMin = Math.max(0, startMin); endMin = Math.min(endMin, 1440);
   const hours = [];
   for (let m = startMin; m <= endMin; m += 60) hours.push(m);
 
   const conflicts = conflictsOn(date);
   const inConflict = new Set(conflicts.flatMap((c) => c.ids));
-  const laid = layoutBlocks(blocks);
+  const laid = layoutBlocks([...blocks, ...events]);
   const isToday = date === td;
   const now = nowMinutes();
 
@@ -484,13 +497,14 @@ function viewPlan(date) {
           ${c.type !== 'late' || (get('tasks', get('blocks', c.ids[0])?.taskId)?.due || '') >= td ? `<button class="btn small" type="button" data-action="fix" data-i="${i}">${esc(t('fix'))}</button>` : ''}
           ${c.type === 'overlap' ? `<button class="btn small ghost" type="button" data-action="allow" data-i="${i}">${esc(t('fine'))}</button>` : ''}</li>`).join('')}</ul>` : ''}
       </div>` : ''}
+      ${allDay.length ? `<div class="allday">${allDay.map((e) => `<button class="allday-chip" type="button" data-action="event" data-id="${esc(e.id)}" style="--c:${esc(e.color)}">${esc(e.title)}</button>`).join('')}</div>` : ''}
       ${unchecked.length ? `<div class="notice"><span>🛒 ${esc(t('mealsToCheck', unchecked.length))}</span><button class="btn small" type="button" data-action="check-meals">${esc(t('checkNow'))}</button></div>` : ''}
       <div class="timeline" data-start="${startMin}" data-ppm="${PPM}" data-snap="${s.snap}" data-date="${date}" style="height:${(endMin - startMin) * PPM}px">
         ${hours.map((m) => `<div class="hour" style="top:${(m - startMin) * PPM}px"><span>${fmtTime(m)}</span></div>`).join('')}
         ${isToday && now >= startMin && now <= endMin ? `<div class="now" id="now-line" style="top:${(now - startMin) * PPM}px"></div>` : ''}
-        ${laid.map((b) => blockHtml(b, startMin, inConflict.has(b.id))).join('')}
+        ${laid.map((b) => (b.isEvent ? eventHtml(b, startMin, inConflict.has(b.id)) : blockHtml(b, startMin, inConflict.has(b.id)))).join('')}
         ${ghosts.map((g) => ghostHtml(g, startMin)).join('')}
-        ${blocks.length || ghosts.length ? '' : `<div class="tl-empty">${esc(t('emptyDay'))}</div>`}
+        ${blocks.length || events.length || ghosts.length ? '' : `<div class="tl-empty">${esc(t('emptyDay'))}</div>`}
       </div>
     </section>
   </div>`;
@@ -517,6 +531,27 @@ function blockHtml(b, startMin, conflict) {
   </div>`;
 }
 
+function eventHtml(e, startMin, conflict) {
+  const left = `calc(${(e.col / e.cols) * 100}% + 1px)`;
+  const width = `calc(${100 / e.cols}% - 3px)`;
+  return `<div class="block event${e.busy === false ? ' free' : ''}${e.minutes < 30 ? ' short' : ''}${conflict ? ' conflict' : ''}" data-id="${esc(e.id)}"
+    style="--c:${esc(e.color || '#6b7280')};top:${(e.start - startMin) * PPM}px;height:${Math.max(e.minutes * PPM, 16)}px;left:${left};width:${width}">
+    <div class="blk-body"><div class="blk-title">${conflict ? '<span class="warn-ico">⚠</span> ' : ''}${esc(e.title)}</div>
+    <div class="blk-time">${range(e.start, e.minutes)} · ${esc(e.calendar)}</div></div></div>`;
+}
+
+function openEvent(e) {
+  openModal(`
+    <h2>${esc(e.title)}</h2>
+    <p class="hint"><span class="cat" style="--c:${esc(e.color)}">${esc(e.calendar)}</span> · ${esc(fmtDay(e.date))}${e.allDay ? '' : ` · ${range(e.start, e.minutes)}`}</p>
+    ${e.location ? `<p>📍 ${esc(e.location)}</p>` : ''}
+    <p class="hint">${esc(t('eventReadOnly'))}</p>
+    <div class="button-row">
+      ${e.link ? `<a class="btn" href="${esc(e.link)}" target="_blank" rel="noopener">${esc(t('openInGoogle'))}</a>` : ''}
+      <button class="btn" value="cancel">${esc(t('close'))}</button>
+    </div>`, () => {});
+}
+
 function ghostHtml(g, startMin) {
   const task = get('tasks', g.taskId);
   const color = catColor(task?.category) || 'var(--accent)';
@@ -539,6 +574,126 @@ function suggestPanel(sug) {
     <button class="btn primary" type="button" data-action="sug-accept" ${on.length ? '' : 'disabled'}>${esc(t('addN', on.length))}</button>
     <button class="btn" type="button" data-action="sug-cancel">${esc(t('cancel'))}</button>
   </div>`;
+}
+
+// ---------- view: recipes (Ricette) ----------
+
+const canCookNow = (r) => kitchen.missingFor(r, r.servings || 2, live('r_pantry')).length === 0;
+
+function viewRecipes(pickDate) {
+  if (!ricetteConfigured()) return `<h1>${esc(t('tabRecipes'))}</h1><p class="empty">${esc(t('ricetteHint'))}</p><p class="empty"><a href="#/settings">${esc(t('tabSettings'))}</a></p>`;
+  const all = recipes();
+  const folders = live('r_folders');
+  const flist = folderList(all, folders);
+  const f = ui.rec;
+  const tags = tagCounts(all);
+  const unfiled = all.some((r) => !foldersOf(r, folders).length);
+  const pill = (action, id, label, on, extra = '') => `<button class="pill ${on ? 'on' : ''}" type="button" data-action="${action}" data-id="${esc(id)}">${extra}${esc(label)}</button>`;
+  // Folders as a tree: top-level first, subfolders indented under their parent.
+  const tree = [];
+  const walk = (parent, depth) => { for (const x of flist.filter((y) => String(y.parent ?? '') === String(parent ?? ''))) { tree.push({ ...x, depth }); walk(x.id, depth + 1); } };
+  walk(null, 0);
+  for (const x of flist) if (!tree.some((y) => y.id === x.id)) tree.push({ ...x, depth: 0 });
+  return `
+  ${pickDate ? `<a class="back" href="#/plan/${pickDate}">‹ ${esc(fmtDay(pickDate))}</a>` : ''}
+  <h1>${esc(pickDate ? t('pickMeal') : t('tabRecipes'))}</h1>
+  ${pickDate ? `<p class="hint">${esc(t('pickMealHint', fmtDay(pickDate)))}</p>` : ''}
+  <div class="row"><input type="search" id="rec-q" value="${esc(f.q)}" placeholder="${esc(t('recSearch'))}" autocomplete="off"></div>
+  ${tree.length ? `<div class="field-label">${esc(t('folders'))}</div><div class="pills">
+    ${tree.map((x) => pill('rec-folder', x.id, x.name, f.folder === x.id, x.depth ? `${'· '.repeat(x.depth)}` : '📁 ')).join('')}
+    ${unfiled ? pill('rec-folder', '__none', t('noFolder'), f.folder === '__none') : ''}</div>` : ''}
+  ${tags.length ? `<div class="field-label">${esc(t('tags'))}</div><div class="pills">${tags.map(([tg, n]) => pill('rec-tag', tg, `${tg} ${n}`, f.tags.has(tg), '# ')).join('')}</div>` : ''}
+  <div class="pills rec-more">
+    ${pill('rec-cook', '1', t('canCookNow'), f.canCook, '✓ ')}
+    ${pill('rec-time', '30', t('underMin', 30), f.maxMinutes === 30, '⏱ ')}
+    ${pill('rec-time', '60', t('underMin', 60), f.maxMinutes === 60, '⏱ ')}
+    <select id="rec-sort" class="mini-select">${['name', 'quick', 'new'].map((k) => `<option value="${k}" ${f.sort === k ? 'selected' : ''}>${esc(t(`sort_${k}`))}</option>`).join('')}</select>
+  </div>
+  <div id="rec-results">${recResults()}</div>`;
+}
+
+// The count line and the cards: redrawn on their own while you type in the search box.
+function recResults() {
+  const all = recipes();
+  const folders = live('r_folders');
+  const flist = folderList(all, folders);
+  const f = ui.rec;
+  const list = filterRecipes(all, { ...f, canCook: f.canCook ? canCookNow : null }, folders);
+  const anyFilter = f.q || f.folder || f.tags.size || f.canCook || f.maxMinutes;
+  const fname = (id) => flist.find((x) => x.id === id)?.name || id;
+  return `<p class="hint">${esc(t('nRecipes', list.length))}${f.folder ? ` · 📁 ${esc(f.folder === '__none' ? t('noFolder') : fname(f.folder))}` : ''}${anyFilter ? ` · <button class="linkish" type="button" data-action="rec-clear">${esc(t('clearFilters'))}</button>` : ''}</p>
+  ${list.length ? `<div class="cards">${list.map((r) => recipeCard(r, flist, folders)).join('')}</div>` : `<p class="empty">${esc(t('noMatches'))}</p>`}`;
+}
+
+function recipeCard(r, flist, folders) {
+  const miss = kitchen.missingFor(r, r.servings || 2, live('r_pantry')).length;
+  const cover = (r.photos && r.photos[0]) || r.image || '';
+  const m = minutesOf(r);
+  const tg = tagsOf(r).slice(0, 3);
+  const fn = foldersOf(r, folders).map((id) => flist.find((x) => x.id === id)?.name || id)[0];
+  return `<button class="card" type="button" data-action="rec-open" data-id="${esc(r.id)}">
+    <div class="thumb">${cover ? photoTag(cover) : ''}<span>${esc((r.title || '?').charAt(0))}</span>
+      <span class="stock ${miss ? 'miss' : 'ok'}">${miss ? esc(t('nMissing', miss)) : '✓'}</span></div>
+    <div class="card-body"><div class="card-title">${esc(r.title)}</div>
+      <div class="card-meta">${[m ? fmtDur(m) : '', r.servings ? t('nPeople', r.servings) : '', fn ? `📁 ${fn}` : ''].filter(Boolean).map(esc).join(' · ')}</div>
+      ${tg.length ? `<div class="card-tags">${tg.map((x) => `<span>#${esc(x)}</span>`).join('')}</div>` : ''}</div>
+  </button>`;
+}
+
+// Photos: from Ricette's repo (images/...) via GitHub, cached on the device; web images directly.
+const photoUrls = new Map();
+function photoTag(src) {
+  if (String(src).startsWith('images/')) return `<img data-photo="${esc(src)}" alt="">`;
+  return `<img src="${esc(src)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">`;
+}
+async function photoUrl(path) {
+  if (photoUrls.has(path)) return photoUrls.get(path);
+  const p = (async () => {
+    let blob = await kvGet(`rimg:${path}`);
+    if (!blob) { blob = await fetchRicettePhoto(path); if (blob) await kvSet(`rimg:${path}`, blob); }
+    return blob ? URL.createObjectURL(blob) : null;
+  })();
+  photoUrls.set(path, p);
+  return p;
+}
+function hydratePhotos(root) {
+  for (const img of root.querySelectorAll('img[data-photo]')) {
+    photoUrl(img.dataset.photo).then((url) => { if (url) img.src = url; else img.remove(); });
+  }
+}
+
+function openRecipe(r, servings = null) {
+  if (!r) return;
+  const n = servings || r.servings || 2;
+  const plan = kitchen.planForRecipe(r, n, live('r_pantry'));
+  const folders = live('r_folders');
+  const flist = folderList(recipes(), folders);
+  const pickDate = route().name === 'recipes' && isDate(route().id) ? route().id : null;
+  const cover = (r.photos && r.photos[0]) || r.image || '';
+  const m = minutesOf(r);
+  const steps = (r.steps || []).map((x) => (typeof x === 'string' ? x : x.text || '')).filter(Boolean);
+  openModal(`
+    ${cover ? `<div class="rec-hero">${photoTag(cover)}</div>` : ''}
+    <h2>${esc(r.title)}</h2>
+    <p class="hint">${[m ? `⏱ ${fmtDur(m)}` : '', ...foldersOf(r, folders).map((id) => `📁 ${flist.find((x) => x.id === id)?.name || id}`), ...tagsOf(r).map((x) => `#${x}`)].map(esc).join(' · ')}</p>
+    <div class="servings-row"><button class="round" value="less" formnovalidate>−</button><b>${esc(t('nPeople', n))}</b><button class="round" value="more" formnovalidate>+</button></div>
+    <ul class="list ing">${plan.map((p) => `<li class="${p.covered ? 'have' : p.need == null && !p.tracked ? '' : 'need'}"><span class="q">${esc(qtyText(p.need, p.unit))}</span><span class="item-text">${esc(p.name)}${!p.covered && p.buy ? `<small>${esc(t('buyAmount', qtyText(p.buy, p.unit)))}</small>` : ''}</span><span class="mark">${p.covered ? '✓' : p.need == null && !p.tracked ? '' : '✕'}</span></li>`).join('')}</ul>
+    ${steps.length ? `<details class="steps-box"><summary>${esc(t('stepsN', steps.length))}</summary><ol>${steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></details>` : ''}
+    <div class="button-row">
+      <button class="btn primary" value="plan">${esc(pickDate ? t('planOn', relDay(pickDate)) : t('planAsMeal'))}</button>
+      ${r.url ? `<a class="btn" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(t('source'))}</a>` : ''}
+      <button class="btn" value="cancel">${esc(t('close'))}</button>
+    </div>`, (form, action, e) => {
+    if (action === 'less' || action === 'more') { e.preventDefault(); openRecipe(r, Math.max(1, n + (action === 'more' ? 1 : -1))); return; }
+    if (action === 'plan') {
+      const date = pickDate || today();
+      setTimeout(() => {
+        if (pickDate) location.hash = `#/plan/${date}`;
+        openNewMeal(date, r.id, n);
+      }, 0);
+    }
+  });
+  hydratePhotos(modal);
 }
 
 // ---------- view: tasks ----------
@@ -638,39 +793,83 @@ function viewSettings() {
   <button class="btn small" type="button" data-action="cat-new">+ ${esc(t('newCategory'))}</button>
 
   <h2>${esc(t('sync'))}</h2>
+  ${ghConnected() && !ui.editGithub ? `
+  <div class="conn-card">
+    <div class="conn-main"><span class="ok-dot"></span><div><b>${esc(s.owner)}/${esc(s.repo)}</b>
+      <small>${esc(t('branch'))}: ${esc(s.branch || 'main')} · ${esc(t('lastSync'))}: ${state.meta.lastSync ? esc(new Date(state.meta.lastSync).toLocaleString(getLang())) : esc(t('never'))}</small></div></div>
+    ${state.meta.lastError && state.meta.lastError !== 'network' ? `<p class="conn bad">${esc(t(`err_${state.meta.lastError}`))}</p>` : ''}
+    <div class="button-row">
+      <button class="btn small" type="button" data-action="sync-now">${esc(t('syncNow'))}</button>
+      <button class="btn small ghost" type="button" data-action="gh-edit">${esc(t('changeConn'))}</button>
+    </div>
+  </div>` : `
   <p class="hint">${esc(t('syncHint'))}</p>
   <form class="form" id="gh-form">
     <div class="two">
       <label>${esc(t('owner'))}<input name="owner" value="${esc(s.owner)}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
       <label>${esc(t('repo'))}<input name="repo" value="${esc(s.repo || 'everyday-data')}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
     </div>
-    <label>${esc(t('token'))}<input name="token" type="password" value="${esc(s.token)}" autocomplete="off" spellcheck="false"><small>${esc(t('tokenHint'))}</small></label>
+    <label>${esc(t('token'))}<input name="token" type="password" value="" placeholder="${esc(s.token ? t('tokenSaved') : '')}" autocomplete="off" spellcheck="false"><small>${esc(t(s.token ? 'tokenKeepHint' : 'tokenHint'))}</small></label>
     <label>${esc(t('branch'))}<input name="branch" value="${esc(s.branch || 'main')}" autocomplete="off" autocapitalize="off"></label>
     ${msg ? `<p class="conn ${msg === 'connected' ? 'good' : 'bad'}">${esc(t(msg))}</p>` : ''}
     <div class="button-row">
       <button class="btn primary">${esc(t('saveTest'))}</button>
-      ${isConfigured() ? `<button class="btn" type="button" data-action="sync-now">${esc(t('syncNow'))}</button>` : ''}
+      ${ui.editGithub ? `<button class="btn" type="button" data-action="gh-cancel">${esc(t('cancel'))}</button>` : ''}
     </div>
-    <p class="hint">${esc(t('lastSync'))}: ${state.meta.lastSync ? esc(new Date(state.meta.lastSync).toLocaleString(getLang())) : esc(t('never'))}</p>
-  </form>
+  </form>`}
 
   <h2>${esc(t('ricette'))}</h2>
+  ${ricetteConfigured() ? `
+  <div class="conn-card">
+    <div class="conn-main"><span class="ok-dot"></span><div><b>${esc(s.owner)}/${esc(s.ricetteRepo)}</b>
+      <small>${esc(t('ricetteStatus', live('r_recipes').length, live('r_pantry').length, live('r_shopping').filter((x) => !x.checked).length))}</small></div></div>
+    ${ui.ricMsg && ui.ricMsg !== 'connected' ? `<p class="conn bad">${esc(t(ui.ricMsg))}</p>` : ''}
+    <div class="button-row"><button class="btn small ghost" type="button" data-action="ric-off">${esc(t('disconnect'))}</button></div>
+  </div>` : `
   <p class="hint">${esc(t('ricetteHint'))}</p>
   <form class="form" id="ric-form">
     <label>${esc(t('ricetteRepo'))}<input name="ricetteRepo" value="${esc(s.ricetteRepo || 'ricette-data')}" autocomplete="off" autocapitalize="off" spellcheck="false" ${isConfigured() ? '' : 'disabled'}>
       <small>${esc(isConfigured() ? t('ricetteRepoHint') : t('ricetteNeedsSync'))}</small></label>
     ${ui.ricMsg ? `<p class="conn ${ui.ricMsg === 'connected' ? 'good' : 'bad'}">${esc(t(ui.ricMsg))}</p>` : ''}
-    ${ricetteConfigured() ? `<p class="hint">${esc(t('ricetteStatus', live('r_recipes').length, live('r_pantry').length, live('r_shopping').filter((x) => !x.checked).length))}</p>` : ''}
-    <div class="button-row">
-      <button class="btn ${ricetteConfigured() ? '' : 'primary'}" ${isConfigured() ? '' : 'disabled'}>${esc(ricetteConfigured() ? t('saveTest') : t('connect'))}</button>
-      ${ricetteConfigured() ? `<button class="btn ghost" type="button" data-action="ric-off">${esc(t('disconnect'))}</button>` : ''}
-    </div>
-  </form>
+    <div class="button-row"><button class="btn primary" ${isConfigured() ? '' : 'disabled'}>${esc(t('connect'))}</button></div>
+  </form>`}
+
+  <h2>${esc(t('gcal'))}</h2>
+  ${gcalSection()}
 
   <div class="button-row subtle">
     <button class="btn small" type="button" data-action="export">${esc(t('export'))}</button>
   </div>`;
 }
+
+function gcalSection() {
+  const st = get('gcal', 'status');
+  if (!st) {
+    return `<p class="hint">${esc(t('gcalIntro'))}</p>
+      <ol class="steps">${[1, 2, 3, 4].map((i) => `<li>${esc(t(`gcalStep${i}`))}</li>`).join('')}</ol>
+      <p class="hint">${esc(t('gcalGuide'))}</p>
+      ${ghConnected() ? `<div class="button-row"><button class="btn small" type="button" data-action="sync-now">${esc(t('gcalCheck'))}</button></div>` : ''}`;
+  }
+  return `<div class="conn-card">
+    <div class="conn-main"><span class="ok-dot ${st.error ? 'bad' : ''}"></span><div><b>${esc(t('gcalLast', new Date(st.lastRun).toLocaleString(getLang())))}</b>
+      <small>${st.error ? '' : esc(t('gcalStats', st.events || 0, (st.imported || []).join(', ') || '—', st.blocks || 0, st.calendar || 'Everyday'))}</small></div></div>
+    ${st.error ? `<p class="conn bad">${esc(st.error)}</p>` : ''}
+    ${ui.gcalMsg ? `<p class="hint">${esc(t(ui.gcalMsg))}</p>` : ''}
+    <label class="check"><input type="checkbox" id="show-events" ${state.settings.showEvents === false ? '' : 'checked'}> ${esc(t('showEvents'))}</label>
+    <div class="button-row"><button class="btn small" type="button" data-action="gcal-now">${esc(t('gcalNow'))}</button></div>
+  </div>`;
+}
+
+// Start the Google Calendar workflow now, then pick up its results a little later.
+async function gcalNow(quiet = false) {
+  const res = await runWorkflow('google-calendar.yml');
+  ui.lastDispatch = Date.now();
+  if (!quiet) { ui.gcalMsg = res === 'ok' ? 'gcalStarted' : res === 'forbidden' ? 'gcalNeedsActions' : 'err_network'; render(); }
+  if (res === 'ok') for (const wait of [45_000, 90_000]) setTimeout(runSync, wait);
+}
+
+// Connected = saved and tested (or, for setups from before this check existed, synced at least once).
+function ghConnected() { return isConfigured() && (state.meta.ghOk ?? Boolean(state.meta.lastSync)); }
 
 function daysLabel(days) {
   const set = new Set(days);
@@ -684,6 +883,7 @@ function daysLabel(days) {
 
 function renderShell() {
   document.title = t('appName');
+  document.body.classList.toggle('has-recipes', ricetteConfigured());
   $('#app-title').textContent = t('appName');
   for (const a of document.querySelectorAll('nav a')) {
     a.querySelector('.label').textContent = t(`tab${a.dataset.tab.charAt(0).toUpperCase()}${a.dataset.tab.slice(1)}`);
@@ -702,16 +902,25 @@ function render() {
   const focusId = active && active.id;
   const typed = focusId && active.tagName === 'INPUT' ? active.value : null;
   for (const a of document.querySelectorAll('nav a')) a.classList.toggle('active', a.dataset.tab === (TAB_OF[r.name] || 'plan'));
+  document.body.classList.toggle('has-recipes', ricetteConfigured());
   let html;
   switch (r.name) {
     case 'tasks': html = viewTasks(); break;
+    case 'recipes': html = viewRecipes(isDate(r.id) ? r.id : null); break;
     case 'settings': html = viewSettings(); break;
     default: html = viewPlan(currentDate());
   }
   view.innerHTML = html;
+  hydratePhotos(view);
   if (focusId) {
     const el = document.getElementById(focusId);
-    if (el) { el.focus(); if (typed != null && el.tagName === 'INPUT') el.value = typed; }
+    if (el) {
+      el.focus();
+      if (typed != null && el.tagName === 'INPUT') {
+        el.value = typed;
+        try { el.setSelectionRange(typed.length, typed.length); } catch { /* not a text field */ }
+      }
+    }
   }
   if ((r.name === 'plan' || !TAB_OF[r.name]) && ui.scrolledFor !== currentDate()) {
     ui.scrolledFor = currentDate();
@@ -727,11 +936,21 @@ function scrollTimeline() {
   window.scrollTo(0, Math.max(0, y));
 }
 
+// Background updates (sync, the clock) re-render only when it can't get in the way:
+// not on settings, not under an open dialog, and not while a finger or mouse is pressed.
 function renderIfSafe() {
   const r = route();
   if (r.name === 'settings' || modal.open || ui.dragging) return;
+  if (ui.pressing) { ui.renderLater = true; return; }
   render();
 }
+document.addEventListener('pointerdown', () => { ui.pressing = true; }, true);
+const released = () => {
+  ui.pressing = false;
+  if (ui.renderLater) { ui.renderLater = false; setTimeout(renderIfSafe, 0); } // after the click is handled
+};
+document.addEventListener('pointerup', released, true);
+document.addEventListener('pointercancel', released, true);
 
 // ---------- dialogs ----------
 
@@ -1048,12 +1267,13 @@ function shoppingSection() {
     <p class="hint">${esc(t('shopHint'))}</p>`;
 }
 
-function openNewMeal() {
-  const date = currentDate();
-  const now = nowMinutes();
-  const start = date === today() && now > 13 * 60 ? 19 * 60 + 30 : date === today() && now > 10 * 60 ? 19 * 60 + 30 : 12 * 60 + 30;
+function openNewMeal(date = currentDate(), recipeId = null, servings = null) {
+  // Lunch if it's still morning today, dinner otherwise.
+  const start = date === today() && nowMinutes() < 10 * 60 ? 12 * 60 + 30 : 19 * 60 + 30;
   if (!recipes().length) { toast(t('noRecipes')); return; }
-  openBlock(null, { kind: 'meal', date, start, minutes: 45, category: 'meals' });
+  const r = recipeId && recipeOf(recipeId);
+  const minutes = r && minutesOf(r) ? Math.ceil(minutesOf(r) / 5) * 5 : 45;
+  openBlock(null, { kind: 'meal', date, start, minutes, category: 'meals', ...(r ? { recipeId: r.id, servings: servings || r.servings || 2 } : {}) });
 }
 
 function openTemplatesMenu() {
@@ -1145,7 +1365,7 @@ function startSuggest() {
   const s = planSettings();
   const from = date === today() ? Math.ceil((nowMinutes() + 5) / 5) * 5 : s.dayStart;
   const tasks = candidates(live('tasks'), plannedTaskIds(), date);
-  const res = suggestDay({ tasks, blocks: blocksOn(date).filter((b) => !b.allowOverlap), date, from, settings: s, leadOf });
+  const res = suggestDay({ tasks, blocks: busyOn(date).filter((b) => !b.allowOverlap), date, from, settings: s, leadOf });
   if (!res.placed.length) { toast(tasks.length ? t('noRoomToday') : t('nothingToSuggest')); return; }
   ui.suggest = { date, ...res, off: new Set() };
   render();
@@ -1167,7 +1387,7 @@ function acceptSuggest() {
 function openSpare(minutes = null) {
   const date = today();
   const now = nowMinutes();
-  const next = blocksOn(date).filter((b) => !b.done && b.start > now).sort((a, b) => a.start - b.start)[0];
+  const next = busyOn(date).filter((b) => !b.done && b.start > now).sort((a, b) => a.start - b.start)[0];
   const untilNext = next ? Math.floor((next.start - now) / 5) * 5 : null;
   const X = minutes || (untilNext && untilNext >= 10 ? Math.min(untilNext, 240) : 30);
   const tasks = candidates(live('tasks'), plannedTaskIds(), date);
@@ -1240,6 +1460,8 @@ view.addEventListener('change', (e) => {
     if (el.checked) ui.suggest.off.delete(id); else ui.suggest.off.add(id);
     render();
   }
+  if (el.id === 'rec-sort') { ui.rec.sort = el.value; render(); }
+  if (el.id === 'show-events') { saveSettings({ showEvents: el.checked }); }
   if (el.id === 'day-picker' && isDate(el.value)) location.hash = `#/plan/${el.value}`;
   if (el.form?.id === 'lang-form') {
     saveSettings({ lang: el.value });
@@ -1268,6 +1490,7 @@ view.addEventListener('click', (e) => {
       return;
     }
     const block = e.target.closest('.block:not(.ghost)');
+    if (block?.classList.contains('event')) { openEvent(get('events', block.dataset.id)); return; }
     if (block && !e.target.closest('.blk-check')) openBlock(get('blocks', block.dataset.id));
     return;
   }
@@ -1290,11 +1513,18 @@ view.addEventListener('click', (e) => {
       const date = currentDate();
       const s = planSettings();
       const from = date === today() ? nowMinutes() : 9 * 60;
-      const start = freeSlot(blocksOn(date), 30, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap }) ?? from;
+      const start = freeSlot(busyOn(date), 30, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap }) ?? from;
       openBlock(null, { date, start });
       break;
     }
-    case 'new-meal': openNewMeal(); break;
+    case 'new-meal': location.hash = `#/recipes/${currentDate()}`; break;
+    case 'rec-open': openRecipe(recipeOf(id)); break;
+    case 'rec-folder': ui.rec.folder = ui.rec.folder === id ? '' : id; render(); break;
+    case 'rec-tag': if (ui.rec.tags.has(id)) ui.rec.tags.delete(id); else ui.rec.tags.add(id); render(); break;
+    case 'rec-cook': ui.rec.canCook = !ui.rec.canCook; render(); break;
+    case 'rec-time': ui.rec.maxMinutes = ui.rec.maxMinutes === Number(id) ? null : Number(id); render(); break;
+    case 'rec-clear': ui.rec = { ...ui.rec, q: '', folder: '', tags: new Set(), canCook: false, maxMinutes: null }; render(); break;
+    case 'event': openEvent(get('events', id)); break;
     case 'templates': openTemplatesMenu(); break;
     case 'suggest': startSuggest(); break;
     case 'sug-accept': acceptSuggest(); break;
@@ -1304,7 +1534,7 @@ view.addEventListener('click', (e) => {
     case 'fix': fixConflict(conflictsOn(currentDate())[Number(btn.dataset.i)]); break;
     case 'allow': {
       const c = conflictsOn(currentDate())[Number(btn.dataset.i)];
-      const b = get('blocks', c.ids[1]);
+      const b = get('blocks', c.ids[1]) || get('blocks', c.ids[0]); // calendar events can't be changed here
       upsert('blocks', { ...b, allowOverlap: true }, { silent: true });
       changed();
       break;
@@ -1327,9 +1557,20 @@ view.addEventListener('click', (e) => {
     case 'cat-new': openCategory(null); break;
     case 'cat-edit': openCategory(get('categories', id)); break;
     case 'sync-now': runSync().then(() => { ui.connMsg = state.meta.lastError ? `err_${state.meta.lastError}` : 'connected'; render(); }); break;
+    case 'gh-edit': ui.editGithub = true; ui.connMsg = ''; render(); break;
+    case 'gh-cancel': ui.editGithub = false; render(); break;
+    case 'gcal-now': gcalNow(); break;
     case 'ric-off': saveSettings({ ricetteRepo: '' }).then(() => { ui.ricMsg = ''; render(); }); break;
     case 'export': exportData(); break;
     default: break;
+  }
+});
+
+view.addEventListener('input', (e) => {
+  if (e.target.id === 'rec-q') {
+    ui.rec.q = e.target.value;
+    const box = $('#rec-results');
+    if (box) { box.innerHTML = recResults(); hydratePhotos(box); }
   }
 });
 
@@ -1370,10 +1611,12 @@ setupDrag(view, {
 async function saveGithub(form) {
   await saveSettings({
     owner: form.owner.value.trim(), repo: form.repo.value.trim(),
-    token: form.token.value.trim(), branch: form.branch.value.trim() || 'main',
+    token: form.token.value.trim() || state.settings.token, branch: form.branch.value.trim() || 'main',
   });
   const res = await testConnection();
   ui.connMsg = res.ok ? 'connected' : `err_${res.error}`;
+  await saveMeta({ ghOk: Boolean(res.ok) });
+  if (res.ok) { ui.editGithub = false; toast(t('connected')); }
   render();
   if (res.ok) {
     await runSync();
@@ -1421,7 +1664,15 @@ async function start() {
   render();
   const kinds = new Set([...COLLECTIONS, ...Object.keys(RICETTE), 'meta']);
   onChange((kind) => { if (kinds.has(kind)) { updateSyncBadge(); renderIfSafe(); } });
-  window.addEventListener('hashchange', () => { if (ui.suggest && ui.suggest.date !== currentDate()) ui.suggest = null; render(); if (route().name !== 'plan') window.scrollTo(0, 0); });
+  let lastTab = TAB_OF[route().name] || 'plan';
+  window.addEventListener('hashchange', () => {
+    if (ui.suggest && ui.suggest.date !== currentDate()) ui.suggest = null;
+    const tab = TAB_OF[route().name] || 'plan';
+    if (tab === 'plan' && lastTab !== 'plan') ui.scrolledFor = null; // back on the planner: jump to now again
+    lastTab = tab;
+    render();
+    if (tab !== 'plan') window.scrollTo(0, 0);
+  });
   window.addEventListener('online', runSync);
   window.addEventListener('offline', () => updateSyncBadge());
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { runSync(); renderIfSafe(); } });
@@ -1436,5 +1687,4 @@ async function start() {
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
-void saveMeta;
 start();
