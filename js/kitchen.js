@@ -86,6 +86,34 @@ export function makeKitchen(store, names = { recipes: 'recipes', pantry: 'pantry
     ensureLowItems();
   }
 
+  // "Put in pantry" for the ticked items: food tops up the matching pantry item (or becomes a new
+  // one); things that aren't food (isFood false) just leave the list. Ricette's own put-away also
+  // asks for expiry dates and barcodes: use that when you want them.
+  function putAway(isFood = () => true, newItem = (it) => ({})) {
+    let n = 0;
+    for (const it of live(S).filter((x) => x.checked)) {
+      if (isFood(it)) {
+        const p = it.pantryId ? get(P, it.pantryId) : findPantry(it.name);
+        const qty = num(it.qty);
+        if (p) {
+          let next = num(p.qty) || 0; let unit = p.unit || '';
+          if (!it.stocked && qty != null) {
+            const add = convert(qty, it.unit || '', unit);
+            if (add != null) next = round(next + add);
+            else if (next <= 0) { next = qty; unit = it.unit || ''; }
+          }
+          upsert(P, { ...p, qty: next, unit });
+        } else {
+          upsert(P, { id: uid(), name: it.name, qty: qty ?? 1, unit: it.unit || '', expires: null, min: null, target: null, brand: '', ...newItem(it) });
+        }
+      }
+      remove(S, it.id);
+      n++;
+    }
+    ensureLowItems();
+    return n;
+  }
+
   // What a recipe for n people needs, against a pantry (by default the real one).
   function planForRecipe(r, n, pantry = live(P)) {
     const base = r.servings || 4;
@@ -155,5 +183,5 @@ export function makeKitchen(store, names = { recipes: 'recipes', pantry: 'pantry
     return count;
   }
 
-  return { addToShopping, ensureLowItems, setChecked, planForRecipe, pantryAfter, missingFor, cook, findPantry };
+  return { addToShopping, ensureLowItems, setChecked, putAway, planForRecipe, pantryAfter, missingFor, cook, findPantry };
 }

@@ -6,7 +6,8 @@
 // Those are "sharded": stored on GitHub as one file per month, e.g. data/blocks/2026-10.json,
 // so each sync only moves a few small files.
 
-export const COLLECTIONS = ['tasks', 'blocks', 'templates', 'categories', 'events', 'gcal'];
+// `shopping` is Everyday's own shopping list, used only while Ricette isn't connected.
+export const COLLECTIONS = ['tasks', 'blocks', 'templates', 'categories', 'events', 'gcal', 'shopping'];
 export const SHARDED = { blocks: 'date', events: 'date' }; // collection -> field holding a YYYY-MM-DD date
 // Local copies of Ricette's data (its private repo), kept in sync the same way.
 // Recipes are only read; the pantry and the shopping list are shared both ways.
@@ -15,7 +16,8 @@ export const RICETTE = {
   r_pantry: 'data/pantry.json', r_shopping: 'data/shopping.json',
 };
 // Written only by others: Ricette's recipes, and the Google Calendar sync (events + its status).
-export const READ_ONLY = new Set(['r_recipes', 'r_folders', 'r_tagdefs', 'r_prefs', 'events', 'gcal']);
+// (Ricette's prefs are shared both ways: list view and department order, one record per setting.)
+export const READ_ONLY = new Set(['r_recipes', 'r_folders', 'r_tagdefs', 'events', 'gcal']);
 const ALL = [...COLLECTIONS, ...Object.keys(RICETTE)];
 const TOMBSTONE_TTL = 90 * 24 * 3600 * 1000;
 
@@ -57,7 +59,7 @@ export async function kvSet(key, value) {
 }
 
 export const state = {
-  tasks: [], blocks: [], templates: [], categories: [], events: [], gcal: [], r_recipes: [], r_folders: [], r_tagdefs: [], r_prefs: [], r_pantry: [], r_shopping: [],
+  tasks: [], blocks: [], templates: [], categories: [], events: [], gcal: [], shopping: [], r_recipes: [], r_folders: [], r_tagdefs: [], r_prefs: [], r_pantry: [], r_shopping: [],
   settings: {
     lang: '', owner: '', repo: '', branch: 'main', token: '',
     dayStart: 6, dayEnd: 23, snap: 15, buffer: 5, maxLoad: 8, ricetteRepo: '',

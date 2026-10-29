@@ -11,9 +11,11 @@ import {
   candidates, suggestDay, spareTime, scoreTask, nearestSlot, placePrep, placeGroceries, findConflicts, recipeMinutes,
 } from './smart.js';
 import { makeKitchen } from './kitchen.js';
+import { DEPTS, DEPT_IDS, NONFOOD, deptIcon, deptOf } from './depts.js';
+import { reorderSubset, byOrder, isDragging } from './sortable.js';
 import { tagsOf, tagLabel, folderOfRecipe, folderTree, filterRecipes, tagCounts, minutesOf } from './recipes.js';
 import { pantryCoverage } from './recipe-tools.js';
-import { formatQty, setDecimalSeparator, namesMatch, addQuantities } from './parse.js';
+import { formatQty, setDecimalSeparator, namesMatch, addQuantities, parseIngredient } from './parse.js';
 import { t, setLang, getLang, LANGS, detectLang } from './i18n.js';
 import { setupDrag } from './drag.js';
 
@@ -43,6 +45,12 @@ const kitchen = makeKitchen({
   upsert: (c, r) => upsert(c, r, { silent: true }),
   remove: (c, id) => remove(c, id),
 }, { recipes: 'r_recipes', pantry: 'r_pantry', shopping: 'r_shopping' });
+// The same rules on Everyday's own list, for when Ricette isn't connected (no pantry then).
+const kitchenOwn = makeKitchen({
+  live, get, uid,
+  upsert: (c, r) => upsert(c, r, { silent: true }),
+  remove: (c, id) => remove(c, id),
+}, { recipes: 'r_recipes', pantry: 'r_pantry', shopping: 'shopping' });
 
 function toast(msg) {
   const el = $('#toast');
@@ -58,7 +66,7 @@ function route() {
   return { name, id: id && decodeURIComponent(id) };
 }
 
-const TAB_OF = { plan: 'plan', tasks: 'tasks', settings: 'settings' };
+const TAB_OF = { plan: 'plan', tasks: 'tasks', shop: 'shop', settings: 'settings' };
 
 function planSettings() {
   const s = state.settings;
@@ -536,6 +544,15 @@ async function runSync() {
   updateSyncBadge();
   renderIfSafe();
   if (state.meta.dirty) { clearTimeout(syncTimer); syncTimer = setTimeout(runSync, 2500); }
+}
+
+// Number of things still to buy, on the Shopping tab.
+function updateShopCount() {
+  const el = $('#shop-count');
+  if (!el) return;
+  const n = live(SH()).filter((i) => !i.checked).length;
+  el.hidden = !n;
+  el.textContent = n > 99 ? '99+' : String(n);
 }
 
 function updateSyncBadge(syncing = isSyncing()) {
@@ -1182,6 +1199,177 @@ function openPicker({ people = 2, selected = [], onDone, onBack }) {
   draw();
 }
 
+// ---------- view: shopping list ----------
+// With Ricette connected this is Ricette's own shopping list (same file, same rules: merge items,
+// departments, drag to order, tick at the shop, put away in the pantry), so groceries from meals
+// and "running low" items are there by themselves, and anything you add here shows up in Ricette
+// too. Without Ricette it's Everyday's own list. Household and personal-care items get departments
+// of their own here.
+
+const SH = () => (ricetteConfigured() ? 'r_shopping' : 'shopping');
+const K = () => (ricetteConfigured() ? kitchen : kitchenOwn);
+// List settings shared with Ricette (data/prefs.json) when connected, else kept on this device.
+function shopPref(id, fallback) {
+  if (ricetteConfigured()) { const p = get('r_prefs', id); return p && p.value !== undefined ? p.value : fallback; }
+  const v = state.settings[`shop_${id}`];
+  return v === undefined ? fallback : v;
+}
+function setShopPref(id, value) {
+  if (ricetteConfigured()) upsert('r_prefs', { id, value }, { silent: true });
+  else saveSettings({ [`shop_${id}`]: value });
+}
+
+const LIST_MODES = ['dept', 'recipe', 'plain'];
+function listMode() { const m = shopPref('listMode', 'dept'); return LIST_MODES.includes(m) ? m : 'dept'; }
+function deptOrder() { return byOrder(DEPT_IDS, shopPref('deptOrder', [])); }
+function shopDept(i) {
+  if (i.cat && DEPT_IDS.includes(i.cat)) return i.cat;
+  const p = ricetteConfigured() && ((i.pantryId && get('r_pantry', i.pantryId)) || K().findPantry(i.name));
+  return p && p.cat && DEPT_IDS.includes(p.cat) ? p.cat : deptOf(i);
+}
+const isFood = (i) => !NONFOOD.includes(shopDept(i));
+
+// Manual order first (drag and drop), then items nobody has placed yet, by name — as in Ricette.
+function byItemOrder(a, b) {
+  const oa = Number.isFinite(a.order) ? a.order : Infinity;
+  const ob = Number.isFinite(b.order) ? b.order : Infinity;
+  if (oa !== ob) return oa - ob;
+  return (a.name || '').localeCompare(b.name || '');
+}
+function recipeGroupOf(i) { return i.auto ? '__pantry' : (i.sources || [])[0] || '__other'; }
+function recipeGroupLabel(k) { return k === '__pantry' ? `🔁 ${t('restock')}` : k === '__other' ? `🧺 ${t('otherItems')}` : `🍽 ${k}`; }
+
+// Open items as the list shows them: [[groupKey, label, items]].
+function listGroups(open, mode = listMode()) {
+  const items = [...open].sort(byItemOrder);
+  if (mode === 'plain') return [['all', '', items]];
+  if (mode === 'recipe') {
+    const groups = new Map(); const first = new Map();
+    for (const i of items) {
+      const k = recipeGroupOf(i);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(i);
+      first.set(k, Math.min(first.get(k) ?? Infinity, i.addedAt || 0));
+    }
+    const natural = [...groups.keys()].sort((a, b) => (a === '__pantry') - (b === '__pantry') || first.get(a) - first.get(b));
+    return byOrder(natural, shopPref('recipeOrder', [])).map((k) => [k, recipeGroupLabel(k), groups.get(k)]);
+  }
+  const groups = new Map(deptOrder().map((c) => [c, []]));
+  for (const i of items) groups.get(shopDept(i)).push(i);
+  return deptOrder().filter((c) => groups.get(c).length).map((c) => [c, `${deptIcon(c)} ${t(`dept_${c}`)}`, groups.get(c)]);
+}
+
+const GRIP = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/></svg>';
+const grip = (id, label) => `<button type="button" class="drag-handle" id="${esc(id)}" aria-label="${esc(t('dragToMove', label))}">${GRIP}</button>`;
+
+function shopRow(i, { drag = false, showSource = true } = {}) {
+  const src = i.auto ? `<span class="badge warn">${esc(t('runningLow'))}</span>`
+    : showSource && (i.sources || []).length ? `<small>${esc(i.sources.join(', '))}</small>` : '';
+  return `<li class="${i.checked ? 'checked' : ''}" ${drag ? `data-sort-key="${esc(i.id)}"` : ''}>
+    ${drag ? grip(`h-${i.id}`, i.name) : ''}
+    <input type="checkbox" data-action="shop-toggle" data-id="${esc(i.id)}" ${i.checked ? 'checked' : ''} aria-label="${esc(i.name)}">
+    <button type="button" class="shop-main" data-action="shop-edit" data-id="${esc(i.id)}">
+      <span class="item-text"><span class="q">${esc(qtyText(i.qty, i.unit))}</span> ${esc(i.name)}${i.note ? ` <small class="inline">(${esc(i.note)})</small>` : ''} ${src}</span>
+    </button>
+    <button class="icon" type="button" data-action="shop-del" data-id="${esc(i.id)}" aria-label="${esc(t('remove'))}">×</button>
+  </li>`;
+}
+
+function viewShop() {
+  const items = live(SH());
+  const mode = listMode();
+  const open = items.filter((i) => !i.checked);
+  const done = items.filter((i) => i.checked).sort(byItemOrder);
+  const groups = listGroups(open, mode);
+  const grouped = mode !== 'plain';
+  const body = grouped
+    ? `<div class="groups" data-sortable="groups" data-group="${mode}">${groups.map(([k, label, list]) => `
+      <section class="grp" data-sort-key="${esc(k)}">
+        <h3 class="dept-h">${grip(`g-${mode}-${k}`, label)}<span>${esc(label)}</span><small>${list.length}</small></h3>
+        <ul class="list shop" data-sortable="items" data-group="${esc(k)}">${list.map((i) => shopRow(i, { drag: true, showSource: mode !== 'recipe' })).join('')}</ul>
+      </section>`).join('')}</div>`
+    : `<ul class="list shop" data-sortable="items" data-group="all">${groups[0][2].map((i) => shopRow(i, { drag: true })).join('')}</ul>`;
+  const food = done.filter(isFood).length;
+  return `
+  <h1>${esc(t('tabShop'))}</h1>
+  <p class="hint">${esc(ricetteConfigured() ? t('shopFromRicette') : t('shopOwn'))}</p>
+  <form id="shop-add" class="row">
+    <input name="item" id="shop-add-input" required placeholder="${esc(t('shopAddPh'))}" autocomplete="off">
+    <button class="btn primary" aria-label="${esc(t('add'))}">+</button>
+  </form>
+  <div class="seg" role="radiogroup" aria-label="${esc(t('listView'))}">
+    ${LIST_MODES.map((m) => `<button type="button" role="radio" aria-checked="${m === mode}" class="${m === mode ? 'on' : ''}" data-action="list-mode" data-id="${m}">${esc(t(`listMode_${m}`))}</button>`).join('')}
+  </div>
+  ${open.length ? `${body}
+    <p class="hint">${esc(t(grouped ? 'dragHintGroups' : 'dragHintItems'))}</p>
+    <button class="btn" type="button" data-action="shop-share">${esc(t('shareList'))}</button>` : `<p class="empty">${esc(t('listEmpty'))}</p>`}
+  ${done.length ? `<h2>${esc(t('inCart'))} <small>${done.length}</small></h2><ul class="list shop done">${done.map((i) => shopRow(i)).join('')}</ul>
+    <div class="button-row">
+      <button class="btn primary" type="button" data-action="shop-putaway">📦 ${esc(ricetteConfigured() && food ? t('putAway') : t('doneShopping'))}</button>
+      ${ricetteConfigured() ? `<button class="btn" type="button" data-action="shop-clear">${esc(t('clearChecked'))}</button>` : ''}
+    </div>
+    ${ricetteConfigured() ? `<p class="hint">${esc(t('putAwayFood'))}</p>` : ''}` : ''}`;
+}
+
+function shopAdd(text) {
+  const ing = parseIngredient(text);
+  if (!ing.name) return;
+  K().addToShopping({ name: ing.name, qty: ing.qty, unit: ing.unit, note: ing.note }, '');
+  // Give it its department straight away (so Everyday's household/personal-care ones stick).
+  const it = live(SH()).filter((x) => !x.checked && namesMatch(x.name, ing.name)).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
+  if (it && !it.cat) upsert(SH(), { ...it, cat: deptOf(it) }, { silent: true });
+}
+
+function openShopItem(it) {
+  const units = ['', 'g', 'kg', 'ml', 'l', 'pcs', 'packet', 'can', 'tbsp', 'tsp', 'bunch', 'slice'];
+  if (it.unit && !units.includes(it.unit)) units.push(it.unit);
+  const dept = shopDept(it);
+  openModal(`
+    <h2>${esc(it.name)}</h2>
+    <label>${esc(t('name'))}<input name="name" required value="${esc(it.name)}" autocomplete="off"></label>
+    <div class="two">
+      <label>${esc(t('quantity'))}<input name="qty" inputmode="decimal" value="${esc(it.qty ?? '')}"></label>
+      <label>${esc(t('unit'))}<select name="unit">${units.map((u) => `<option value="${esc(u)}" ${u === (it.unit || '') ? 'selected' : ''}>${esc(u || '—')}</option>`).join('')}</select></label>
+    </div>
+    <label>${esc(t('department'))}<select name="cat">${DEPTS.map((d) => `<option value="${d.id}" ${d.id === dept ? 'selected' : ''}>${d.icon} ${esc(t(`dept_${d.id}`))}</option>`).join('')}</select></label>
+    <label>${esc(t('notes'))}<input name="note" value="${esc(it.note || '')}" autocomplete="off"></label>
+    ${(it.sources || []).length ? `<p class="hint">${esc(t('forRecipes', it.sources.join(', ')))}</p>` : ''}
+    <div class="button-row">
+      <button class="btn primary" value="ok">${esc(t('save'))}</button>
+      <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
+      <button class="btn danger" value="delete" formnovalidate>${esc(t('delete'))}</button>
+    </div>`, (form, action) => {
+    if (action === 'delete') { remove(SH(), it.id); changed(); return; }
+    const q = form.qty.value.trim().replace(',', '.');
+    upsert(SH(), {
+      ...get(SH(), it.id), name: form.name.value.trim() || it.name, qty: q === '' ? null : Number(q) || null,
+      unit: form.unit.value, cat: form.cat.value, note: form.note.value.trim(),
+    }, { silent: true });
+    changed();
+  });
+}
+
+// After a drag: save the new order of the items, or of the groups (shared with Ricette).
+function onSorted({ kind, group, keys }) {
+  if (kind === 'items') {
+    const open = live(SH()).filter((i) => !i.checked);
+    const flat = listGroups(open).flatMap(([k, , list]) => (k === group ? keys.map((id) => list.find((i) => i.id === id)).filter(Boolean) : list));
+    flat.forEach((i, n) => { if (i.order !== n) upsert(SH(), { ...i, order: n }, { silent: true }); });
+  } else if (kind === 'groups') {
+    if (group === 'dept') setShopPref('deptOrder', reorderSubset(deptOrder(), keys));
+    else if (group === 'recipe') setShopPref('recipeOrder', reorderSubset(shopPref('recipeOrder', []), keys).slice(-200));
+  }
+  changed();
+}
+
+async function shareShopList() {
+  const line = (i) => `• ${[qtyText(i.qty, i.unit), i.name].filter(Boolean).join(' ')}`;
+  const text = listGroups(live(SH()).filter((i) => !i.checked))
+    .map(([, label, items]) => [label, ...items.map(line)].filter(Boolean).join('\n')).join('\n\n');
+  if (navigator.share) { try { await navigator.share({ title: t('tabShop'), text }); } catch { /* cancelled */ } return; }
+  try { await navigator.clipboard.writeText(text); toast(t('copied')); } catch { /* ignore */ }
+}
+
 // ---------- view: tasks ----------
 
 function viewTasks() {
@@ -1398,9 +1586,11 @@ function render() {
   const focusId = active && active.id;
   const typed = focusId && active.tagName === 'INPUT' ? active.value : null;
   for (const a of document.querySelectorAll('nav a')) a.classList.toggle('active', a.dataset.tab === (TAB_OF[r.name] || 'plan'));
+  updateShopCount();
   let html;
   switch (r.name) {
     case 'tasks': html = viewTasks(); break;
+    case 'shop': html = viewShop(); break;
     case 'settings': html = viewSettings(); break;
     default: html = viewPlan(currentDate());
   }
@@ -1453,7 +1643,7 @@ function scrollTimeline() {
 function renderIfSafe() {
   const r = route();
   if (r.name === 'settings' || modal.open || ui.dragging) return;
-  if (ui.pressing || typing()) { ui.renderLater = true; return; }
+  if (ui.pressing || typing() || isDragging()) { ui.renderLater = true; return; }
   // Several changes in a row (one per synced file) make a single redraw.
   if (ui.renderQueued) return;
   ui.renderQueued = true;
@@ -2002,6 +2192,11 @@ view.addEventListener('submit', (e) => {
     form.title.value = '';
     changed();
     document.getElementById(form.id === 'task-add' ? 'task-input' : 'side-add-input')?.focus();
+  } else if (form.id === 'shop-add') {
+    shopAdd(form.item.value);
+    form.item.value = '';
+    changed();
+    $('#shop-add-input')?.focus();
   } else if (form.id === 'gh-form') saveGithub(form);
   else if (form.id === 'ric-form') saveRicette(form);
 });
@@ -2015,6 +2210,7 @@ view.addEventListener('change', (e) => {
     setTaskDone(task, el.checked);
     changed();
   }
+  if (action === 'shop-toggle') { K().setChecked(id, el.checked); changed(); return; }
   if (action === 'block-done') {
     const ok = trySetBlockDone(get('blocks', id), el.checked);
     if (!ok) { el.checked = false; return; }
@@ -2113,6 +2309,17 @@ view.addEventListener('click', (e) => {
       break;
     }
     case 'task-edit': openTask(get('tasks', id)); break;
+    case 'list-mode': setShopPref('listMode', id); changed(); break;
+    case 'shop-edit': openShopItem(get(SH(), id)); break;
+    case 'shop-del': remove(SH(), id); changed(); break;
+    case 'shop-share': shareShopList(); break;
+    case 'shop-clear': for (const i of live(SH()).filter((x) => x.checked)) remove(SH(), i.id); changed(); break;
+    case 'shop-putaway': {
+      const n = K().putAway(isFood, (it) => ({ cat: DEPT_IDS.includes(shopDept(it)) && !NONFOOD.includes(shopDept(it)) ? shopDept(it) : null }));
+      toast(t('putAwayDone', n));
+      changed();
+      break;
+    }
     case 'toggle-done': ui.showDone = !ui.showDone; render(); break;
     case 'toggle-helpers': ui.showHelpers = !ui.showHelpers; render(); break;
     case 'clear-done':
@@ -2141,6 +2348,8 @@ modal.addEventListener('click', (e) => {
   modal.close();
   setTimeout(() => openTask(task), 0);
 });
+
+view.addEventListener('sorted', (e) => onSorted(e.detail));
 
 setupDrag(view, {
   dragging: (on) => { ui.dragging = on; document.body.classList.toggle('is-dragging', on); },
@@ -2193,6 +2402,11 @@ async function saveRicette(form) {
   if (res.ok) {
     await saveSettings({ ricetteRepo: repo });
     await runSync();
+    // Items added to Everyday's own list before connecting move to Ricette's list.
+    const own = live('shopping');
+    for (const it of own) upsert('r_shopping', { ...it }, { silent: true });
+    for (const it of own) remove('shopping', it.id);
+    if (own.length) await runSync();
     if (state.meta.lastError) ui.ricMsg = `err_${state.meta.lastError}`;
   }
   render();
@@ -2224,6 +2438,15 @@ function handleShortcut() {
   if (go === 'add') setTimeout(() => $('#task-input')?.focus(), 50);
   if (go === 'time') setTimeout(openSpare, 50);
   if (go === 'meal') setTimeout(() => { ui.mealDate = today(); openMeal(null); }, 50);
+}
+
+function showUpdateBar() {
+  if ($('.update-bar')) return;
+  const bar = document.createElement('div');
+  bar.className = 'update-bar';
+  bar.innerHTML = `<span>${esc(t('newVersion'))}</span><button class="btn small primary" type="button">${esc(t('reloadNow'))}</button>`;
+  bar.querySelector('button').addEventListener('click', () => location.reload());
+  document.body.append(bar);
 }
 
 // ---------- start ----------
@@ -2267,7 +2490,14 @@ async function start() {
     if (state.blocks.length !== n || stamp !== JSON.stringify(state.blocks.slice(0, n).map((b) => b.outcome || b.missedAt || ''))) changed();
     runSync();
   }, 60_000);
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  // New versions: the service worker installs them in the background; then a bar offers to reload.
+  if ('serviceWorker' in navigator) {
+    const had = Boolean(navigator.serviceWorker.controller);
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) showUpdateBar(); });
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+    }).catch(() => {});
+  }
 }
 
 start();
