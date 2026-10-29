@@ -247,3 +247,46 @@ export function recipeMinutes(text) {
   if (!h && !m) { const n = s.match(/^(\d+)$/); if (n) total = Number(n[1]); }
   return total || null;
 }
+
+// ---------- spread tasks over several days ----------
+// For the planner's tray: put tasks on a set of days. Each task goes on or before its due date,
+// the most urgent and important first; among the days it may go on, it prefers the emptiest
+// (earlier days win ties, the more so the more important or the sooner due it is), and only where
+// it fits in a free gap without the day going over its limit. `days` = [{date, blocks, from}]:
+// blocks already there (busy time) and the earliest start (now, for today). Returns placements
+// like suggestDay ({taskId, date, start, minutes, lead}) and what couldn't be placed.
+export function spreadTasks({ tasks, days, settings, leadOf = () => 0, now = Date.now() }) {
+  const s = { dayStart: 360, dayEnd: 1380, snap: 15, buffer: 5, maxLoad: 480, ...settings };
+  if (!days.length) return { placed: [], skipped: tasks.map((t) => ({ taskId: t.id, why: 'nodays' })) };
+  const busy = new Map(days.map((d) => [d.date, [...d.blocks]]));
+  const load = new Map(days.map((d) => [d.date, d.blocks.reduce((n, b) => n + (b.minutes || 0), 0)]));
+  const first = days[0].date;
+  const ranked = tasks.map((t) => ({ t, ...scoreTask(t, first, now) }))
+    .sort((a, b) => b.score - a.score || (b.t.minutes || 30) - (a.t.minutes || 30) || String(a.t.id).localeCompare(String(b.t.id)));
+  const placed = []; const skipped = [];
+  for (const { t, score, reasons } of ranked) {
+    const minutes = t.minutes || 30;
+    const lead = leadOf(t);
+    const need = lead + minutes;
+    let allowed = days.filter((d) => !t.due || d.date <= t.due);
+    if (!allowed.length) allowed = [days[0]]; // already late: as soon as possible
+    const bias = 6 + Math.max(0, importanceOf(t) - 3) * 20 + (t.due ? 25 : 0);
+    let best = null;
+    allowed.forEach((d, i) => {
+      if (load.get(d.date) + need > s.maxLoad) return;
+      const free = freeIntervals(busy.get(d.date), { from: d.from ?? s.dayStart, dayStart: s.dayStart, dayEnd: s.dayEnd, buffer: s.buffer });
+      const win = WINDOWS[t.when];
+      let at = win ? fit(free, need, { snap: s.snap, window: win }) : null;
+      if (at == null) at = fit(free, need, { snap: s.snap });
+      if (at == null) return;
+      const cost = load.get(d.date) + i * bias;
+      if (!best || cost < best.cost) best = { d, at, cost };
+    });
+    if (!best) { skipped.push({ taskId: t.id, why: allowed.some((d) => load.get(d.date) + need <= s.maxLoad) ? 'nofit' : 'full' }); continue; }
+    placed.push({ taskId: t.id, date: best.d.date, start: best.at + lead, minutes, lead, score, reasons });
+    busy.get(best.d.date).push({ start: best.at, minutes: need });
+    load.set(best.d.date, load.get(best.d.date) + need);
+  }
+  placed.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.start - b.start));
+  return { placed, skipped };
+}
