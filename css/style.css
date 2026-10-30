@@ -805,3 +805,32 @@ body.is-dragging .tray { opacity: .92; }
 .add-opt .item-text small { color: var(--muted); }
 .task-search { margin: 8px 0 4px; }
 .task-search input { width: 100%; margin: 0; }
+
+/* Busy bars on every view (not only while assigning) */
+.day-head .load { width: auto; max-width: 50%; left: 25%; right: 25%; margin: 0 auto; }
+.load.empty .ld-track { opacity: .55; }
+.wk-day .load small, .m-cell .load small { font-size: .62rem; }
+
+/* "Already planned": folded at the bottom of the tray, the To-plan panel and the task picker */
+.tray-planned { margin: 8px 0 4px; border-top: 1px solid var(--line); padding-top: 6px; }
+.tray-planned summary { cursor: pointer; font-size: .82rem; font-weight: 700; color: var(--muted); list-style: none; padding: 4px 2px; }
+.tray-planned summary::-webkit-details-marker { display: none; }
+.tray-planned summary::before { content: "▸ "; }
+.tray-planned[open] summary::before { content: "▾ "; }
+.tray-planned .hint { font-size: .76rem; margin: 2px 0 6px; }
+.tp-planned { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 10px; color: var(--muted); text-decoration: none; font-size: .88rem; }
+.tp-planned:hover { background: var(--surface); }
+.tp-planned span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-planned small { white-space: nowrap; }
+.tp-planned .tp-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); flex: none; opacity: .6; }
+.tp-grp.planned .tp-item { opacity: .6; }
+.tp-note { font-size: .76rem; margin: 2px 10px 6px; }
+.item-shops { color: var(--muted); font-size: .76rem; white-space: nowrap; }
+.sync-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: .8rem; color: var(--muted); margin: -4px 0 10px; }
+.sync-line .ok-dot { margin-top: 0; width: 8px; height: 8px; }
+.sync-line a { color: var(--accent); }
+/* The tray never takes more than about half the screen: its task list shrinks first. */
+.tray.open { max-height: 52vh; display: flex; flex-direction: column; }
+.tray.open > * { flex: none; }
+.tray.open > .tray-list { flex: 1 1 auto; min-height: 64px; max-height: min(30vh, 280px); }
+.tray.open > .tray-planned[open] { overflow-y: auto; max-height: 22vh; flex: 0 1 auto; }

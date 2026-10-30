@@ -120,6 +120,27 @@ const isTodo = (x) => !x.helper && !x.routine;
 function openTasks() { return live('tasks').filter((x) => !x.done && isTodo(x)); }
 
 // Tasks with a block today or later that isn't finished yet.
+// The next open block of a task (today on), or null.
+function nextPlanned(id) {
+  const td = today();
+  return live('blocks').filter((b) => b.taskId === id && !b.done && !b.outcome && b.date >= td && b.kind !== 'prep')
+    .sort((a, b) => (a.date === b.date ? a.start - b.start : a.date < b.date ? -1 : 1))[0] || null;
+}
+// Already on the plan, so not to plan again: one-off tasks with an open block from today on (tasks to do
+// "X times" or step by step still count as to plan while occurrences or steps are left).
+function alreadyPlanned() {
+  const ids = plannedTaskIds();
+  return openTasks().filter((x) => ids.has(x.id) && x.repeat !== 'times' && !splitsSteps(x) && !x.repeat);
+}
+// "Already planned": a folded list at the bottom of the planning panels, each one a link to its day.
+function plannedList(list, action, open) {
+  if (!list.length) return '';
+  return `<details class="tray-planned"${open ? ' open' : ''}><summary data-action="${action}">📅 ${esc(t('grp_planned'))} <small>${list.length}</small></summary>
+    <p class="hint">${esc(t('plannedNote'))}</p>
+    ${sortTasks(list, today()).map((x) => { const b = nextPlanned(x.id); return `<a class="tp-planned" href="#/plan/${esc(b.date)}" style="--c:${esc(catColor(x.category) || 'var(--accent)')}"><span class="tp-dot"></span><span>${esc(x.title)}</span><small>${esc(plannedWhen(x))}</small></a>`; }).join('')}
+  </details>`;
+}
+function plannedWhen(x) { const b = nextPlanned(x.id); return b ? t('plannedAt', relDay(b.date), fmtTime(b.start)) : ''; }
 function plannedTaskIds() {
   const td = today();
   return new Set(live('blocks').filter((b) => b.taskId && !b.done && !b.outcome && b.date >= td && b.kind !== 'prep').map((b) => b.taskId));
@@ -658,25 +679,34 @@ function openImport(draft = null) {
 // A searchable list of tasks to pick from: to-dos by when they're due, then saved tasks and small steps.
 function taskPickList(selected = null) {
   const td = today();
-  const g = groupTasks(openTasks(), td);
-  const item = (x) => `<button type="button" class="tp-item${x.id === selected ? ' on' : ''}" data-tp="${esc(x.id)}" data-q="${esc(x.title.toLowerCase())}" style="--c:${esc(catColor(x.category) || 'var(--accent)')}">
-      <span class="tp-dot"></span><span class="tp-text"><span>${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}</span><small>${esc([fmtDur(x.minutes || 30), x.due ? (x.due < td ? t('late') : relDay(x.due)) : '', x.helper ? t('stepLabel') : '', x.routine ? t('savedLabel') : ''].filter(Boolean).join(' · '))}</small></span></button>`;
+  const done = new Set(alreadyPlanned().map((x) => x.id));
+  const g = groupTasks(openTasks().filter((x) => !done.has(x.id)), td);
+  const item = (x) => `<button type="button" class="tp-item${x.id === selected ? ' on' : ''}" data-tp="${esc(x.id)}" data-q="${esc(fold(x.title))}" ${done.has(x.id) ? `data-planned="${esc(plannedWhen(x))}"` : ''} style="--c:${esc(catColor(x.category) || 'var(--accent)')}">
+      <span class="tp-dot"></span><span class="tp-text"><span>${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}</span><small>${esc([fmtDur(x.minutes || 30), x.due ? (x.due < td ? t('late') : relDay(x.due)) : '', x.helper ? t('stepLabel') : '', x.routine ? t('savedLabel') : '', done.has(x.id) ? `📅 ${plannedWhen(x)}` : ''].filter(Boolean).join(' · '))}</small></span></button>`;
   const groups = [
     ...['overdue', 'today', 'upcoming', 'anytime'].map((k) => [t(`grp_${k}`), sortTasks(g[k], td)]),
     [t('savedTasks'), savedTasks().filter((x) => !x.meal)],
     [t('preparations'), live('tasks').filter((x) => x.helper && !x.check)],
+    [t('grp_planned'), sortTasks(alreadyPlanned(), td), true],
   ].filter(([, l]) => l.length);
   return `<input type="search" class="tp-q" placeholder="${esc(t('searchTasks'))}" autocomplete="off" aria-label="${esc(t('searchTasks'))}">
-    <div class="tp-list">${groups.map(([label, l]) => `<div class="tp-grp"><div class="tp-h">${esc(label)} <small>${l.length}</small></div>${l.map(item).join('')}</div>`).join('')}</div>`;
+    <div class="tp-list">${groups.map(([label, l, planned]) => `<div class="tp-grp${planned ? ' planned' : ''}"><div class="tp-h">${esc(label)} <small>${l.length}</small></div>${planned ? `<p class="hint tp-note">${esc(t('plannedNote'))}</p>` : ''}${l.map(item).join('')}</div>`).join('')}</div>`;
 }
 function wirePicker(root, onPick) {
   const q = root.querySelector('.tp-q');
   q?.addEventListener('input', () => {
-    const v = q.value.trim().toLowerCase();
+    const v = fold(q.value.trim());
     for (const el of root.querySelectorAll('.tp-item')) el.hidden = Boolean(v) && !el.dataset.q.includes(v);
     for (const gEl of root.querySelectorAll('.tp-grp')) gEl.hidden = ![...gEl.querySelectorAll('.tp-item')].some((el) => !el.hidden);
   });
-  root.addEventListener('click', (ev) => { const b = ev.target.closest('[data-tp]'); if (b) { ev.preventDefault(); onPick(b.dataset.tp); } });
+  root.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-tp]');
+    if (!b) return;
+    ev.preventDefault();
+    // Already on the plan: only on purpose.
+    if (b.dataset.planned && !confirm(t('planAgain', b.dataset.planned))) return;
+    onPick(b.dataset.tp);
+  });
 }
 // "+ Add → Task": an existing task (or a new one) on this day, at a time you confirm.
 function openTaskAdd(date) {
@@ -1151,7 +1181,8 @@ function viewDay(date) {
       ${toPlan.length ? `
         ${due.length ? `<div class="chips">${due.map(chip).join('')}</div>` : ''}
         ${anytime.length ? `<div class="sub">${esc(t('anytime'))}</div><div class="chips">${anytime.map(chip).join('')}</div>` : ''}
-        <p class="hint">${esc(t('chipHint'))}</p>` : `<p class="hint">${esc(t('nothingToPlan'))}</p>`}`}
+        <p class="hint">${esc(t('chipHint'))}</p>` : `<p class="hint">${esc(t('nothingToPlan'))}</p>`}
+      ${plannedList(date >= td ? alreadyPlanned() : [], 'side-planned', ui.sidePlanned)}`}
     </aside>
     <section>
       ${conflictBanner(date)}
@@ -1922,6 +1953,8 @@ function listGroups(open, mode = listMode()) {
 const GRIP = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/></svg>';
 const grip = (id, label) => `<button type="button" class="drag-handle" id="${esc(id)}" aria-label="${esc(t('dragToMove', label))}">${GRIP}</button>`;
 
+// The shops an item names (live ones), for its row.
+function itemShops(i) { return (i.shops || []).map(shopName).filter(Boolean).join(', '); }
 function shopRow(i, { drag = false, showSource = true } = {}) {
   const src = i.auto ? `<span class="badge warn">${esc(t('runningLow'))}</span>`
     : showSource && (i.sources || []).length ? `<small>${esc(i.sources.join(', '))}</small>` : '';
@@ -1929,7 +1962,7 @@ function shopRow(i, { drag = false, showSource = true } = {}) {
     ${drag ? grip(`h-${i.id}`, i.name) : ''}
     <input type="checkbox" data-action="shop-toggle" data-id="${esc(i.id)}" ${i.checked ? 'checked' : ''} aria-label="${esc(i.name)}">
     <button type="button" class="shop-main" data-action="shop-edit" data-id="${esc(i.id)}">
-      <span class="item-text"><span class="q">${esc(qtyText(i.qty, i.unit))}</span> ${esc(i.name)}${i.note ? ` <small class="inline">(${esc(i.note)})</small>` : ''} ${src}</span>
+      <span class="item-text"><span class="q">${esc(qtyText(i.qty, i.unit))}</span> ${esc(i.name)}${i.note ? ` <small class="inline">(${esc(i.note)})</small>` : ''} ${src}${itemShops(i) ? ` <small class="item-shops">🏪 ${esc(itemShops(i))}</small>` : ''}</span>
     </button>
     <button class="icon" type="button" data-action="shop-del" data-id="${esc(i.id)}" aria-label="${esc(t('remove'))}">×</button>
   </li>`;
@@ -1953,6 +1986,9 @@ function viewShop() {
   return `
   <h1>${esc(t('tabShop'))}</h1>
   <p class="hint">${esc(ricetteConfigured() ? t('shopFromRicette') : t('shopOwn'))}</p>
+  ${ricetteConfigured()
+    ? `<p class="sync-line"><span class="ok-dot"></span>${esc(state.meta.ricetteSynced ? t('ricetteSyncedAt', new Date(state.meta.ricetteSynced).toLocaleTimeString(getLang(), { hour: '2-digit', minute: '2-digit', hour12: false })) : t('ricetteNotYet'))} <button class="linkish" type="button" data-action="sync-now">↻ ${esc(t('syncNow'))}</button></p>`
+    : `<p class="sync-line"><a href="#/settings">${esc(t('connectRicette'))}</a></p>`}
   <form id="shop-add" class="row">
     <input name="item" id="shop-add-input" required placeholder="${esc(t('shopAddPh'))}" autocomplete="off">
     <button class="btn primary" aria-label="${esc(t('add'))}">+</button>
@@ -1961,7 +1997,7 @@ function viewShop() {
     ${listModes().map((m) => `<button type="button" role="radio" aria-checked="${m === mode}" class="${m === mode ? 'on' : ''}" data-action="list-mode" data-id="${m}">${esc(t(`listMode_${m}`))}</button>`).join('')}
   </div>
   ${open.length ? `${body}
-    <p class="hint">${esc(t(grouped ? 'dragHintGroups' : 'dragHintItems'))}</p>
+    <p class="hint">${esc(t(grouped ? 'dragHintGroups' : 'dragHintItems'))} ${esc(t('tapItemHint'))}</p>
     <div class="button-row">
       <button class="btn primary" type="button" data-action="plan-trips">🛒 ${esc(t('planTrips'))}</button>
       <button class="btn" type="button" data-action="shop-share">${esc(t('shareList'))}</button>
@@ -1984,34 +2020,48 @@ function shopAdd(text) {
   if (it && !it.cat) upsert(SH(), { ...it, cat: deptOf(it) }, { silent: true });
 }
 
-function openShopItem(it) {
+function openShopItem(it, draft = null) {
   const units = ['', 'g', 'kg', 'ml', 'l', 'pcs', 'packet', 'can', 'tbsp', 'tsp', 'bunch', 'slice'];
   if (it.unit && !units.includes(it.unit)) units.push(it.unit);
-  const dept = shopDept(it);
+  // What's typed so far (kept when a new shop is added from here).
+  const x = draft || { name: it.name, qty: it.qty ?? '', unit: it.unit || '', cat: shopDept(it), note: it.note || '', shops: [...(it.shops || [])] };
+  const dept = x.cat;
   openModal(`
     <h2>${esc(it.name)}</h2>
-    <label>${esc(t('name'))}<input name="name" required value="${esc(it.name)}" autocomplete="off"></label>
+    <label>${esc(t('name'))}<input name="name" required value="${esc(x.name)}" autocomplete="off"></label>
     <div class="two">
-      <label>${esc(t('quantity'))}<input name="qty" inputmode="decimal" value="${esc(it.qty ?? '')}"></label>
-      <label>${esc(t('unit'))}<select name="unit">${units.map((u) => `<option value="${esc(u)}" ${u === (it.unit || '') ? 'selected' : ''}>${esc(u || '—')}</option>`).join('')}</select></label>
+      <label>${esc(t('quantity'))}<input name="qty" inputmode="decimal" value="${esc(x.qty ?? '')}"></label>
+      <label>${esc(t('unit'))}<select name="unit">${units.map((u) => `<option value="${esc(u)}" ${u === (x.unit || '') ? 'selected' : ''}>${esc(u || '—')}</option>`).join('')}</select></label>
     </div>
     <label>${esc(t('department'))}<select name="cat">${DEPTS.map((d) => `<option value="${d.id}" ${d.id === dept ? 'selected' : ''}>${d.icon} ${esc(t(`dept_${d.id}`))}</option>`).join('')}</select></label>
-    <label>${esc(t('notes'))}<input name="note" value="${esc(it.note || '')}" autocomplete="off"></label>
-    ${shopsList().length ? `<div class="field-label">🏪 ${esc(t('whichShops'))}</div>
-    <div class="days shops-pick">${shopsList().map((sh) => `<label class="day-pill"><input type="checkbox" name="shops" value="${esc(sh.id)}" ${(it.shops || []).includes(sh.id) ? 'checked' : ''}><span>${esc(sh.name)}</span></label>`).join('')}</div>
-    <small class="hint">${esc(t('whichShopsHint'))}</small>` : ''}
+    <label>${esc(t('notes'))}<input name="note" value="${esc(x.note || '')}" autocomplete="off"></label>
+    <div class="field-label">🏪 ${esc(t('whichShops'))}</div>
+    ${shopsList().length ? `<div class="days shops-pick">${shopsList().map((sh) => `<label class="day-pill"><input type="checkbox" name="shops" value="${esc(sh.id)}" ${x.shops.includes(sh.id) ? 'checked' : ''}><span>${esc(sh.name)}</span></label>`).join('')}</div>` : ''}
+    <div class="row tight"><input name="newShop" placeholder="${esc(t('newShopPh'))}" autocomplete="off" aria-label="${esc(t('newShop'))}"><button class="btn small" value="shop-add" formnovalidate>+ ${esc(t('newShop'))}</button></div>
+    <small class="hint">${esc(t(shopsList().length ? 'whichShopsHint' : 'noShopsYet'))}</small>
     ${(it.sources || []).length ? `<p class="hint">${esc(t('forRecipes', it.sources.join(', ')))}</p>` : ''}
     <div class="button-row">
       <button class="btn primary" value="ok">${esc(t('save'))}</button>
       <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
       <button class="btn danger" value="delete" formnovalidate>${esc(t('delete'))}</button>
-    </div>`, (form, action) => {
+    </div>`, (form, action, e) => {
     if (action === 'delete') { remove(SH(), it.id); changed(); return; }
+    const picked = [...form.querySelectorAll('input[name=shops]:checked')].map((el) => el.value);
+    // A new shop, straight from here: created (always open; hours can be added in Settings) and ticked.
+    if (action === 'shop-add') {
+      e.preventDefault();
+      const name = form.newShop.value.trim();
+      if (!name) return;
+      const found = shopsList().find((sh) => fold(sh.name) === fold(name));
+      const sh = found || upsert(SHOPS(), { id: uid(), name, minutes: 30, hours: [], place: '', link: '', order: shopsList().length }, { silent: true });
+      openShopItem(it, { name: form.elements.namedItem('name').value, qty: form.qty.value, unit: form.unit.value, cat: form.cat.value, note: form.note.value, shops: [...new Set([...picked, sh.id])] });
+      return;
+    }
     const q = form.qty.value.trim().replace(',', '.');
     upsert(SH(), {
       ...get(SH(), it.id), name: form.name.value.trim() || it.name, qty: q === '' ? null : Number(q) || null,
       unit: form.unit.value, cat: form.cat.value, note: form.note.value.trim(),
-      ...(shopsList().length ? { shops: [...form.querySelectorAll('input[name=shops]:checked')].map((el) => el.value) } : {}),
+      shops: picked,
     }, { silent: true });
     changed();
   });
@@ -3444,6 +3494,8 @@ view.addEventListener('click', (e) => {
     case 'auto': openAutoPlanner(); break;
     case 'assign': ui.assign = ui.assign ? null : { sel: new Set(), ghosts: [], range: null, opts: false, open: true, q: '' }; ui.suggest = null; render(); break;
     case 'tray-toggle': ui.assign.open = !ui.assign.open; render(); break;
+    case 'tray-planned': e.preventDefault(); ui.assign.showPlanned = !ui.assign.showPlanned; render(); break;
+    case 'side-planned': e.preventDefault(); ui.sidePlanned = !ui.sidePlanned; render(); break;
     case 'import': openImport(); break;
     case 'assign-close': ui.assign = null; render(); break;
     case 'assign-opts': ui.assign.opts = !ui.assign.opts; render(); break;
@@ -3700,11 +3752,12 @@ function hoursShort(m) {
   return `${h || ''}${['', '¼', '½', '¾'][q % 4]}h`;
 }
 function loadBar(date, { text = true } = {}) {
-  if (!ui.assign || date < today()) return '';
+  // Shown in every view (not only while assigning): how full each day is against your daily limit.
+  if (date < today()) return '';
   const { now, add, limit } = loadOf(date);
   const pct = (v) => Math.min(100, (v / limit) * 100);
   const over = now + add > limit;
-  return `<span class="load${over ? ' over' : ''}${now >= limit ? ' full' : ''}" data-drop="${date}" title="${esc(t('loadTitle', fmtDur(now), fmtDur(now + add), fmtDur(limit)))}">
+  return `<span class="load${over ? ' over' : ''}${now >= limit ? ' full' : ''}${now || add ? '' : ' empty'}" ${ui.assign ? `data-drop="${date}"` : ''} title="${esc(t('loadTitle', fmtDur(now), fmtDur(now + add), fmtDur(limit)))}">
     <span class="ld-track"><i class="ld-now" style="width:${pct(now)}%"></i><i class="ld-add" style="left:${pct(now)}%;width:${Math.max(0, pct(now + add) - pct(now))}%"></i></span>
     ${text ? `<small>${esc(add ? (now ? `${hoursShort(now)}→${hoursShort(now + add)}` : `+${hoursShort(add)}`) : hoursShort(now))}</small>` : ''}</span>`;
 }
@@ -3821,11 +3874,12 @@ function trayInfo(x) {
 function trayHtml() {
   const a = ui.assign;
   const all = trayTasks();
-  const q = (a.q || '').trim().toLowerCase();
-  const list = q ? all.filter((x) => x.title.toLowerCase().includes(q)) : all;
+  const q = (a.q || '').trim();
+  const list = q ? all.filter((x) => matchesQ(taskHay(x), q)) : all;
   const sel = all.filter((x) => a.sel.has(x.id));
   const selMin = sel.reduce((n, x) => n + (x.minutes || 30), 0);
   const mode = state.settings.traySort || 'smart';
+  const planned = alreadyPlanned().filter((x) => !q || matchesQ(taskHay(x), q));
   const row = (x) => `<button type="button" class="tchip trow${a.sel.has(x.id) ? ' on' : ''}" data-id="${esc(x.id)}" style="--c:${esc(catColor(x.category) || 'var(--accent)')}" aria-pressed="${a.sel.has(x.id)}">
       <span class="trow-tick">${a.sel.has(x.id) ? '✓' : ''}</span>
       <span class="trow-text"><span class="chip-title">${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}</span><small>${esc(trayInfo(x))}</small></span>
@@ -3854,7 +3908,8 @@ function trayHtml() {
     ${a.open ? `
     <div class="tray-tools"><input type="search" id="tray-q" value="${esc(a.q || '')}" placeholder="${esc(t('searchTasks'))}" autocomplete="off" aria-label="${esc(t('searchTasks'))}">${sortPicker('tray-sort', mode)}</div>
     ${list.length ? `<div class="tray-list">${body}</div>` : `<p class="hint tray-hint">${esc(q ? t('noMatch') : a.ghosts.length ? t('trayAllPlaced') : t('trayEmpty'))}</p>`}
-    ${hint ? `<p class="hint tray-hint">${esc(hint)}</p>` : ''}` : ''}
+    ${hint ? `<p class="hint tray-hint">${esc(hint)}</p>` : ''}
+    ${plannedList(planned, 'tray-planned', a.showPlanned)}` : ''}
     <div class="tray-actions">
       ${all.length ? `<button class="btn${a.ghosts.length ? ' small' : ' primary'} spread" type="button" data-action="assign-spread">✦ ${esc(a.ghosts.length ? t('spreadMore') : t(sel.length ? 'spreadSel' : 'spreadAll', spreadLabel()))}</button>` : ''}
       ${a.range ? `<button class="btn small ghost" type="button" data-action="assign-range-clear">${esc(t('clearRange'))}</button>` : ''}
