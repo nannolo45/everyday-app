@@ -20,7 +20,7 @@ export function fmtTime(min) {
 }
 
 export function parseTime(s) {
-  const m = String(s || '').trim().match(/^(\d{1,2})(?:[:.](\d{2}))?$/);
+  const m = String(s || '').trim().match(/^(\d{1,2})(?:[:.]?(\d{2}))?$/);
   if (!m) return null;
   const h = Number(m[1]); const mi = Number(m[2] || 0);
   if (h > 24 || mi > 59) return null;

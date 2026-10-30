@@ -53,12 +53,12 @@ const kitchenOwn = makeKitchen({
   remove: (c, id) => remove(c, id),
 }, { recipes: 'r_recipes', pantry: 'r_pantry', shopping: 'shopping' });
 
-function toast(msg) {
+function toast(msg, ms = 3200) {
   const el = $('#toast');
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => el.classList.remove('show'), 3200);
+  toast.timer = setTimeout(() => el.classList.remove('show'), ms);
 }
 
 function route() {
@@ -130,6 +130,13 @@ function checklistOf(block) { return (block?.taskId && get('tasks', block.taskId
 function checklistLeft(items, checked = []) { return items.filter((_, i) => !checked[i]).length; }
 
 function setTaskDone(task, done, date = today()) {
+  // "3 times a week": ticking counts one time (it stays open for the next ones).
+  if (task.repeat === 'times') {
+    const log = [...(task.doneLog || [])];
+    if (done) log.push(date); else { const i = log.lastIndexOf(date); if (i >= 0) log.splice(i, 1); }
+    upsert('tasks', { ...task, doneLog: log.slice(-200), checked: [] }, { silent: true });
+    return;
+  }
   if (done) upsert('tasks', completeTask({ ...task, checked: [] }, date), { silent: true });
   else upsert('tasks', reopenTask(task), { silent: true });
 }
@@ -215,7 +222,12 @@ function setOutcome(block, outcome, { steps = true } = {}) {
     if (!outcome) for (const st of stepsOf(b)) if (get('blocks', b.id).stepState?.[st.id]) setStepOutcome(get('blocks', b.id), st.id, null, { parent: false });
   }
   const task = b.taskId && get('tasks', b.taskId);
-  if (task && isTodo(task) && !b.partial && b.kind !== 'prep') {
+  if (task && isTodo(task) && b.stepId) {
+    // A step planned on its own: the task is done once every step's block is.
+    const steps = (task.steps || []).filter((y) => y.title);
+    const all = steps.length > 0 && steps.every((y) => live('blocks').some((x) => x.taskId === task.id && x.stepId === y.id && outcomeOf(x) === 'done'));
+    if (Boolean(task.done) !== all) setTaskDone(get('tasks', task.id), all);
+  } else if (task && isTodo(task) && !b.partial && b.kind !== 'prep' && task.repeat !== 'times') {
     const done = outcome === 'done';
     if (task.repeat) {
       if (done && (!task.due || task.due <= b.date)) upsert('tasks', completeTask(task, b.date < today() ? today() : b.date), { silent: true });
@@ -233,6 +245,7 @@ function setOutcome(block, outcome, { steps = true } = {}) {
 // On the plan it stays one block; each step has its own time inside it, can be ticked or marked
 // "couldn't do it", and can have rules of its own. The block is done once every step is.
 function stepsOf(b) {
+  if (b?.stepId) return []; // a single step planned on its own
   const task = b?.taskId && get('tasks', b.taskId);
   return (task?.steps || []).filter((x) => x.title);
 }
@@ -320,7 +333,7 @@ function setBlockDone(block, done) { return setOutcome(block, done ? 'done' : nu
 
 // "planned" rules are the task's preparations (stored in task.prep, planned by linkFor).
 const RULE_WHEN = ['planned', 'done', 'failed', 'missed'];
-const RULE_PLACES = ['before', 'after', 'next', 'tomorrow'];
+const RULE_PLACES = ['before', 'after', 'next', 'tomorrow', 'slots', 'pool'];
 const PREP_PLACES = ['before', 'sameday', 'daybefore'];
 // Rules about the whole block (sid null) or about one of its steps.
 function rulesOf(b, sid = null) { return ((b?.taskId && get('tasks', b.taskId)?.rules) || []).filter((r) => (r.stepId || null) === sid); }
@@ -341,6 +354,25 @@ function fireRules(block, when, sid = null) {
     const minutes = Number(rule.minutes) || linked?.minutes || 30;
     const title = linked?.title || rule.title || t('followUp');
     const s = planSettings();
+    const wins = cleanWindows(rule.windows?.length ? rule.windows : linked?.windows);
+    if (rule.place === 'pool' || rule.place === 'slots') {
+      // "Another time": a to-do of its own, labelled with what it came from, back among the tasks to
+      // plan (with the windows it can go in). "Next free window": planned straight into the first one.
+      const slot = rule.place === 'slots' ? nextWindowSlot(wins, minutes) : null;
+      if (block.ruleTasks?.[rule.id] && has('tasks', block.ruleTasks[rule.id])) continue; // fired before
+      const from = get('tasks', block.taskId);
+      const tk = upsert('tasks', {
+        id: uid(), createdAt: Date.now(), title, minutes, importance: importanceOf(from || {}), category: linked?.category || block.category || null,
+        windows: wins, steps: (linked?.steps || []).map((y) => ({ ...y })), checklist: [...(linked?.checklist || [])], rules: (linked?.rules || []).map((r) => ({ ...r })),
+        fromTaskId: block.taskId || null, fromTitle: block.title, due: null, repeat: null, notes: '', done: false,
+      }, { silent: true });
+      upsert('blocks', { ...get('blocks', block.id), ruleTasks: { ...(get('blocks', block.id).ruleTasks || {}), [rule.id]: tk.id } }, { silent: true });
+      if (slot) {
+        newBlock({ id, date: slot.date, start: slot.start, minutes, title, taskId: tk.id, category: tk.category, kind: 'followup', sourceId: block.id, auto: true });
+        toast(t('ruleAdded', title, relDay(slot.date), fmtTime(slot.start)));
+      } else toast(t(rule.place === 'slots' ? 'ruleNoWindow' : 'ruleToPool', title), 5000);
+      continue;
+    }
     let date = block.date; let start;
     if (rule.place === 'before') {
       ({ date, start } = placePrep({ parent: target, minutes, mode: 'before', blocksOn: busyOn, today: today(), nowMin: nowMinutes(), settings: s }));
@@ -361,9 +393,31 @@ function fireRules(block, when, sid = null) {
 // Changed your mind (unticked, or reset "couldn't do it"): take back what the rules added, unless it's under way.
 function undoRules(block, when, sid = null) {
   for (const rule of rulesOf(block, sid).filter((r) => r.when === when)) {
+    // A to-do the rule made ("another time"): taken back unless it's been planned or done since.
+    const made = block.ruleTasks?.[rule.id] && get('tasks', block.ruleTasks[rule.id]);
+    if (made && !made.done && !live('blocks').some((b) => b.taskId === made.id && b.id !== `${block.id}_r_${rule.id}`)) {
+      remove('tasks', made.id);
+      const rt = { ...(get('blocks', block.id).ruleTasks || {}) }; delete rt[rule.id];
+      upsert('blocks', { ...get('blocks', block.id), ruleTasks: rt }, { silent: true });
+    }
     const cur = get('blocks', `${block.id}_r_${rule.id}`);
     if (cur && !cur.done && !cur.outcome) remove('blocks', cur.id);
   }
+}
+
+// The first free time inside one of these windows, from now, within four weeks.
+function nextWindowSlot(wins, minutes) {
+  const s = planSettings(); const td = today(); const now = nowMinutes();
+  for (let i = 0; i < 28; i++) {
+    const d = addDays(td, i);
+    const iso = ((parseDate(d).getDay() + 6) % 7) + 1;
+    for (const w of wins.filter((x) => x.days.includes(iso)).sort((a, b) => a.from - b.from)) {
+      const from = Math.max(w.from, d === td ? Math.ceil(now / 5) * 5 : 0);
+      const at = freeSlot(busyOn(d).filter((b) => !b.allowOverlap), minutes, { from, dayStart: 0, dayEnd: w.to, snap: Math.min(s.snap, 15) });
+      if (at != null) return { date: d, start: at };
+    }
+  }
+  return null;
 }
 
 // "When this was missed": the block's time has passed today without it being done.
@@ -504,6 +558,32 @@ function savedStart(x, date) {
   return freeSlot(busyOn(date), x.minutes || 30, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap })
     ?? Math.min(Math.ceil(from / s.snap) * s.snap, 1440 - (x.minutes || 30));
 }
+// "+ Add": things you put on the plan by hand.
+function openAddMenu() {
+  const date = currentDate();
+  const opt = (v, icon, label, hint) => `<button class="add-opt" value="${v}" formnovalidate><span class="add-ico">${icon}</span><span class="item-text">${esc(label)}<small>${esc(hint)}</small></span></button>`;
+  openModal(`
+    <h2>${esc(t('addMenuTitle', relDay(date)))}</h2>
+    <div class="add-opts">
+      ${opt('saved', '★', t('fromSaved'), t('addSavedHint'))}
+      ${opt('meal', '🍽', t('meal'), t('addMealHint'))}
+      ${opt('block', '▭', t('block'), t('addBlockHint'))}
+      ${opt('templates', '▦', t('templates'), t('addTplHint'))}
+    </div>
+    <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('cancel'))}</button></div>`, (form, action) => {
+    setTimeout(() => {
+      if (action === 'saved') openSavedPicker(date);
+      if (action === 'meal') { ui.mealDate = date; openMeal(null); }
+      if (action === 'templates') openTemplatesMenu();
+      if (action === 'block') {
+        const s = planSettings();
+        const from = date === today() ? nowMinutes() : 9 * 60;
+        openBlock(null, { date, start: freeSlot(busyOn(date), 30, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap }) ?? from });
+      }
+    }, 0);
+  });
+}
+
 function openSavedPicker(date) {
   const groups = savedGroups();
   openModal(`
@@ -526,7 +606,7 @@ function openPlanSaved(x, date) {
     ${(x.steps || []).length ? `<p class="hint">▤ ${esc(x.steps.map((y) => `${y.title} ${fmtDur(y.minutes)}`).join(' → '))}</p>` : ''}
     <div class="three">
       <label>${esc(t('date'))}<input name="date" type="date" required value="${esc(date)}"></label>
-      <label>${esc(anchorTitle(x) ? t('anchorAt', anchorTitle(x)) : t('start'))}<input name="start" type="time" required step="300" value="${fmtTime(savedStart(x, date) + anchorOffset(null, x))}"></label>
+      <label>${esc(anchorTitle(x) ? t('anchorAt', anchorTitle(x)) : t('start'))}<input name="start" ${TIME24} required value="${fmtTime(savedStart(x, date) + anchorOffset(null, x))}"></label>
       <label>${esc(t('duration'))}${durField('minutes', x.minutes || 30)}</label>
     </div>
     <div class="button-row">
@@ -655,7 +735,10 @@ function autoApply(date) {
 // ---------- conflicts ----------
 
 function conflictsOn(date) {
-  return findConflicts([...blocksOn(date), ...timedEventsOn(date).filter((e) => e.busy !== false)], { getBlock: (id) => get('blocks', id), getTask: (id) => get('tasks', id) });
+  return findConflicts([...blocksOn(date), ...timedEventsOn(date).filter((e) => e.busy !== false)], {
+    getBlock: (id) => get('blocks', id), getTask: (id) => get('tasks', id),
+    blocksOfTask: (id) => live('blocks').filter((b) => b.taskId === id && b.kind !== 'prep' && !outcomeOf(b)),
+  });
 }
 
 function warnConflicts(block) {
@@ -669,6 +752,7 @@ function conflictText(c) {
   const [a, b] = c.ids.map(itemById);
   if (c.type === 'overlap') return t('cf_overlap', a?.title, b?.title);
   if (c.type === 'order') return t('cf_order', a?.title, b?.title);
+  if (c.type === 'after') return t('cf_after', a?.title, b?.title, relDay(b?.date), fmtTime((b?.start || 0) + (b?.minutes || 0)));
   const task = get('tasks', a?.taskId);
   return t('cf_late', a?.title, task?.due ? relDay(task.due) : '');
 }
@@ -696,6 +780,17 @@ function fixConflict(c) {
       ? placeGroceries({ meal: then, minutes: first.minutes, blocksOn: others, today: today(), nowMin: nowMinutes(), settings: s })
       : placePrep({ parent: then, minutes: first.minutes, mode: 'before', blocksOn: others, today: today(), nowMin: nowMinutes(), settings: s });
     upsert('blocks', { ...first, ...pos, auto: true }, { silent: true });
+  } else if (c.type === 'after') {
+    // Move it to the first free time after the task it needs.
+    const [b, pre] = c.ids.map((id) => get('blocks', id));
+    let done = false;
+    for (let i = 0; i < 21 && !done; i++) {
+      const d = addDays(pre.date, i);
+      const from = Math.max(i ? s.dayStart : pre.start + pre.minutes, d === today() ? nowMinutes() : 0);
+      const at = freeSlot(busyOn(d).filter((x) => x.id !== b.id && !x.allowOverlap), b.minutes, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap });
+      if (at != null) { followParent(upsert('blocks', { ...b, date: d, start: at, auto: false }, { silent: true })); toast(t('movedTo', b.title, `${relDay(d)} ${fmtTime(at)}`)); done = true; }
+    }
+    if (!done) { toast(t('noRoom')); return; }
   } else if (c.type === 'late') {
     const b = get('blocks', c.ids[0]);
     const due = get('tasks', b.taskId)?.due;
@@ -818,25 +913,29 @@ function viewPlan(date) {
     sub = v === 'week' ? t('weekN', isoWeek(from)) : t('nextDays');
   }
   const showToday = v === 'day' || v === 'list' ? date !== td : v === 'week' ? weekStart(date) !== weekStart(td) : date.slice(0, 7) !== td.slice(0, 7);
+  // Top: how you look at the plan (view, steps). Then the date. Then two kinds of actions:
+  // planning what's still open (Auto-planner, Assign), and adding something by hand (+ Add).
   const head = `
-  <div class="view-switch" role="tablist">${VIEWS.map((k) => `<button type="button" role="tab" class="${k === v ? 'on' : ''}" data-action="view" data-id="${k}" aria-selected="${k === v}">${esc(t(`v_${k}`))}</button>`).join('')}</div>
+  <div class="plan-top">
+    <div class="view-switch" role="tablist">${VIEWS.map((k) => `<button type="button" role="tab" class="${k === v ? 'on' : ''}" data-action="view" data-id="${k}" aria-selected="${k === v}">${esc(t(`v_${k}`))}</button>`).join('')}</div>
+    ${v === 'day' || v === 'list' ? `<button class="icon steps-toggle" type="button" data-action="toggle-steps" aria-pressed="${showSteps()}" title="${esc(t(showSteps() ? 'hideSteps' : 'showSteps'))}" aria-label="${esc(t(showSteps() ? 'hideSteps' : 'showSteps'))}">▤</button>` : ''}
+  </div>
   <div class="day-head">
     <a class="round" href="#/plan/${prev}" aria-label="${esc(t('previous'))}">‹</a>
     <button class="day-title" type="button" data-action="pick-date">
       <span class="day-name">${esc(title)}</span>${sub ? `<small>${esc(sub)}</small>` : ''}
     </button>
-    ${v === 'day' ? loadBar(date) : ''}
     <a class="round" href="#/plan/${next}" aria-label="${esc(t('next'))}">›</a>
     <input type="date" id="day-picker" value="${date}" tabindex="-1" aria-hidden="true">
+    ${v === 'day' ? loadBar(date) : ''}
   </div>
   <div class="day-actions">
     ${showToday ? `<a class="btn small" href="#/plan/${td}">${esc(t('today'))}</a>` : ''}
-    <button class="btn small" type="button" data-action="new-block">+ ${esc(t('block'))}</button>
-    <button class="btn small" type="button" data-action="new-meal">+ ${esc(t('meal'))}</button>
-    <button class="btn small" type="button" data-action="new-saved">+ ${esc(t('fromSaved'))}</button>
-    <button class="btn small${ui.assign ? ' on' : ''}" type="button" data-action="assign" aria-pressed="${Boolean(ui.assign)}">⇢ ${esc(t('assign'))}</button>
-    ${v === 'day' || v === 'list' ? `<button class="btn small ghost steps-toggle" type="button" data-action="toggle-steps" aria-pressed="${showSteps()}">▤ ${esc(t(showSteps() ? 'hideSteps' : 'showSteps'))}</button>` : ''}
-    <button class="btn small" type="button" data-action="templates">${esc(t('templates'))}</button>
+    <div class="act-group" role="group" aria-label="${esc(t('planningTools'))}">
+      <button class="btn small primary" type="button" data-action="auto">✦ ${esc(t('autoPlanner'))}</button>
+      <button class="btn small${ui.assign ? ' on' : ''}" type="button" data-action="assign" aria-pressed="${Boolean(ui.assign)}">⇢ ${esc(t('assign'))}</button>
+    </div>
+    <button class="btn small" type="button" data-action="add-menu">＋ ${esc(t('addMenu'))}</button>
   </div>`;
   const tray = ui.assign ? trayHtml() : '';
   if (v === 'list') return head + viewList(date) + tray;
@@ -979,7 +1078,7 @@ function viewMonth(date) {
     return `<button type="button" class="m-cell${d.slice(0, 7) !== month ? ' other' : ''}${d === td ? ' today' : ''}${inRange(d) ? ' in-range' : ''}" data-action="${ui.assign ? 'assign-range' : 'view-day'}" data-id="${d}" ${ui.assign ? `data-drop="${d}"` : ''}>
         <span class="m-num">${parseDate(d).getDate()}${conflict ? ' <span class="warn-ico">⚠</span>' : ''}</span>
         ${loadBar(d, { text: false })}
-        ${gh.map((g) => `<span class="m-item ghost">${esc(get('tasks', g.taskId)?.title || '')}</span>`).join('')}
+        ${gh.map((g) => `<span class="m-item ghost">${esc(ghostTitle(g))}</span>`).join('')}
         ${items.slice(0, 3).map((x) => `<span class="m-item${outcomeOf(x) ? ' done' : ''}" style="--c:${esc(x.isEvent || x.allDay ? x.color : catColor(x.category) || 'var(--accent)')}">${x.allDay ? '' : `<i>${fmtTime(x.start)}</i> `}${esc(x.title)}</span>`).join('')}
         ${items.length > 3 ? `<span class="m-more">${esc(t('nMore', items.length - 3))}</span>` : ''}
       </button>`;
@@ -1017,7 +1116,7 @@ function viewList(date) {
       <h2><button type="button" class="linkish plain" data-action="${ui.assign ? 'assign-range' : 'view-day'}" data-id="${d}">${esc(d === td || d === addDays(td, 1) ? relDay(d) : fmtDay(d, { weekday: 'long' }))}</button>
         <small>${esc(fmtDay(d, { day: 'numeric', month: 'long' }))}${totals.planned ? ` · ${esc(t('plannedSum', fmtDur(totals.planned)))}` : ''}</small>${loadBar(d)}</h2>
       ${inConflict.size ? conflictBanner(d) : ''}
-      ${gh.length ? `<ul class="ag-list ghosts">${gh.map((g) => `<li class="ag-row ghost"><button type="button" class="ag-main" data-action="ghost-rm" data-i="${g.i}" title="${esc(t('ghostTap'))}"><span class="ag-time">${esc(range(g.start, g.minutes))}</span><span class="ag-text"><span class="ag-title">${esc(get('tasks', g.taskId)?.title || '')}</span><small>${esc(t('ghostTap'))}</small></span><span class="ghost-x">✕</span></button></li>`).join('')}</ul>` : ''}
+      ${gh.length ? `<ul class="ag-list ghosts">${gh.map((g) => `<li class="ag-row ghost"><button type="button" class="ag-main" data-action="ghost-rm" data-i="${g.i}" title="${esc(t('ghostTap'))}"><span class="ag-time">${esc(range(g.start, g.minutes))}</span><span class="ag-text"><span class="ag-title">${esc(ghostTitle(g))}</span><small>${esc(t('ghostTap'))}</small></span><span class="ghost-x">✕</span></button></li>`).join('')}</ul>` : ''}
       ${items.length || dueTasks.length ? `<ul class="ag-list">${items.map((x) => agendaRow(x, inConflict.has(x.id))).join('')}${dueTasks.map((x) => dueRow(x, d)).join('')}</ul>`
     : gh.length ? '' : `<p class="hint ag-empty">${esc(t('nothingPlanned'))}</p>`}
     </section>`;
@@ -1278,11 +1377,11 @@ function openMeal(block, draft = null) {
     ${plan ? `
     <div class="two">
       <label>${esc(t('date'))}<input name="date" type="date" required value="${esc(x.date)}"></label>
-      <label>${esc(plan.anchorTitle ? t('anchorAt', plan.anchorTitle) : t('endsAt'))}<input name="start" type="time" required step="300" value="${fmtTime(x.anchorAt)}"></label>
+      <label>${esc(plan.anchorTitle ? t('anchorAt', plan.anchorTitle) : t('endsAt'))}<input name="start" ${TIME24} required value="${fmtTime(x.anchorAt)}"></label>
     </div>` : `
     <div class="three">
       <label>${esc(t('date'))}<input name="date" type="date" required value="${esc(x.date)}"></label>
-      <label>${esc(t('start'))}<input name="start" type="time" required step="300" value="${fmtTime(x.start)}"></label>
+      <label>${esc(t('start'))}<input name="start" ${TIME24} required value="${fmtTime(x.start)}"></label>
       <label>${esc(t('duration'))}${durField('minutes', x.minutes)}</label>
     </div>`}
     <label>${esc(t('servings'))}<input name="people" type="number" min="1" max="30" step="1" value="${esc(x.people)}"></label>
@@ -1752,7 +1851,12 @@ function taskRow(x) {
   }
   if (x.due) bits.push(`<span class="${x.due < td && !x.done ? 'late' : ''}">${esc(relDay(x.due))}</span>`);
   if (x.minutes) bits.push(esc(fmtDur(x.minutes)));
-  if (x.repeat) bits.push(`↻ ${esc(t(`rep_${x.repeat}`))}`);
+  if (x.repeat === 'times') bits.push(`↻ ${esc(t('timesShort', x.timesN || 1, t(`per_${x.timesPer || 'week'}`)))} · ${timesDone(x, td)}/${x.timesN || 1}`);
+  else if (x.repeat) bits.push(`↻ ${esc(t(`rep_${x.repeat}`))}`);
+  if (x.fromTitle) bits.push(`↪ ${esc(t('fromTask', x.fromTitle))}`);
+  const pre = prereqsOf(x);
+  if (pre.length) bits.push(`🔒 ${esc(t('afterTask', pre.map((p) => p.task.title).join(', ')))}`);
+  if (x.windows?.length) bits.push(`🕒 ${esc(windowsText(x.windows))}`);
   if (x.when) bits.push(esc(t(`when_${x.when}`)));
   if (x.checklist?.length) bits.push(`☑ ${x.checklist.length}`);
   if (x.steps?.length) bits.push(`▤ ${x.steps.length}`);
@@ -1763,7 +1867,7 @@ function taskRow(x) {
   const planned = live('blocks').filter((b) => b.taskId === x.id && !b.done && b.date >= td && b.kind !== 'prep').sort((a, b) => ((a.date + a.start) < (b.date + b.start) ? -1 : 1))[0];
   if (planned && !x.done) bits.push(`<span class="badge">${esc(t('plannedAt', relDay(planned.date), fmtTime(planned.start)))}</span>`);
   return `<li class="imp-${importanceOf(x)}">
-    ${x.helper ? '<span class="helper-dot">↳</span>' : `<input type="checkbox" data-action="task-done" data-id="${esc(x.id)}" ${x.done ? 'checked' : ''} aria-label="${esc(t('markDone'))}">`}
+    ${x.helper ? '<span class="helper-dot">↳</span>' : `<input type="checkbox" data-action="task-done" data-id="${esc(x.id)}" ${x.done || (x.repeat === 'times' && timesDone(x, td) >= (x.timesN || 1)) ? 'checked' : ''} aria-label="${esc(t('markDone'))}">`}
     <button class="task-main" type="button" data-action="task-edit" data-id="${esc(x.id)}">
       <span class="item-text">${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}<small>${bits.join(' · ')}</small></span>
     </button>
@@ -1799,6 +1903,7 @@ function viewSettings() {
     <div class="field-label">${esc(t('glanceTitle'))}</div>
     <div class="days glance">${GLANCE.map((k) => `<label class="day-pill"><input type="checkbox" name="glance" value="${k}" ${glance().has(k) ? 'checked' : ''}><span>${esc(t(`gl_${k}`))}</span></label>`).join('')}</div>
     <p class="hint">${esc(t('glanceHint'))}</p>
+    <label class="check"><input type="checkbox" name="longUnits" ${s.longUnits ? 'checked' : ''}> <span>${esc(t('longUnits'))}<small>${esc(t('longUnitsHint'))}</small></span></label>
     <label>${esc(t('maxLoad'))}<select name="maxLoad">${opts([4, 5, 6, 7, 8, 9, 10, 11, 12, 14], s.maxLoad ?? 8, (h) => `${h} h`)}</select>
       <small>${esc(t('maxLoadHint'))}</small></label>
   </form>
@@ -2037,14 +2142,36 @@ const durOptions = (sel, list = [5, 10, 15, 20, 30, 45, 60, 75, 90, 120, 150, 18
   return opts.sort((a, b) => a - b).map((m) => `<option value="${m}" ${m === sel ? 'selected' : ''}>${fmtDur(m)}</option>`).join('');
 };
 
+// Times are typed as 24-hour hh:mm whatever the phone's language (the browser's own time picker
+// would show AM/PM on an English phone). "1900", "930" and "9" work too.
+const TIME24 = 'type="text" inputmode="numeric" class="time24" maxlength="5" placeholder="hh:mm" autocomplete="off" pattern="([01]?[0-9]|2[0-3])[:.]?[0-5][0-9]|[0-9]{1,2}"';
+function tidyTime(el) {
+  const v = el.value.trim();
+  if (!v) return;
+  const m = parseTime(v);
+  if (m != null) el.value = fmtTime(m);
+}
+document.addEventListener('input', (e) => {
+  const el = e.target;
+  if (!el.classList?.contains('time24')) return;
+  const digits = el.value.replace(/[^0-9]/g, '').slice(0, 4);
+  if (e.inputType?.startsWith('delete')) return;
+  el.value = digits.length > 2 ? `${digits.slice(0, digits.length - 2)}:${digits.slice(-2)}` : digits;
+});
+document.addEventListener('focusout', (e) => { if (e.target.classList?.contains('time24')) tidyTime(e.target); }, true);
+
 const lines = (v) => String(v || '').split('\n').map((s) => s.trim()).filter(Boolean);
 
-// A length: a number and a unit (min or h). Whole and half hours show in hours.
+// A length: a number and a unit. Minutes and hours; with "longer units" (Settings → Planner) also
+// days, weeks, months and years (calendar time: 1 d = 24 h), for big tasks made of many steps.
+const UNITS = { min: 1, h: 60, d: 1440, wk: 10080, mo: 43200, y: 525600 };
 function durField(name, minutes, { required = false, placeholder = '', label = t('duration') } = {}) {
   const m = Number(minutes) || 0;
-  const inH = m >= 60 && m % 30 === 0;
-  const val = m ? +(inH ? m / 60 : m).toFixed(2) : '';
-  return `<span class="dur-field"><input name="${esc(name)}" type="number" inputmode="decimal" min="0" step="any" value="${val}" ${required ? 'required' : ''} placeholder="${esc(placeholder)}" aria-label="${esc(label)}"><select name="${esc(name)}_u" aria-label="${esc(t('unit'))}"><option value="min" ${inH ? '' : 'selected'}>min</option><option value="h" ${inH ? 'selected' : ''}>h</option></select></span>`;
+  const long = state.settings.longUnits || m >= 1440;
+  const units = long ? Object.keys(UNITS) : ['min', 'h'];
+  const unit = [...units].reverse().find((u) => (u === 'h' ? m >= 60 && m % 30 === 0 : u !== 'min' && m >= UNITS[u] && m % (UNITS[u] / 2) === 0)) || 'min';
+  const val = m ? +(m / UNITS[unit]).toFixed(2) : '';
+  return `<span class="dur-field"><input name="${esc(name)}" type="number" inputmode="decimal" min="0" step="any" value="${val}" ${required ? 'required' : ''} placeholder="${esc(placeholder)}" aria-label="${esc(label)}"><select name="${esc(name)}_u" aria-label="${esc(t('unit'))}">${units.map((u) => `<option value="${u}" ${u === unit ? 'selected' : ''}>${esc(t(`u_${u}`))}</option>`).join('')}</select></span>`;
 }
 // Minutes from a length field, or `fallback` when it's empty.
 function readDur(form, name, fallback = null) {
@@ -2052,8 +2179,33 @@ function readDur(form, name, fallback = null) {
   if (!el) return fallback;
   const n = parseFloat(String(el.value).replace(',', '.'));
   if (!(n > 0)) return fallback;
-  return Math.max(1, Math.round(form.elements.namedItem(`${name}_u`)?.value === 'h' ? n * 60 : n));
+  return Math.max(1, Math.round(n * (UNITS[form.elements.namedItem(`${name}_u`)?.value] || 1)));
 }
+
+// Time windows: when something can happen at all (office hours, opening times). [{days: [1-7], from, to}]
+function dayShort(d) { return fmtDay(addDays('2026-11-02', d - 1), { weekday: 'short' }); } // 2026-11-02 is a Monday
+function windowsText(wins) {
+  return (wins || []).map((w) => `${w.days.length === 7 ? t('everyDay') : w.days.map(dayShort).join(' ')} ${fmtTime(w.from)}–${fmtTime(w.to)}`).join(', ');
+}
+function windowsEditor(prefix, wins) {
+  return `<div class="wins">${(wins || []).map((w, k) => `<div class="win-row">
+      <div class="days mini">${[1, 2, 3, 4, 5, 6, 7].map((d) => `<label class="day-pill"><input type="checkbox" name="${prefix}d${k}" value="${d}" ${w.days.includes(d) ? 'checked' : ''}><span>${esc(dayShort(d))}</span></label>`).join('')}</div>
+      <span class="win-times"><input name="${prefix}f${k}" ${TIME24} value="${w.from != null ? fmtTime(w.from) : ''}" aria-label="${esc(t('from'))}"> – <input name="${prefix}t${k}" ${TIME24} value="${w.to != null ? fmtTime(w.to) : ''}" aria-label="${esc(t('to'))}">
+      <button class="icon" value="${prefix}rm:${k}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></span></div>`).join('')}
+    <button class="btn small ghost" value="${prefix}add" formnovalidate>+ ${esc(t('addWindow'))}</button></div>`;
+}
+// Rows as typed (kept while editing); `clean` drops the unfinished ones.
+function readWindows(form, prefix, n) {
+  const out = [];
+  for (let k = 0; k < n; k++) {
+    out.push({
+      days: [...form.querySelectorAll(`input[name="${prefix}d${k}"]:checked`)].map((el) => Number(el.value)),
+      from: parseTime(form.elements.namedItem(`${prefix}f${k}`)?.value), to: parseTime(form.elements.namedItem(`${prefix}t${k}`)?.value),
+    });
+  }
+  return out;
+}
+const cleanWindows = (wins) => (wins || []).filter((w) => w.days?.length && w.from != null && w.to != null && w.to > w.from);
 
 // Where a task happens: a place, and a link (a map, a booking…). Without a link, the place opens in Maps.
 function placeLink(x, { short = false } = {}) {
@@ -2121,9 +2273,10 @@ function openTask(task, draft = null) {
         <select name="rk_${i}" data-rulekind="${i}"><option value="">${esc(t('ruleNewTask'))}</option>${ruleTargets(x).map((y) => `<option value="${esc(y.id)}" ${y.id === r.taskId ? 'selected' : ''}>${y.helper ? '↳ ' : ''}${esc(y.title)}</option>`).join('')}</select>
         <input class="rule-title${r.taskId ? ' hide' : ''}" name="rti_${i}" value="${esc(r.taskId ? '' : r.title || '')}" placeholder="${esc(t(planned ? 'prepPh' : 'rulePh'))}" autocomplete="off">
         ${durField(`rm_${i}`, Number(r.minutes) || linked?.minutes || 30)}
-        <select name="rp_${i}">${places.map((p) => `<option value="${p}" ${p === (r.place || places[0]) ? 'selected' : ''}>${esc(t(`${planned ? 'pw' : 'rp'}_${p}`))}</option>`).join('')}</select>
+        <select name="rp_${i}" data-rerender="1">${places.map((p) => `<option value="${p}" ${p === (r.place || places[0]) ? 'selected' : ''}>${esc(t(`${planned ? 'pw' : 'rp'}_${p}`))}</option>`).join('')}</select>
         <button class="btn small ghost" value="edit-rule:${i}" formnovalidate title="${esc(t('editRuleTask'))}">${esc(t('edit'))}${linked?.steps?.length ? ` · ▤ ${linked.steps.length}` : ''}${linked?.checklist?.length ? ` · ☑ ${linked.checklist.length}` : ''}${linked?.rules?.length ? ` · ⚙ ${linked.rules.length}` : ''}</button>
       </div>
+      ${!planned && ['slots', 'pool'].includes(r.place) && r.then !== 'groceries' ? `<div class="rule-wins"><p class="hint">${esc(t(r.place === 'slots' ? 'rpSlotsHint' : 'rpPoolHint'))}</p>${windowsEditor(`r${i}w_`, r.windows || [])}</div>` : ''}
     </div>`;
   };
   const rulesFor = (sid) => x.allRules.map((r, i) => [r, i]).filter(([r]) => (r.stepId || null) === sid);
@@ -2161,27 +2314,42 @@ function openTask(task, draft = null) {
   const whenBody = todo ? `
     <div class="two">
       <label>${esc(t('date'))}<input name="planDate" type="date" value="${esc(x.planDate || '')}"></label>
-      <label>${esc(timeLabel)}<input name="planTime" type="time" step="300" value="${x.planTime != null ? fmtTime(x.planTime) : ''}"></label>
+      <label>${esc(timeLabel)}<input name="planTime" ${TIME24} value="${x.planTime != null ? fmtTime(x.planTime) : ''}"></label>
     </div>
     <small class="hint">${esc(t(x.planBlockId ? 'whenPlannedHint' : 'whenHint'))}</small>
     <div class="two">
       <label>${esc(t('due'))}<input name="due" type="date" value="${esc(x.due || '')}"></label>
-      <label>${esc(t('repeat'))}<select name="repeat"><option value="">${esc(t('rep_none'))}</option>${REPEATS.map((r) => `<option value="${r}" ${r === x.repeat ? 'selected' : ''}>${esc(t(`rep_${r}`))}</option>`).join('')}</select></label>
+      <label>${esc(t('repeat'))}<select name="repeat" data-rerender="1"><option value="">${esc(t('rep_none'))}</option>${[...REPEATS, 'times'].map((r) => `<option value="${r}" ${r === x.repeat ? 'selected' : ''}>${esc(t(`rep_${r}`))}</option>`).join('')}</select></label>
     </div>
+    ${x.repeat === 'times' ? `<div class="times-row"><input name="timesN" type="number" min="1" max="99" step="1" value="${esc(x.timesN || 3)}" aria-label="${esc(t('timesN'))}"><span>${esc(t('timesPer'))}</span>
+      <select name="timesPer">${['day', 'week', 'month', 'year'].map((u) => `<option value="${u}" ${u === (x.timesPer || 'week') ? 'selected' : ''}>${esc(t(`per_${u}`))}</option>`).join('')}</select></div>
+      <small class="hint">${esc(t('timesHint'))}</small>` : ''}
     <label>${esc(t('bestTime'))}<select name="when">${['', 'morning', 'afternoon', 'evening'].map((w) => `<option value="${w}" ${w === (x.when || '') ? 'selected' : ''}>${esc(t(`when_${w || 'any'}`))}</option>`).join('')}</select></label>`
     : routine ? `
     <div class="two">
-      <label>${esc(x.steps.length > 1 && ai > 0 && anchor ? t('anchorAt', anchor.title || '…') : t('usualTimeOpt'))}<input name="defaultStart" type="time" step="300" value="${x.defaultStart != null ? fmtTime(x.defaultStart) : ''}"></label>
+      <label>${esc(x.steps.length > 1 && ai > 0 && anchor ? t('anchorAt', anchor.title || '…') : t('usualTimeOpt'))}<input name="defaultStart" ${TIME24} value="${x.defaultStart != null ? fmtTime(x.defaultStart) : ''}"></label>
       <label>${esc(t('bestTime'))}<select name="when">${['', 'morning', 'afternoon', 'evening'].map((w) => `<option value="${w}" ${w === (x.when || '') ? 'selected' : ''}>${esc(t(`when_${w || 'any'}`))}</option>`).join('')}</select></label>
     </div>
     <small class="hint">${esc(t('usualTimeHint'))}</small>` : '';
-  const whenSummary = todo ? [x.planDate ? `${relDay(x.planDate)}${x.planTime != null ? ` ${fmtTime(x.planTime)}` : ''}` : '', x.due ? t('dueOn', relDay(x.due)) : '', x.repeat ? `↻ ${t(`rep_${x.repeat}`)}` : ''].filter(Boolean).join(' · ')
+  // Tasks it needs done first (not itself, not meals, not ones that already need it: no loops).
+  const needCandidates = live('tasks').filter((y) => y.id !== x.id && !y.meal && !y.check && !y.done && !(y.after || []).includes(x.id) && !(x.after || []).includes(y.id))
+    .sort((a, b) => a.title.localeCompare(b.title));
+  const needsBody = helper ? '' : `
+    <div class="field-label">🔒 ${esc(t('needsFirst'))}</div>
+    ${(x.after || []).length ? `<div class="needs">${(x.after || []).map((id, k) => { const y = get('tasks', id); return `<span class="need-chip${y?.done ? ' done' : ''}">${y?.done ? '✓ ' : ''}${esc(y?.title || '?')}<button class="icon" value="rm-after:${k}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></span>`; }).join('')}</div>` : ''}
+    <select name="addAfter" data-rerender="1"><option value="">+ ${esc(t('addNeed'))}</option>${needCandidates.map((y) => `<option value="${esc(y.id)}">${y.helper ? '↳ ' : ''}${esc(y.title)}</option>`).join('')}</select>
+    <small class="hint">${esc(t('needsHint'))}</small>
+    <div class="field-label">🕒 ${esc(t('windowsTitle'))}</div>
+    ${windowsEditor('w_', x.windows || [])}
+    <small class="hint">${esc(t('windowsHint'))}</small>`;
+  const whenSummary = todo ? [x.planDate ? `${relDay(x.planDate)}${x.planTime != null ? ` ${fmtTime(x.planTime)}` : ''}` : '', x.due ? t('dueOn', relDay(x.due)) : '', x.repeat ? `↻ ${x.repeat === 'times' ? t('timesShort', x.timesN || 3, t(`per_${x.timesPer || 'week'}`)) : t(`rep_${x.repeat}`)}` : ''].filter(Boolean).join(' · ')
     : routine ? (x.defaultStart != null ? fmtTime(x.defaultStart) : t(`when_${x.when || 'any'}`)) : '';
   const stepsBody = `
     <p class="hint">${esc(t(x.meal ? 'stepsHintMeal' : 'stepsHint'))}</p>
     ${stepCards ? `<ol class="steps-edit">${stepCards}</ol>` : ''}
     ${x.steps.length > 1 ? `<p class="hint anchor-hint">⚓ ${esc(ai > 0 && anchor ? t('anchorHintGen', anchor.title || '…', x.steps.slice(0, ai).map((y) => y.title).filter(Boolean).join(', ')) : t('anchorHintFirst'))}</p>` : ''}
-    <button class="btn small" value="add-step" formnovalidate>+ ${esc(t('addStep'))}</button>`;
+    <button class="btn small" value="add-step" formnovalidate>+ ${esc(t('addStep'))}</button>
+    ${x.steps.length > 1 && !x.meal && !helper ? `<label class="check"><input type="checkbox" name="splitSteps" ${x.splitSteps ? 'checked' : ''}> <span>${esc(t('splitSteps'))}<small>${esc(t('splitStepsHint'))}</small></span></label>` : ''}`;
   const rulesBody = `
     <p class="hint">${esc(t(helper ? 'rulesHint' : 'rulesHintPrep'))}</p>
     ${taskRules.map(([r, i]) => ruleCard(r, i)).join('')}
@@ -2195,7 +2363,7 @@ function openTask(task, draft = null) {
     ${x.check === 'ingredients' ? `<p class="hint">${esc(t('checkStepHint'))}</p>` : ''}
     <label>${esc(t('title'))}<input name="title" required value="${esc(x.title)}" autocomplete="off"></label>
     ${sec('basics', esc(t('secBasics')), [fmtDur(x.steps.length ? stepTotal : x.minutes || 30), helper ? '' : t(`imp_${x.importance}`), catName0].filter(Boolean).join(' · '), basics, true)}
-    ${whenBody ? sec('when', `🕒 ${esc(t('secWhen'))}`, whenSummary, whenBody, true) : ''}
+    ${whenBody ? sec('when', `🕒 ${esc(t('secWhen'))}`, [whenSummary, (x.after || []).length ? `🔒 ${(x.after || []).length}` : '', cleanWindows(x.windows).length ? windowsText(cleanWindows(x.windows)) : ''].filter(Boolean).join(' · '), whenBody + needsBody, true) : ''}
     ${helper ? '' : sec('place', `📍 ${esc(t('secPlace'))}`, x.place || (x.link ? t('link') : ''), placeBody, Boolean(x.place || x.link))}
     ${sec('steps', `▤ ${esc(t('steps'))}`, x.steps.length ? `${x.steps.length} · ${fmtDur(stepTotal)}` : '', stepsBody, true)}
     ${x.check ? '' : sec('checklist', `☑ ${esc(t('checklist'))}`, x.checklist.length ? String(x.checklist.length) : '', `<label><textarea name="checklist" rows="3" placeholder="${esc(t('checklistPh'))}" aria-label="${esc(t('checklist'))}">${esc((x.checklist || []).join('\n'))}</textarea>
@@ -2224,6 +2392,13 @@ function openTask(task, draft = null) {
     if (action.startsWith('up-step:')) {
       const i = Number(action.slice(8));
       [x.steps[i - 1], x.steps[i]] = [x.steps[i], x.steps[i - 1]];
+      again(); return;
+    }
+    if (action.startsWith('rm-after:')) { x.after = (x.after || []).filter((_, k) => k !== Number(action.slice(9))); again(); return; }
+    const wm = action.match(/^(w_|r(\d+)w_)(add|rm:(\d+))$/);
+    if (wm) {
+      const list = wm[2] != null ? (x.allRules[Number(wm[2])].windows = x.allRules[Number(wm[2])].windows || []) : (x.windows = x.windows || []);
+      if (wm[3] === 'add') list.push({ days: list.length ? [] : [1, 2, 3, 4, 5], from: 540, to: 1020 }); else list.splice(Number(wm[4]), 1);
       again(); return;
     }
     if (action.startsWith('anchor:')) {
@@ -2290,9 +2465,13 @@ function openTask(task, draft = null) {
     x.notes = form.notes.value.trim();
     if (form.importance) x.importance = Number(form.importance.value) || 3;
     if (form.place) { x.place = form.place.value.trim(); x.link = form.link.value.trim(); }
+    if (form.addAfter?.value) x.after = [...new Set([...(x.after || []), form.addAfter.value])];
+    if (form.querySelector('[value="w_add"]')) x.windows = readWindows(form, 'w_', (x.windows || []).length);
+    if (form.splitSteps) x.splitSteps = form.splitSteps.checked;
     if (todo) {
       x.due = form.due.value || null;
       x.repeat = form.repeat.value || null;
+      if (x.repeat === 'times' && form.timesN) { x.timesN = Math.max(1, Number(form.timesN.value) || 1); x.timesPer = form.timesPer.value || 'week'; }
       x.planDate = form.planDate.value || '';
       x.planTime = form.planTime.value ? parseTime(form.planTime.value) : null;
     }
@@ -2310,12 +2489,19 @@ function openTask(task, draft = null) {
       const kind = form[`rk_${i}`].value;
       const places = when === 'planned' ? PREP_PLACES : RULE_PLACES;
       const place = places.includes(form[`rp_${i}`].value) ? form[`rp_${i}`].value : (when === 'planned' || r.when === 'planned' ? 'before' : 'next');
-      return { id: r.id, when, then, stepId, taskId: kind || null, title: kind ? get('tasks', kind)?.title : form[`rti_${i}`].value.trim(), minutes: readDur(form, `rm_${i}`, 30), place };
+      const windows = form.querySelector(`[value="r${i}w_add"]`) ? readWindows(form, `r${i}w_`, (r.windows || []).length) : (r.windows || []);
+      return { id: r.id, when, then, stepId, taskId: kind || null, title: kind ? get('tasks', kind)?.title : form[`rti_${i}`].value.trim(), minutes: readDur(form, `rm_${i}`, 30), place, windows };
     });
   }
   const form = modal.querySelector('form');
   form.addEventListener('change', (ev) => {
     if (ev.target.dataset.rerender) { collect(form); openTask(task, x); return; }
+    // Setting a time sets the best time of day to match.
+    if (ev.target.name === 'planTime' || ev.target.name === 'defaultStart') {
+      const m = parseTime(ev.target.value);
+      const w = form.elements.namedItem('when');
+      if (m != null && w) w.value = partOfDay(m);
+    }
     if (ev.target.dataset.rule != null) ev.target.closest('.rule').classList.toggle('is-groceries', ev.target.value === 'groceries');
     if (ev.target.dataset.rulekind != null) ev.target.closest('.rule').querySelector('.rule-title').classList.toggle('hide', Boolean(ev.target.value));
   });
@@ -2349,15 +2535,16 @@ function saveTask(x) {
   const prep = all.filter((r) => r.when === 'planned').map((r) => ({ taskId: r.taskId, when: r.place || 'before' }));
   const rules = all.filter((r) => r.when !== 'planned').map((r) => (r.then === 'groceries'
     ? { id: r.id, when: r.when, then: r.then, stepId: r.stepId || null }
-    : { id: r.id, when: r.when, then: 'task', stepId: r.stepId || null, taskId: r.taskId, title: get('tasks', r.taskId)?.title || r.title, minutes: r.minutes, place: r.place }));
+    : { id: r.id, when: r.when, then: 'task', stepId: r.stepId || null, taskId: r.taskId, title: get('tasks', r.taskId)?.title || r.title, minutes: r.minutes, place: r.place, ...(['slots', 'pool'].includes(r.place) ? { windows: cleanWindows(r.windows) } : {}) }));
   x.allRules = all;
   let due = x.due || null;
-  if (x.repeat && !due) due = today();
+  if (x.repeat && x.repeat !== 'times' && !due) due = today(); // "X times per…" counts per period, without a due date
+  if (x.repeat === 'times') due = null;
   const { allRules, newTask, planDate, planTime, planBlockId, ...clean } = x;
   void allRules; void newTask; void planDate; void planTime; void planBlockId;
   const steps = (x.steps || []).filter((y) => y.title);
   return upsert('tasks', {
-    ...clean, id: x.id || uid(), createdAt: x.createdAt || Date.now(), due, prep, rules, steps,
+    ...clean, id: x.id || uid(), createdAt: x.createdAt || Date.now(), due, prep, rules, steps, windows: cleanWindows(x.windows), after: (x.after || []).filter((id) => has('tasks', id)),
     minutes: steps.length ? steps.reduce((n, y) => n + (Number(y.minutes) || 0), 0) : x.minutes,
     priority: 0, done: Boolean(x.done),
   }, { silent: true });
@@ -2452,7 +2639,7 @@ function openBlock(block, defaults = {}) {
       <label>${esc(t('title'))}<input name="title" value="${esc(b.title)}" autocomplete="off"></label>`}
     <div class="three">
       <label>${esc(t('date'))}<input name="date" type="date" required value="${esc(b.date)}"></label>
-      <label>${esc(anchorName ? t('anchorAt', anchorName) : t('start'))}<input name="start" type="time" required step="300" value="${fmtTime(b.start + off)}"></label>
+      <label>${esc(anchorName ? t('anchorAt', anchorName) : t('start'))}<input name="start" ${TIME24} required value="${fmtTime(b.start + off)}"></label>
       <label>${esc(t('duration'))}${durField('minutes', b.minutes)}</label>
     </div>
     ${anchorName ? `<p class="hint">⚓ ${esc(t('blockAnchorHint', fmtTime(b.start), fmtTime(b.start + b.minutes)))}</p>` : ''}
@@ -2801,7 +2988,7 @@ view.addEventListener('change', (e) => {
     const f = Object.fromEntries(new FormData(el.form));
     const dayStart = Number(f.dayStart); const dayEnd = Number(f.dayEnd);
     const glanceSel = new FormData(el.form).getAll('glance');
-    saveSettings({ dayStart, dayEnd: Math.max(dayEnd, dayStart + 1), snap: Number(f.snap), buffer: Number(f.buffer), maxLoad: Number(f.maxLoad), defaultView: f.defaultView, glance: glanceSel });
+    saveSettings({ dayStart, dayEnd: Math.max(dayEnd, dayStart + 1), snap: Number(f.snap), buffer: Number(f.buffer), maxLoad: Number(f.maxLoad), defaultView: f.defaultView, glance: glanceSel, longUnits: el.form.longUnits.checked });
     if (el.name === 'defaultView') ui.view = null;
   }
 });
@@ -2852,6 +3039,18 @@ view.addEventListener('click', (e) => {
     }
     case 'new-meal': ui.mealDate = currentDate(); openMeal(null); break;
     case 'new-saved': openSavedPicker(currentDate()); break;
+    case 'add-menu': openAddMenu(); break;
+    case 'auto': {
+      // The auto-planner: everything still to place, laid out over what's on screen, as previews.
+      if (!ui.assign) ui.assign = { sel: new Set(), ghosts: [], range: null, opts: false };
+      ui.suggest = null;
+      const days = spreadDays();
+      const ids = trayTasks().map((x) => x.id);
+      if (!days.length) { toast(t('pastDay')); render(); break; }
+      if (!ids.length) { toast(t('trayEmpty')); render(); break; }
+      placeGhosts(ids, days);
+      break;
+    }
     case 'assign': ui.assign = ui.assign ? null : { sel: new Set(), ghosts: [], range: null, opts: false }; ui.suggest = null; render(); break;
     case 'assign-close': ui.assign = null; render(); break;
     case 'assign-opts': ui.assign.opts = !ui.assign.opts; render(); break;
@@ -2986,10 +3185,96 @@ setupDrag(view, {
 // planned until you tap "Add": first the tasks appear as dashed previews you can tap away.
 
 function ghostsOn(date) { return (ui.assign?.ghosts || []).map((g, i) => ({ ...g, i })).filter((g) => g.date === date); }
+// ---------- what's left to place ----------
+// A task may need: several occurrences ("3 times a week"), its steps planned one by one (too long for
+// one day, or "plan each step on its own"), other tasks done first, and only certain times (windows).
+
+// The period a "times" task counts in: a day, an ISO week, a month or a year.
+function periodKey(date, per) {
+  return per === 'day' ? date : per === 'week' ? weekStart(date) : per === 'month' ? date.slice(0, 7) : date.slice(0, 4);
+}
+// How many more times it should happen in the period of `date`: target − done − planned − previewed.
+function timesLeft(x, date) {
+  if (x.repeat !== 'times') return 0;
+  const per = x.timesPer || 'week'; const pk = periodKey(date, per);
+  const inP = (d) => periodKey(d, per) === pk;
+  const blocks = live('blocks').filter((b) => b.taskId === x.id && b.kind !== 'prep' && inP(b.date) && b.outcome !== 'failed');
+  const logged = (x.doneLog || []).filter(inP).length;
+  const ghosts = (ui.assign?.ghosts || []).filter((g) => g.taskId === x.id && inP(g.date)).length;
+  return Math.max(0, (Number(x.timesN) || 1) - blocks.length - logged - ghosts);
+}
+function timesDone(x, date) {
+  if (x.repeat !== 'times') return 0;
+  const per = x.timesPer || 'week'; const pk = periodKey(date, per);
+  const inP = (d) => periodKey(d, per) === pk;
+  return live('blocks').filter((b) => b.taskId === x.id && b.kind !== 'prep' && inP(b.date) && outcomeOf(b) === 'done').length + (x.doneLog || []).filter(inP).length;
+}
+// Steps planned as their own blocks: when asked to, or when the whole is longer than a day's limit.
+function splitsSteps(x) {
+  const steps = (x.steps || []).filter((y) => y.title);
+  if (steps.length < 2 || x.meal) return false;
+  return Boolean(x.splitSteps) || steps.reduce((n, y) => n + stepLen({}, y), 0) > planSettings().maxLoad
+    || live('blocks').some((b) => b.taskId === x.id && b.stepId);
+}
+// Steps that don't have a block (or a preview) yet.
+function partsLeft(x) {
+  const steps = (x.steps || []).filter((y) => y.title);
+  const has = new Set([...live('blocks').filter((b) => b.taskId === x.id && b.stepId).map((b) => b.stepId),
+    ...(ui.assign?.ghosts || []).filter((g) => g.taskId === x.id && g.stepId).map((g) => g.stepId)]);
+  return steps.filter((y) => !has.has(y.id));
+}
+// Open tasks it needs first: [{task, block}] (block = where it's planned, if it is).
+function prereqsOf(x) {
+  return (x.after || []).map((id) => get('tasks', id)).filter((p) => p && !p.done && p.id !== x.id).map((p) => ({
+    task: p,
+    block: [...live('blocks').filter((b) => b.taskId === p.id && !outcomeOf(b) && b.kind !== 'prep'), ...(ui.assign?.ghosts || []).filter((g) => g.taskId === p.id)]
+      .sort((a, b) => (a.date + String(a.start + a.minutes).padStart(4, '0') < b.date + String(b.start + b.minutes).padStart(4, '0') ? 1 : -1))[0] || null,
+  }));
+}
 function trayTasks() {
   const planned = plannedTaskIds();
   const ghosted = new Set((ui.assign?.ghosts || []).map((g) => g.taskId));
-  return sortTasks(openTasks().filter((x) => !planned.has(x.id) && !ghosted.has(x.id)), today());
+  const td = today();
+  return sortTasks(openTasks().filter((x) => {
+    if (x.repeat === 'times') return timesLeft(x, td) > 0;
+    if (splitsSteps(x)) return partsLeft(x).length > 0;
+    return !planned.has(x.id) && !ghosted.has(x.id);
+  }), td);
+}
+// What the planner places for these tasks over these days: one item per occurrence or step part.
+function planningItems(tasks, dates) {
+  const items = []; const skipped = [];
+  const inRun = new Set(tasks.map((x) => x.id));
+  const lastItem = new Map();
+  for (const x of tasks) {
+    const base = { taskId: x.id, title: x.title, minutes: x.minutes || 30, due: x.repeat === 'times' ? null : x.due || null, importance: importanceOf(x), priority: x.priority, when: x.when, createdAt: x.createdAt, windows: x.windows?.length ? x.windows : null, prep: x.prep };
+    let notBefore = null; const afterTasks = [];
+    let waiting = null;
+    for (const { task: p, block } of prereqsOf(x)) {
+      if (block) { const e = { date: block.date, minute: block.start + block.minutes }; if (!notBefore || e.date > notBefore.date || (e.date === notBefore.date && e.minute > notBefore.minute)) notBefore = e; } else if (inRun.has(p.id)) afterTasks.push(p.id); else { waiting = p.title; break; }
+    }
+    if (waiting) { skipped.push({ taskId: x.id, why: 'needs', name: waiting }); continue; }
+    if (x.repeat === 'times') {
+      const per = x.timesPer || 'week';
+      for (const pk of [...new Set(dates.map((d) => periodKey(d, per)))]) {
+        const ds = dates.filter((d) => periodKey(d, per) === pk);
+        const n = timesLeft(x, ds[0]);
+        for (let k = 0; k < n; k++) items.push({ ...base, id: `${x.id}#${pk}#${k}`, days: ds, group: per === 'day' ? null : `${x.id}#${pk}`, afterTasks, notBefore });
+      }
+    } else if (splitsSteps(x)) {
+      let prev = null;
+      for (const y of partsLeft(x)) {
+        const id = `${x.id}~${y.id}`;
+        items.push({ ...base, id, stepId: y.id, title: `${x.title} · ${y.title}`, minutes: stepLen({}, y), prep: prev ? [] : x.prep, after: prev ? [prev] : [], afterTasks: prev ? [] : afterTasks, notBefore: prev ? null : notBefore });
+        prev = id;
+      }
+      if (prev) lastItem.set(x.id, prev);
+      continue;
+    } else items.push({ ...base, id: x.id, afterTasks, notBefore });
+    lastItem.set(x.id, items[items.length - 1]?.id);
+  }
+  for (const it of items) it.after = [...(it.after || []), ...(it.afterTasks || []).map((id) => lastItem.get(id)).filter(Boolean)];
+  return { items, skipped };
 }
 function loadOf(date) {
   const now = busyOn(date).filter((b) => !b.allowOverlap && !b.outcome).reduce((n, b) => n + (b.minutes || 0), 0);
@@ -2997,6 +3282,9 @@ function loadOf(date) {
   return { now, add, limit: planSettings().maxLoad };
 }
 // Hours to the nearest quarter, short: 2h, 1½h, ¾h, – for nothing.
+// Morning, afternoon or evening for a time of day (the same split the planner uses).
+function partOfDay(m) { return m < WINDOWS.morning[1] ? 'morning' : m < WINDOWS.afternoon[1] ? 'afternoon' : 'evening'; }
+
 function hoursShort(m) {
   if (!m) return '–';
   const q = Math.max(1, Math.round(m / 15)); const h = Math.floor(q / 4);
@@ -3034,6 +3322,8 @@ function spreadLabel() {
 function placeGhosts(ids, dates, minute = null) {
   const s = planSettings(); const td = today(); const now = nowMinutes();
   const tasks = ids.map((id) => get('tasks', id)).filter(Boolean);
+  const { items, skipped: blocked } = planningItems(tasks, dates);
+  const leadOfItem = (it) => (it.stepId && !(it.prep || []).length ? 0 : leadOf(get('tasks', it.taskId)));
   const dayInfo = (d) => ({
     date: d,
     blocks: [...busyOn(d).filter((b) => !b.allowOverlap), ...ghostsOn(d).map((g) => ({ start: g.start - (g.lead || 0), minutes: g.minutes + (g.lead || 0) }))],
@@ -3044,25 +3334,42 @@ function placeGhosts(ids, dates, minute = null) {
     // Dropped at a time: one after another from there, each in the next free gap.
     const d = dayInfo(dates[0]);
     let from = Math.max(minute, d.from);
-    for (const x of tasks) {
-      const lead = leadOf(x); const need = (x.minutes || 30) + lead;
-      const at = freeSlot(d.blocks, need, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap });
-      if (at == null) { skipped.push({ taskId: x.id, why: 'nofit' }); continue; }
-      placed.push({ taskId: x.id, date: d.date, start: at + lead, minutes: x.minutes || 30, lead });
+    const done = new Set();
+    for (const it of items) {
+      // One occurrence of a repeating task per drop; steps keep their order.
+      if (it.group && done.has(it.group)) continue;
+      if (it.notBefore && (it.notBefore.date > d.date)) { skipped.push({ taskId: it.taskId, why: 'needs', name: prereqsOf(get('tasks', it.taskId))[0]?.task.title }); continue; }
+      const lead = leadOfItem(it); const need = it.minutes + lead;
+      const at = freeSlot(d.blocks, need, { from: Math.max(from, it.notBefore?.date === d.date ? it.notBefore.minute : 0), dayStart: s.dayStart, dayEnd: Math.max(s.dayEnd, 1440), snap: s.snap });
+      if (at == null) { skipped.push({ taskId: it.taskId, why: 'nofit' }); continue; }
+      placed.push({ taskId: it.taskId, stepId: it.stepId || null, date: d.date, start: at + lead, minutes: it.minutes, lead });
       d.blocks.push({ start: at, minutes: need });
       from = at + need;
+      if (it.group) done.add(it.group);
     }
   } else {
     // Dropping on a single day you chose: its limit is a guide, not a wall.
     const settings = dates.length === 1 ? { ...s, maxLoad: 1440 } : s;
-    ({ placed, skipped } = spreadTasks({ tasks, days: dates.map(dayInfo), settings, leadOf }));
+    ({ placed, skipped } = spreadTasks({ tasks: items, days: dates.map(dayInfo), settings, leadOf: leadOfItem }));
   }
+  skipped = [...blocked, ...skipped];
   if (placed.length && !state.settings.trayHintSeen) saveSettings({ trayHintSeen: true });
-  ui.assign.ghosts.push(...placed.map(({ taskId, date, start, minutes, lead }) => ({ taskId, date, start, minutes, lead })));
-  for (const p of placed) ui.assign.sel.delete(p.taskId);
-  if (skipped.length) toast(t('spreadSkipped', skipped.length, skipped.map((x) => get('tasks', x.taskId)?.title).filter(Boolean).join(', ')));
+  ui.assign.ghosts.push(...placed.map(({ taskId, stepId, date, start, minutes, lead }) => ({ taskId, stepId: stepId || null, date, start, minutes, lead })));
+  for (const p of placed) if (!trayTasks().some((x) => x.id === p.taskId)) ui.assign.sel.delete(p.taskId);
+  ui.assign.skipped = skipped;
+  if (skipped.length) toast(skipNote(skipped), 6000);
   else if (placed.length) toast(t('spreadPreview', placed.length));
   render();
+}
+// Why some tasks weren't placed, in one line: "Meldebescheinigung waits for SPID livello 3 · Call: no free window".
+function skipNote(skipped) {
+  const seen = new Set(); const parts = [];
+  for (const x of skipped) {
+    const title = get('tasks', x.taskId)?.title || '';
+    if (seen.has(x.taskId)) continue; seen.add(x.taskId);
+    parts.push(x.why === 'needs' ? t('whyNeeds', title, x.name) : x.why === 'window' ? t('whyWindow', title) : x.why === 'toolong' ? t('whyLong', title) : x.why === 'waiting' ? t('whyWaiting', title) : t('whyFull', title));
+  }
+  return parts.join(' · ');
 }
 function assignDrop(id, tgt) {
   if (!tgt?.date) return;
@@ -3079,12 +3386,27 @@ function addGhosts() {
   for (const g of list) {
     const task = get('tasks', g.taskId);
     if (!task) continue;
-    planTask(task, g.date, g.start, { minutes: g.minutes });
+    const step = g.stepId && (task.steps || []).find((y) => y.id === g.stepId);
+    if (step) {
+      // One step of a task planned on its own: its own block, linked to the task and the step.
+      const first = (task.steps || []).filter((y) => y.title)[0]?.id === step.id;
+      planTask(task, g.date, g.start, { minutes: g.minutes, stepId: step.id, title: `${task.title} · ${step.title}`, partial: !first });
+    } else planTask(task, g.date, g.start, { minutes: g.minutes });
     n++;
   }
   ui.assign.ghosts = [];
   toast(t('assignAdded', n));
   changed();
+}
+function trayInfo(x) {
+  const bits = [fmtDur(x.minutes || 30)];
+  if (x.repeat === 'times') bits.push(`×${timesLeft(x, today())}`);
+  else if (splitsSteps(x)) bits.push(`▤ ${partsLeft(x).length}`);
+  if (x.due) bits.push(x.due < today() ? t('late') : relDay(x.due));
+  if (prereqsOf(x).some((p) => !p.block)) bits.push(`🔒 ${prereqsOf(x).find((p) => !p.block).task.title}`);
+  if (x.windows?.length) bits.push(`🕒 ${windowsText(x.windows)}`);
+  if (x.fromTitle) bits.push(`↪ ${x.fromTitle}`);
+  return bits.join(' · ');
 }
 function trayHtml() {
   const a = ui.assign;
@@ -3093,7 +3415,7 @@ function trayHtml() {
   const selMin = sel.reduce((n, x) => n + (x.minutes || 30), 0);
   const chip = (x) => `<button type="button" class="tchip${a.sel.has(x.id) ? ' on' : ''}" data-id="${esc(x.id)}" style="--c:${esc(catColor(x.category) || 'var(--accent)')}" aria-pressed="${a.sel.has(x.id)}">
       ${a.sel.has(x.id) ? '<span class="tchip-ok">✓</span>' : '<span class="chip-dot"></span>'}${impBadge(x) ? `${impBadge(x)} ` : ''}<span class="chip-title">${esc(x.title)}</span>
-      <small>${esc(fmtDur(x.minutes || 30))}${x.due ? ` · ${esc(x.due < today() ? t('late') : relDay(x.due))}` : ''}</small></button>`;
+      <small>${esc(trayInfo(x))}</small></button>`;
   // The how-to line shows until you've placed something once (or while a range is picked).
   const hint = a.range ? t('trayHintRange') : state.settings.trayHintSeen ? '' : t('trayHint');
   return `<div class="tray" role="region" aria-label="${esc(t('assignTitle'))}">
@@ -3118,11 +3440,16 @@ function trayHtml() {
     </div>
   </div>`;
 }
+function ghostTitle(g) {
+  const task = get('tasks', g.taskId);
+  const step = g.stepId && (task?.steps || []).find((y) => y.id === g.stepId);
+  return step ? `${task.title} · ${step.title}` : task?.title || '';
+}
 // A preview on a timeline (Day and Week views): tap to take it back.
 function assignGhostHtml(g, startMin) {
   const task = get('tasks', g.taskId);
   return `<div class="block ghost assign" data-action="ghost-rm" data-i="${g.i}" title="${esc(t('ghostTap'))}" style="--c:${esc(catColor(task?.category) || 'var(--accent)')};top:${(g.start - (g.lead || 0) - startMin) * PPM}px;height:${Math.max((g.minutes + (g.lead || 0)) * PPM, 16)}px;left:1px;right:3px">
-    <div class="blk-body"><div class="blk-title">${esc(task?.title)} <span class="ghost-x">✕</span></div><div class="blk-time">${range(g.start, g.minutes)}</div></div></div>`;
+    <div class="blk-body"><div class="blk-title">${esc(ghostTitle(g))} <span class="ghost-x">✕</span></div><div class="blk-time">${range(g.start, g.minutes)}</div></div></div>`;
 }
 
 // The app name in the corner takes you back to the plan.

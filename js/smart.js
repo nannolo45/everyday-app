@@ -208,7 +208,8 @@ export function placeGroceries({ meal, minutes, blocksOn, today, nowMin, setting
 const end = (b) => b.start + b.minutes;
 const before = (a, b) => a.date < b.date || (a.date === b.date && end(a) <= b.start);
 
-export function findConflicts(dayBlocks, { getBlock = () => null, getTask = () => null } = {}) {
+const pad4 = (n) => String(n).padStart(4, '0');
+export function findConflicts(dayBlocks, { getBlock = () => null, getTask = () => null, blocksOfTask = () => [] } = {}) {
   const out = [];
   const list = [...dayBlocks].sort((a, b) => a.start - b.start);
   for (let i = 0; i < list.length; i++) {
@@ -231,6 +232,11 @@ export function findConflicts(dayBlocks, { getBlock = () => null, getTask = () =
     }
     const t = b.taskId && getTask(b.taskId);
     if (t && t.due && !t.repeat && !t.done && b.date > t.due) out.push({ type: 'late', ids: [b.id] });
+    // It needs another task first, and that one is planned later (or at the same time).
+    for (const pre of (t?.after || [])) {
+      const pb = blocksOfTask(pre).filter((x) => !x.done && !x.deleted).sort((x, y) => (x.date + pad4(x.start + x.minutes) < y.date + pad4(y.start + y.minutes) ? 1 : -1))[0];
+      if (pb && (pb.date > b.date || (pb.date === b.date && pb.start + pb.minutes > b.start))) out.push({ type: 'after', ids: [b.id, pb.id] });
+    }
   }
   return out;
 }
@@ -249,43 +255,90 @@ export function recipeMinutes(text) {
 }
 
 // ---------- spread tasks over several days ----------
-// For the planner's tray: put tasks on a set of days. Each task goes on or before its due date,
-// the most urgent and important first; among the days it may go on, it prefers the emptiest
-// (earlier days win ties, the more so the more important or the sooner due it is), and only where
-// it fits in a free gap without the day going over its limit. `days` = [{date, blocks, from}]:
-// blocks already there (busy time) and the earliest start (now, for today). Returns placements
-// like suggestDay ({taskId, date, start, minutes, lead}) and what couldn't be placed.
+// For the planner's tray and the auto-planner: put tasks on a set of days. Each task goes on or
+// before its due date, the most urgent and important first; among the days it may go on, it prefers
+// the emptiest (earlier days win ties, the more so the more important or the sooner due it is), and
+// only where it fits in a free gap without the day going over its limit.
+// `days` = [{date, blocks, from}]: what's already there (busy time) and the earliest start.
+// A task may also carry:
+//   days: [dates]      only these days (one period of a "3 times a week" task)
+//   group: key         at most one task of the group per day (the occurrences of that task)
+//   windows: [{days: [1-7, Monday = 1], from, to}]   only inside these times (e.g. office hours)
+//   after: [ids]       other tasks of this run it must come after (prerequisites, earlier steps)
+//   notBefore: {date, minute}   it can't start before then (a prerequisite planned already)
+// Returns placements ({taskId, key, stepId, date, start, minutes, lead}) and what couldn't be placed.
+export const isoDay = (date) => ((parseDate(date).getDay() + 6) % 7) + 1;
+const later = (a, b) => (!a ? b : !b ? a : (b.date > a.date || (b.date === a.date && b.minute > a.minute)) ? b : a);
+
 export function spreadTasks({ tasks, days, settings, leadOf = () => 0, now = Date.now() }) {
   const s = { dayStart: 360, dayEnd: 1380, snap: 15, buffer: 5, maxLoad: 480, ...settings };
-  if (!days.length) return { placed: [], skipped: tasks.map((t) => ({ taskId: t.id, why: 'nodays' })) };
+  const out = (t) => t.taskId ?? t.id;
+  if (!days.length) return { placed: [], skipped: tasks.map((t) => ({ taskId: out(t), key: t.id, why: 'nodays' })) };
   const busy = new Map(days.map((d) => [d.date, [...d.blocks]]));
   const load = new Map(days.map((d) => [d.date, d.blocks.reduce((n, b) => n + (b.minutes || 0), 0)]));
   const first = days[0].date;
   const ranked = tasks.map((t) => ({ t, ...scoreTask(t, first, now) }))
     .sort((a, b) => b.score - a.score || (b.t.minutes || 30) - (a.t.minutes || 30) || String(a.t.id).localeCompare(String(b.t.id)));
+  // A task comes after the ones it needs (when they're in this run), otherwise in ranking order.
+  const byId = new Map(ranked.map((r) => [r.t.id, r]));
+  const ordered = []; const seen = new Set();
+  const visit = (r, path = new Set()) => {
+    if (seen.has(r.t.id) || path.has(r.t.id)) return;
+    path.add(r.t.id);
+    for (const a of r.t.after || []) if (byId.has(a)) visit(byId.get(a), path);
+    seen.add(r.t.id); ordered.push(r);
+  };
+  for (const r of ranked) visit(r);
+  const endOf = new Map(); const used = new Map();
   const placed = []; const skipped = [];
-  for (const { t, score, reasons } of ranked) {
+  for (const { t, score, reasons } of ordered) {
     const minutes = t.minutes || 30;
     const lead = leadOf(t);
     const need = lead + minutes;
-    let allowed = days.filter((d) => !t.due || d.date <= t.due);
-    if (!allowed.length) allowed = [days[0]]; // already late: as soon as possible
+    let nb = t.notBefore || null; let waiting = false;
+    for (const a of t.after || []) {
+      if (!byId.has(a)) continue;
+      const e = endOf.get(a);
+      if (!e) { waiting = true; break; }
+      nb = later(nb, e);
+    }
+    if (waiting) { skipped.push({ taskId: out(t), key: t.id, why: 'waiting' }); continue; }
+    const ok = (d) => (!t.days || t.days.includes(d.date)) && (!nb || d.date >= nb.date) && !(t.group && used.get(t.group)?.has(d.date));
+    let allowed = days.filter((d) => ok(d) && (!t.due || d.date <= t.due));
+    if (!allowed.length && t.due && t.due < first) allowed = days.filter(ok).slice(0, 1); // already late: as soon as possible
     const bias = 6 + Math.max(0, importanceOf(t) - 3) * 20 + (t.due ? 25 : 0);
-    let best = null;
+    let best = null; let why = 'full';
     allowed.forEach((d, i) => {
       if (load.get(d.date) + need > s.maxLoad) return;
-      const free = freeIntervals(busy.get(d.date), { from: d.from ?? s.dayStart, dayStart: s.dayStart, dayEnd: s.dayEnd, buffer: s.buffer });
-      const win = WINDOWS[t.when];
-      let at = win ? fit(free, need, { snap: s.snap, window: win }) : null;
-      if (at == null) at = fit(free, need, { snap: s.snap });
+      why = 'nofit';
+      const from = Math.max(d.from ?? s.dayStart, nb && nb.date === d.date ? nb.minute : 0);
+      const free = freeIntervals(busy.get(d.date), { from, dayStart: s.dayStart, dayEnd: s.dayEnd, buffer: s.buffer });
+      let at = null;
+      if (t.windows?.length) {
+        const wins = t.windows.filter((w) => (w.days || []).includes(isoDay(d.date)));
+        if (!wins.length) { why = 'window'; return; }
+        // Inside a window (lead time may start earlier); a window can stretch past the usual day.
+        const freeW = freeIntervals(busy.get(d.date), { from, dayStart: Math.min(s.dayStart, ...wins.map((w) => w.from)), dayEnd: Math.max(s.dayEnd, ...wins.map((w) => w.to)), buffer: s.buffer });
+        for (const w of wins) {
+          const a = fit(freeW, need, { snap: s.snap, window: [w.from - lead, w.to] });
+          if (a != null && (at == null || a < at)) at = a;
+        }
+        if (at == null) { why = 'window'; return; }
+      } else {
+        const win = WINDOWS[t.when];
+        if (win) at = fit(free, need, { snap: s.snap, window: win });
+        if (at == null) at = fit(free, need, { snap: s.snap });
+      }
       if (at == null) return;
       const cost = load.get(d.date) + i * bias;
       if (!best || cost < best.cost) best = { d, at, cost };
     });
-    if (!best) { skipped.push({ taskId: t.id, why: allowed.some((d) => load.get(d.date) + need <= s.maxLoad) ? 'nofit' : 'full' }); continue; }
-    placed.push({ taskId: t.id, date: best.d.date, start: best.at + lead, minutes, lead, score, reasons });
+    if (!best) { skipped.push({ taskId: out(t), key: t.id, why: minutes > s.maxLoad ? 'toolong' : why }); continue; }
+    placed.push({ taskId: out(t), key: t.id, stepId: t.stepId || null, date: best.d.date, start: best.at + lead, minutes, lead, score, reasons });
     busy.get(best.d.date).push({ start: best.at, minutes: need });
     load.set(best.d.date, load.get(best.d.date) + need);
+    endOf.set(t.id, { date: best.d.date, minute: best.at + need });
+    if (t.group) { if (!used.has(t.group)) used.set(t.group, new Set()); used.get(t.group).add(best.d.date); }
   }
   placed.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.start - b.start));
   return { placed, skipped };
