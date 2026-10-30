@@ -689,7 +689,7 @@ function taskPickList(selected = null) {
     [t('preparations'), live('tasks').filter((x) => x.helper && !x.check)],
     [t('grp_planned'), sortTasks(alreadyPlanned(), td), true],
   ].filter(([, l]) => l.length);
-  return `<input type="search" class="tp-q" placeholder="${esc(t('searchTasks'))}" autocomplete="off" aria-label="${esc(t('searchTasks'))}">
+  return `${searchBox({ cls: 'tp-q' })}
     <div class="tp-list">${groups.map(([label, l, planned]) => `<div class="tp-grp${planned ? ' planned' : ''}"><div class="tp-h">${esc(label)} <small>${l.length}</small></div>${planned ? `<p class="hint tp-note">${esc(t('plannedNote'))}</p>` : ''}${l.map(item).join('')}</div>`).join('')}</div>`;
 }
 function wirePicker(root, onPick) {
@@ -2122,6 +2122,11 @@ function sortTaskList(list, mode) {
   }[mode];
   return by ? [...list].sort(by) : smart;
 }
+// A search field: magnifier in front, ✕ to clear once something is typed (shown by CSS, no redraw needed).
+const SEARCH_ICO = '<svg class="search-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>';
+function searchBox({ id = '', cls = '', value = '' } = {}) {
+  return `<div class="search-box"${cls ? ` data-for="${cls}"` : ''}>${SEARCH_ICO}<input type="search" ${id ? `id="${id}"` : ''} class="${cls}" value="${esc(value)}" placeholder="${esc(t('searchTasks'))}" autocomplete="off" enterkeyhint="search" aria-label="${esc(t('searchTasks'))}"><button type="button" class="search-clear" aria-label="${esc(t('clearSearch'))}" title="${esc(t('clearSearch'))}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button></div>`;
+}
 function sortPicker(id, mode) {
   return `<label class="sort-pick">⇅ <select id="${id}" aria-label="${esc(t('sortBy'))}">${TASK_SORTS.map((m) => `<option value="${m}" ${m === mode ? 'selected' : ''}>${esc(t(`sort_${m}`))}</option>`).join('')}</select></label>`;
 }
@@ -2147,7 +2152,7 @@ function viewTasks() {
   const q = (ui.taskQ || '').trim();
   const hit = (x) => !q || matchesQ(taskHay(x), q);
   const isFolded = (key) => !q && folded(key); // while searching, every group shows its matches
-  const search = `<div class="task-search"><input type="search" id="task-q" value="${esc(ui.taskQ || '')}" placeholder="${esc(t('searchTasks'))}" autocomplete="off" aria-label="${esc(t('searchTasks'))}"></div>`;
+  const search = searchBox({ id: 'task-q', value: ui.taskQ || '' });
   const switcher = `<div class="seg" role="tablist">${['todo', 'saved'].map((k) => `<button type="button" role="tab" class="${k === tab ? 'on' : ''}" aria-selected="${k === tab}" data-action="tasks-tab" data-id="${k}">${esc(t(`tasksTab_${k}`))}</button>`).join('')}</div>`;
   if (tab === 'saved') {
     const helpers = all.filter((x) => x.helper && hit(x)).sort((a, b) => a.title.localeCompare(b.title));
@@ -2155,7 +2160,7 @@ function viewTasks() {
     const groups = savedGroups().map(([cat, list]) => [cat, list.filter(hit)]).filter(([, list]) => list.length);
     const nSaved = groups.reduce((n, [, l]) => n + l.length, 0);
     return `${switcher}
-    ${search}
+    <div class="task-tools">${search}</div>
     ${q && !nSaved && !tpls.length && !helpers.length ? `<p class="empty">${esc(t('noMatch'))}</p>` : ''}
     <section class="fold-sec first">
       ${foldBtn('saved', t('savedTasks'), nSaved, { open: !isFolded('saved') })}
@@ -2187,8 +2192,7 @@ function viewTasks() {
     <button class="btn primary">${esc(t('add'))}</button>
   </form>
   <p class="hint">${esc(t('quickHint'))}</p>
-  <div class="task-tools">${sortPicker('task-sort', mode)}<button class="btn small" type="button" data-action="import">⤓ ${esc(t('importTasks'))}</button></div>
-  ${search}
+  <div class="task-tools">${search}${sortPicker('task-sort', mode)}<button class="btn small" type="button" data-action="import">⤓ ${esc(t('importTasks'))}</button></div>
   ${manual && !q ? `<p class="hint">${esc(t('manualHint'))}</p>` : ''}
   ${open || g.done.length ? '' : `<p class="empty">${esc(q ? t('noMatch') : t('noTasks'))}</p>`}
   ${section('overdue', g.overdue)}
@@ -2542,6 +2546,24 @@ function openModal(html, onSubmit, { cls = '' } = {}) {
 modal.addEventListener('close', () => render());
 modal.addEventListener('change', (e) => { if (ui.modalSwap) e.stopImmediatePropagation(); }, true);
 modal.addEventListener('input', (e) => { if (ui.modalSwap) e.stopImmediatePropagation(); }, true);
+// ✕ in a search field (and Esc while typing in one): empty it and search again, keeping the focus there.
+function clearSearch(input) {
+  if (!input || !input.value) return false;
+  input.value = '';
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  (document.getElementById(input.id) || input).focus();
+  return true;
+}
+document.addEventListener('pointerdown', (e) => { if (e.target.closest?.('.search-clear')) e.preventDefault(); }, true); // keep the keyboard up
+document.addEventListener('click', (e) => {
+  const b = e.target.closest?.('.search-clear');
+  if (!b) return;
+  e.preventDefault(); e.stopPropagation();
+  clearSearch(b.parentElement.querySelector('input'));
+}, true);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && e.target.closest?.('.search-box') && clearSearch(e.target)) { e.preventDefault(); e.stopPropagation(); }
+}, true);
 // A time window with a date: its weekdays don't count, so they fade as soon as a date is picked.
 modal.addEventListener('change', (e) => {
   const row = e.target.closest?.('.win-row');
@@ -3906,7 +3928,7 @@ function trayHtml() {
       <small class="hint">${esc(t('autoHoursNow', fmtTime(autoHoursFor('2026-11-02')[0]), fmtTime(autoHoursFor('2026-11-02')[1]), fmtTime(autoHoursFor('2026-11-07')[0]), fmtTime(autoHoursFor('2026-11-07')[1])))}</small>
     </form>` : ''}
     ${a.open ? `
-    <div class="tray-tools"><input type="search" id="tray-q" value="${esc(a.q || '')}" placeholder="${esc(t('searchTasks'))}" autocomplete="off" aria-label="${esc(t('searchTasks'))}">${sortPicker('tray-sort', mode)}</div>
+    <div class="tray-tools">${searchBox({ id: 'tray-q', value: a.q || '' })}${sortPicker('tray-sort', mode)}</div>
     ${list.length ? `<div class="tray-list">${body}</div>` : `<p class="hint tray-hint">${esc(q ? t('noMatch') : a.ghosts.length ? t('trayAllPlaced') : t('trayEmpty'))}</p>`}
     ${hint ? `<p class="hint tray-hint">${esc(hint)}</p>` : ''}
     ${plannedList(planned, 'tray-planned', a.showPlanned)}` : ''}

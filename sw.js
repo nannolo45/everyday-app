@@ -1,6 +1,6 @@
 // Offline support: the app shell is cached; it updates itself in the background.
 // After changing any app file, bump VERSION so installed copies pick up the update.
-const VERSION = 'everyday-v15';
+const VERSION = 'everyday-v16';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'manifest.webmanifest',
   'js/app.js', 'js/store.js', 'js/sync.js', 'js/plan.js', 'js/smart.js', 'js/kitchen.js', 'js/parse.js', 'js/recipes.js', 'js/recipe-tools.js', 'js/categories.js', 'js/depts.js', 'js/sortable.js', 'js/drag.js', 'js/tray.js', 'js/shops.js', 'js/i18n.js',
