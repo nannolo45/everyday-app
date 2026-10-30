@@ -154,9 +154,12 @@ h2 small { font-family: var(--sans); font-weight: 400; color: var(--muted); font
 .row.tight input { padding: 8px 11px; }
 .sub { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 10px 0 6px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Phones: tasks wrap into a short list that scrolls up and down (no sideways scrolling). */
 @media (max-width: 899px) {
-  .chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+  .chips { max-height: min(28vh, 220px); overflow-y: auto; padding: 2px 2px 4px; scrollbar-width: thin; touch-action: pan-y; }
+  .chips .chip-title { max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
+.plan-layout > * { min-width: 0; }
 .chip {
   display: inline-flex; align-items: center; gap: 7px; max-width: 100%; flex: none; padding: 7px 11px; border-radius: 999px;
   border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; font-size: .88rem; cursor: grab;
@@ -717,3 +720,88 @@ body.has-tray #toast { bottom: auto; top: calc(env(safe-area-inset-top) + 72px);
 .rule-line.rt-task .dur-field { flex: 1 1 9.5em; }
 .rule-line .dur-field input { min-width: 3.8em; flex: 1 1 3.8em; }
 .rule-line .dur-field select { flex: 0 0 auto; }
+
+/* ---------- v13 ---------- */
+/* Steps switch */
+.steps-switch { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: .88rem; font-weight: 600; cursor: pointer; flex: none; }
+.steps-switch .sw { width: 30px; height: 18px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 35%, transparent); position: relative; transition: background .15s; }
+.steps-switch .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--bg); transition: left .15s; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.steps-switch[aria-checked="true"] .sw { background: var(--accent); }
+.steps-switch[aria-checked="true"] .sw::after { left: 14px; }
+/* Category chips */
+.cat-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.cat-chip { margin: 0 !important; }
+.cat-chip input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.cat-chip span { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-weight: 500; font-size: .9rem; cursor: pointer; }
+.cat-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); display: inline-block; }
+.cat-chip input:checked + span { border-color: var(--c); background: color-mix(in srgb, var(--c) 22%, var(--surface)); box-shadow: inset 0 0 0 1px var(--c); }
+.cat-chip input:focus-visible + span { outline: 2px solid var(--accent); }
+/* Task picker */
+.task-pick > summary { list-style: none; cursor: pointer; display: flex; align-items: baseline; gap: 8px; padding: 8px 0; }
+.task-pick > summary::-webkit-details-marker { display: none; }
+.task-pick > summary .field-label { margin: 0; }
+.tp-cur { font-weight: 600; color: var(--accent); }
+.tp-q { margin: 4px 0 6px; }
+.tp-list { max-height: 42vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; }
+.tp-h { position: sticky; top: 0; background: var(--bg); padding: 6px 10px; font-size: .78rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.tp-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 0; border-top: 1px solid var(--line); background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.tp-item.on { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.tp-item.none { border: 1px dashed var(--line); border-radius: 10px; margin-top: 6px; color: var(--muted); }
+.tp-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c); flex: none; }
+.tp-text { display: flex; flex-direction: column; min-width: 0; }
+.tp-text small { color: var(--muted); }
+/* Tasks tab tools, import, preparations */
+.task-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0 8px; }
+.sort-pick { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-weight: 600; color: var(--muted); }
+.sort-pick select { width: auto; margin: 0; padding: 6px 28px 6px 10px; }
+.list.tasks li .drag-handle { flex: none; }
+.import-list { max-height: 34vh; overflow-y: auto; }
+.import-list label.check { margin: 0; padding: 8px 10px; }
+.import-list small { display: block; color: var(--muted); }
+.prep-row { display: block !important; padding: 2px 0 8px; }
+.prep-row .task-main { width: 100%; text-align: left; }
+.prep-owners { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 4px 40px; align-items: center; }
+.owner { display: inline-flex; flex-direction: column; align-items: flex-start; padding: 6px 10px; border-radius: 10px; border: 1px solid var(--line); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.owner-t { font-weight: 600; font-size: .9rem; }
+.owner small { color: var(--muted); font-size: .76rem; }
+/* Auto-planner dialog, settings rows */
+.spans { margin-bottom: 8px; }
+.auto-hours { display: grid; grid-template-columns: auto 5.2em auto 5.2em; gap: 6px 8px; align-items: center; margin: 4px 0; }
+.auto-hours input { margin: 0; text-align: center; }
+.win-date { display: flex; align-items: center; gap: 8px; margin: 0 !important; font-size: .82rem; }
+.win-date input { width: auto; margin: 0 !important; padding: 5px 8px; }
+.days.mini.off { opacity: .4; }
+.shops-pick { margin: 4px 0; }
+/* Tray as a panel: a bar when folded, a searchable vertical list when open */
+.tray-toggle { display: flex; align-items: baseline; gap: 6px; flex: 1; min-width: 0; padding: 4px 2px; border: 0; background: none; color: var(--ink); font: inherit; cursor: pointer; text-align: left; }
+.tray-toggle small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tray-toggle .fold-ico { color: var(--muted); display: inline-block; transition: transform .15s; }
+.tray.open .tray-toggle .fold-ico { transform: rotate(180deg); }
+.tray-tools { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
+.tray-tools input[type=search] { flex: 1; margin: 0; min-width: 0; }
+.tray-list { max-height: 40vh; overflow-y: auto; margin: 0 -4px 6px; padding: 0 4px; border-top: 1px solid var(--line); }
+.tray-grp { position: sticky; top: 0; z-index: 1; background: var(--bg); padding: 6px 2px 4px; font-size: .74rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.tchip.trow { display: flex; width: 100%; max-width: none; border-radius: 12px; padding: 8px 10px; margin: 4px 0; touch-action: pan-y; align-items: center; gap: 10px; }
+.trow-tick { width: 20px; height: 20px; flex: none; border-radius: 6px; border: 1.5px solid var(--c); display: grid; place-items: center; font-size: .8rem; color: var(--bg); }
+.tchip.trow.on .trow-tick { background: var(--c); }
+.trow-text { display: flex; flex-direction: column; min-width: 0; flex: 1; text-align: left; }
+.trow-text .chip-title { max-width: none; }
+.trow-text small { white-space: normal; }
+.trow-grip { color: var(--muted); flex: none; }
+.tray-list { max-height: min(30vh, 280px); }
+/* While dragging from the tray, it folds to its bar so the days behind it can be reached. */
+body.is-dragging .tray .tray-list, body.is-dragging .tray .tray-tools, body.is-dragging .tray .tray-hint, body.is-dragging .tray .tray-opts { display: none; }
+body.is-dragging .tray { opacity: .92; }
+
+/* Phones: the header wraps instead of running off the screen; with the tray open, the tray is the
+   list of tasks to place (the side list would only repeat it). */
+.plan-top { flex-wrap: wrap; }
+@media (max-width: 899px) {
+  body.has-tray .to-plan { display: none; }
+  .tchip.trow { padding: 6px 10px; margin: 3px 0; }
+}
+.trip-mode { display: block; margin-top: 14px; }
+.add-opt .item-text { display: flex; flex-direction: column; gap: 2px; text-align: left; }
+.add-opt .item-text small { color: var(--muted); }
+.task-search { margin: 8px 0 4px; }
+.task-search input { width: 100%; margin: 0; }

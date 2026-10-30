@@ -14,6 +14,8 @@ export function scoreTask(task, date, now = Date.now()) {
   let score = 0; const reasons = [];
   // Importance weighs as much as a close due date: a very important task beats a normal one due tomorrow.
   const imp = importanceOf(task);
+  // Your own order in the task list (a preference, not a rule): up to +30.
+  if (task.boost) { score += task.boost; if (task.boost >= 15) reasons.push({ k: 'r_yourOrder' }); }
   score += { 1: 0, 2: 5, 3: 12, 4: 28, 5: 45 }[imp];
   if (imp >= 4) reasons.push({ k: imp === 5 ? 'r_veryImportant' : 'r_high' });
   if (imp <= 2) reasons.push({ k: 'r_low' });
@@ -263,11 +265,14 @@ export function recipeMinutes(text) {
 // A task may also carry:
 //   days: [dates]      only these days (one period of a "3 times a week" task)
 //   group: key         at most one task of the group per day (the occurrences of that task)
-//   windows: [{days: [1-7, Monday = 1], from, to}]   only inside these times (e.g. office hours)
+//   windows: [{days: [1-7, Monday = 1] | date: 'YYYY-MM-DD', from, to}]   only inside these times (office hours)
+// A day may carry `to` (the latest end for this day: the auto-planner's hours, weekday or weekend).
 //   after: [ids]       other tasks of this run it must come after (prerequisites, earlier steps)
 //   notBefore: {date, minute}   it can't start before then (a prerequisite planned already)
 // Returns placements ({taskId, key, stepId, date, start, minutes, lead}) and what couldn't be placed.
 export const isoDay = (date) => ((parseDate(date).getDay() + 6) % 7) + 1;
+// A time window applies on a date: a specific date, or one of its weekdays.
+export const windowOn = (w, date) => (w.date ? w.date === date : (w.days || []).includes(isoDay(date)));
 const later = (a, b) => (!a ? b : !b ? a : (b.date > a.date || (b.date === a.date && b.minute > a.minute)) ? b : a);
 
 export function spreadTasks({ tasks, days, settings, leadOf = () => 0, now = Date.now() }) {
@@ -312,13 +317,14 @@ export function spreadTasks({ tasks, days, settings, leadOf = () => 0, now = Dat
       if (load.get(d.date) + need > s.maxLoad) return;
       why = 'nofit';
       const from = Math.max(d.from ?? s.dayStart, nb && nb.date === d.date ? nb.minute : 0);
-      const free = freeIntervals(busy.get(d.date), { from, dayStart: s.dayStart, dayEnd: s.dayEnd, buffer: s.buffer });
+      const dayEnd = d.to ?? s.dayEnd;
+      const free = freeIntervals(busy.get(d.date), { from, dayStart: s.dayStart, dayEnd, buffer: s.buffer });
       let at = null;
       if (t.windows?.length) {
-        const wins = t.windows.filter((w) => (w.days || []).includes(isoDay(d.date)));
+        const wins = t.windows.filter((w) => windowOn(w, d.date));
         if (!wins.length) { why = 'window'; return; }
         // Inside a window (lead time may start earlier); a window can stretch past the usual day.
-        const freeW = freeIntervals(busy.get(d.date), { from, dayStart: Math.min(s.dayStart, ...wins.map((w) => w.from)), dayEnd: Math.max(s.dayEnd, ...wins.map((w) => w.to)), buffer: s.buffer });
+        const freeW = freeIntervals(busy.get(d.date), { from: Math.min(from, ...wins.map((w) => w.from - lead)), dayStart: 0, dayEnd: 1440, buffer: s.buffer });
         for (const w of wins) {
           const a = fit(freeW, need, { snap: s.snap, window: [w.from - lead, w.to] });
           if (a != null && (at == null || a < at)) at = a;

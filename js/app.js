@@ -8,7 +8,7 @@ import {
   parseTemplateLines, IMPORTANCE, importanceOf, formatTemplateLines, templateBlocks, autoTemplatesFor,
 } from './plan.js';
 import {
-  candidates, suggestDay, spareTime, spreadTasks, scoreTask, WINDOWS, nearestSlot, placePrep, placeGroceries, findConflicts, recipeMinutes,
+  candidates, suggestDay, spareTime, spreadTasks, scoreTask, WINDOWS, windowOn, nearestSlot, placePrep, placeGroceries, findConflicts, recipeMinutes,
 } from './smart.js';
 import { makeKitchen } from './kitchen.js';
 import { DEPTS, DEPT_IDS, NONFOOD, deptIcon, deptOf } from './depts.js';
@@ -19,6 +19,7 @@ import { formatQty, setDecimalSeparator, namesMatch, addQuantities, parseIngredi
 import { t, setLang, getLang, LANGS, detectLang } from './i18n.js';
 import { setupDrag } from './drag.js';
 import { setupTrayDrag } from './tray.js';
+import { assignItems, planTrips, openOn, shopsFor } from './shops.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -95,6 +96,11 @@ function seedCategories() {
   });
 }
 
+// Categories as chips showing their colour (a plain list can't show colours on a phone).
+function catChips(selected, name = 'category') {
+  const chip = (id, label, color) => `<label class="cat-chip" style="--c:${esc(color || 'var(--line)')}"><input type="radio" name="${name}" value="${esc(id)}" ${(selected || '') === id ? 'checked' : ''}><span>${color ? '<i class="cat-dot"></i>' : ''}${esc(label)}</span></label>`;
+  return `<div class="cat-chips" role="radiogroup" aria-label="${esc(t('category'))}">${chip('', t('noCategory'), '')}${categories().map((c) => chip(c.id, catName(c), c.color)).join('')}</div>`;
+}
 function catOptions(selected) {
   return `<option value="">${esc(t('noCategory'))}</option>${categories().map((c) => `<option value="${esc(c.id)}" ${c.id === selected ? 'selected' : ''}>${esc(catName(c))}</option>`).join('')}`;
 }
@@ -405,13 +411,15 @@ function undoRules(block, when, sid = null) {
   }
 }
 
-// The first free time inside one of these windows, from now, within four weeks.
+// The first free time inside one of these windows, from now: within four weeks (or up to the last
+// specific date among them, at most a year).
 function nextWindowSlot(wins, minutes) {
   const s = planSettings(); const td = today(); const now = nowMinutes();
-  for (let i = 0; i < 28; i++) {
+  const last = wins.map((w) => w.date).filter(Boolean).sort().pop();
+  const span = Math.min(366, Math.max(28, last ? Math.round((parseDate(last) - parseDate(td)) / 864e5) + 1 : 0));
+  for (let i = 0; i < span; i++) {
     const d = addDays(td, i);
-    const iso = ((parseDate(d).getDay() + 6) % 7) + 1;
-    for (const w of wins.filter((x) => x.days.includes(iso)).sort((a, b) => a.from - b.from)) {
+    for (const w of wins.filter((x) => windowOn(x, d)).sort((a, b) => a.from - b.from)) {
       const from = Math.max(w.from, d === td ? Math.ceil(now / 5) * 5 : 0);
       const at = freeSlot(busyOn(d).filter((b) => !b.allowOverlap), minutes, { from, dayStart: 0, dayEnd: w.to, snap: Math.min(s.snap, 15) });
       if (at != null) return { date: d, start: at };
@@ -558,6 +566,136 @@ function savedStart(x, date) {
   return freeSlot(busyOn(date), x.minutes || 30, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap })
     ?? Math.min(Math.ceil(from / s.snap) * s.snap, 1440 - (x.minutes || 30));
 }
+// The auto-planner: everything still to place (or the tasks selected in the tray), laid out over a
+// period you choose, as previews in the tray.
+const AUTO_SPANS = ['1', '2', '3', '7', '14', 'month', 'n'];
+function openAutoPlanner() {
+  const td = today();
+  const last = state.settings.autoSpan || { span: '7', n: 5 };
+  const from0 = currentDate() > td ? currentDate() : td;
+  const pending = ui.assign?.sel?.size || 0;
+  openModal(`
+    <h2>✦ ${esc(t('autoPlanner'))}</h2>
+    <p class="hint">${esc(pending ? t('autoSelected', pending) : t('autoAll', trayTasks().length))}</p>
+    <div class="field-label">${esc(t('autoSpan'))}</div>
+    <div class="days spans">${AUTO_SPANS.map((k) => `<label class="day-pill"><input type="radio" name="span" value="${k}" ${k === last.span ? 'checked' : ''}><span>${esc(t(`span_${k}`))}</span></label>`).join('')}</div>
+    <div class="two">
+      <label>${esc(t('fromDay'))}<input type="date" name="from" value="${esc(from0)}" min="${esc(td)}"></label>
+      <label>${esc(t('spanN'))}<input type="number" name="n" min="1" max="90" value="${esc(last.n || 5)}"></label>
+    </div>
+    <small class="hint">${esc(t('autoHoursNow', fmtTime(autoHoursFor('2026-11-02')[0]), fmtTime(autoHoursFor('2026-11-02')[1]), fmtTime(autoHoursFor('2026-11-07')[0]), fmtTime(autoHoursFor('2026-11-07')[1])))}${state.settings.freeWeekends ? ` · ${esc(t('freeWeekends'))}` : ''}</small>
+    <div class="button-row">
+      <button class="btn primary" value="ok">✦ ${esc(t('autoGo'))}</button>
+      <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
+    </div>`, (form) => {
+    const span = form.querySelector('input[name=span]:checked')?.value || '7';
+    const n = Math.max(1, Math.min(90, Number(form.n.value) || 5));
+    saveSettings({ autoSpan: { span, n } });
+    const from = isDate(form.from.value) && form.from.value >= td ? form.from.value : td;
+    let days = [];
+    if (span === 'month') { const m = from.slice(0, 7); for (let d = from; d.slice(0, 7) === m; d = addDays(d, 1)) days.push(d); } else {
+      const k = span === 'n' ? n : Number(span);
+      for (let i = 0; i < k; i++) days.push(addDays(from, i));
+    }
+    const weekend = (d) => [0, 6].includes(parseDate(d).getDay());
+    if (state.settings.freeWeekends && days.some((d) => !weekend(d))) days = days.filter((d) => !weekend(d));
+    if (!ui.assign) ui.assign = { sel: new Set(), ghosts: [], range: null, opts: false, open: false, q: '' };
+    ui.suggest = null;
+    const ids = ui.assign.sel.size ? trayTasks().filter((x) => ui.assign.sel.has(x.id)).map((x) => x.id) : trayTasks().map((x) => x.id);
+    if (!ids.length) { toast(t('trayEmpty')); render(); return; }
+    ui.assign.open = false; // the previews matter now; the list can be opened again
+    placeGhosts(ids, days);
+  });
+  // "This many days" is used when you pick it, or type a number.
+  modal.querySelector('input[name=n]').addEventListener('input', () => { const r = modal.querySelector('input[name=span][value=n]'); if (r) r.checked = true; });
+}
+
+// Import tasks from pasted text: one per line (lists from messages, notes, emails). Bullets,
+// numbers and checkboxes are dropped; "30m", "!1" and "#work" work as in quick add.
+function parseTaskLines(text) {
+  return String(text || '').split(/\r?\n/).map((l) => l.replace(/^\s*(?:[-*•·–—>]+|\d+[.)]|\[[ xX]?\]|[☐☑✓✔︎]+)\s*/u, '').trim())
+    .filter((l) => l && !/^[-=_*]{3,}$/.test(l)).map((l) => ({ line: l, ...quickAdd(l) })).filter((q) => q.title);
+}
+function openImport(draft = null) {
+  const x = draft || { text: '', due: '', category: '' };
+  const items = parseTaskLines(x.text);
+  openModal(`
+    <h2>⤓ ${esc(t('importTasks'))}</h2>
+    <p class="hint">${esc(t('importHint'))}</p>
+    <label><textarea name="text" rows="7" placeholder="${esc(t('importPh'))}" aria-label="${esc(t('importTasks'))}">${esc(x.text)}</textarea></label>
+    <label>${esc(t('due'))}<input type="date" name="due" value="${esc(x.due || '')}"></label>
+    <div class="field-label">${esc(t('category'))}</div>${catChips(x.category)}
+    ${items.length ? `<div class="field-label">${esc(t('importPreview', items.length))}</div>
+    <ul class="list import-list">${items.map((q, i) => `<li><label class="check"><input type="checkbox" name="pick" value="${i}" ${/:$/.test(q.title) ? '' : 'checked'}><span>${impBadge(q) ? `${impBadge(q)} ` : ''}${esc(q.title)}<small>${esc([q.minutes ? fmtDur(q.minutes) : '', q.category ? `#${q.category}` : ''].filter(Boolean).join(' · '))}</small></span></label></li>`).join('')}</ul>` : ''}
+    <div class="button-row">
+      <button class="btn primary" value="ok" ${items.length ? '' : 'disabled'}>${esc(t('importN', items.length))}</button>
+      <button class="btn" value="preview" formnovalidate>${esc(t('importCheck'))}</button>
+      <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
+    </div>`, (form, action, e) => {
+    x.text = form.text.value; x.due = form.due.value; x.category = form.category.value;
+    if (action === 'preview') { e.preventDefault(); openImport(x); return; }
+    const picked = new Set([...form.querySelectorAll('input[name=pick]:checked')].map((el) => Number(el.value)));
+    const list = parseTaskLines(x.text).filter((_, i) => picked.has(i));
+    let n = 0;
+    for (const q of list) {
+      upsert('tasks', {
+        id: uid(), createdAt: Date.now() + n, title: q.title, minutes: q.minutes || 30, priority: q.priority, importance: q.importance || 3,
+        category: findCategory(q.category) || x.category || null, due: x.due || null, repeat: null, notes: '', done: false,
+      }, { silent: true });
+      n++;
+    }
+    toast(t('imported', n));
+    changed();
+  });
+  // The preview follows what you paste or type (after a short pause).
+  let tmr = null;
+  modal.querySelector('textarea[name=text]').addEventListener('input', (ev) => {
+    clearTimeout(tmr);
+    tmr = setTimeout(() => { if (!ev.target.isConnected || !modal.open) return; const f = ev.target.form; openImport({ text: f.text.value, due: f.due.value, category: f.category.value }); const ta = modal.querySelector('textarea[name=text]'); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 600);
+  });
+}
+
+// A searchable list of tasks to pick from: to-dos by when they're due, then saved tasks and small steps.
+function taskPickList(selected = null) {
+  const td = today();
+  const g = groupTasks(openTasks(), td);
+  const item = (x) => `<button type="button" class="tp-item${x.id === selected ? ' on' : ''}" data-tp="${esc(x.id)}" data-q="${esc(x.title.toLowerCase())}" style="--c:${esc(catColor(x.category) || 'var(--accent)')}">
+      <span class="tp-dot"></span><span class="tp-text"><span>${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}</span><small>${esc([fmtDur(x.minutes || 30), x.due ? (x.due < td ? t('late') : relDay(x.due)) : '', x.helper ? t('stepLabel') : '', x.routine ? t('savedLabel') : ''].filter(Boolean).join(' · '))}</small></span></button>`;
+  const groups = [
+    ...['overdue', 'today', 'upcoming', 'anytime'].map((k) => [t(`grp_${k}`), sortTasks(g[k], td)]),
+    [t('savedTasks'), savedTasks().filter((x) => !x.meal)],
+    [t('preparations'), live('tasks').filter((x) => x.helper && !x.check)],
+  ].filter(([, l]) => l.length);
+  return `<input type="search" class="tp-q" placeholder="${esc(t('searchTasks'))}" autocomplete="off" aria-label="${esc(t('searchTasks'))}">
+    <div class="tp-list">${groups.map(([label, l]) => `<div class="tp-grp"><div class="tp-h">${esc(label)} <small>${l.length}</small></div>${l.map(item).join('')}</div>`).join('')}</div>`;
+}
+function wirePicker(root, onPick) {
+  const q = root.querySelector('.tp-q');
+  q?.addEventListener('input', () => {
+    const v = q.value.trim().toLowerCase();
+    for (const el of root.querySelectorAll('.tp-item')) el.hidden = Boolean(v) && !el.dataset.q.includes(v);
+    for (const gEl of root.querySelectorAll('.tp-grp')) gEl.hidden = ![...gEl.querySelectorAll('.tp-item')].some((el) => !el.hidden);
+  });
+  root.addEventListener('click', (ev) => { const b = ev.target.closest('[data-tp]'); if (b) { ev.preventDefault(); onPick(b.dataset.tp); } });
+}
+// "+ Add → Task": an existing task (or a new one) on this day, at a time you confirm.
+function openTaskAdd(date) {
+  openModal(`
+    <h2>✓ ${esc(t('addTaskTitle', relDay(date)))}</h2>
+    <div class="row tight"><input name="newTask" placeholder="${esc(t('addTaskNewPh'))}" autocomplete="off"><button class="btn primary" value="new">+</button></div>
+    <div class="field-label">${esc(t('orPickTask'))}</div>
+    <div class="task-pick open">${taskPickList()}</div>
+    <div class="button-row"><button class="btn ghost" value="cancel" formnovalidate>${esc(t('cancel'))}</button></div>`, (form, action, e) => {
+    if (action !== 'new') return;
+    e.preventDefault();
+    const q = quickAdd(form.newTask.value);
+    if (!q.title) return;
+    const x = upsert('tasks', { id: uid(), createdAt: Date.now(), title: q.title, minutes: q.minutes || 30, priority: q.priority, importance: q.importance || 3, category: findCategory(q.category), due: null, repeat: null, notes: '', done: false }, { silent: true });
+    openPlanSaved(x, date);
+  });
+  wirePicker(modal, (id) => openPlanSaved(get('tasks', id), date));
+}
+
 // "+ Add": things you put on the plan by hand.
 function openAddMenu() {
   const date = currentDate();
@@ -565,6 +703,7 @@ function openAddMenu() {
   openModal(`
     <h2>${esc(t('addMenuTitle', relDay(date)))}</h2>
     <div class="add-opts">
+      ${opt('task', '✓', t('addTaskOpt'), t('addTaskHint'))}
       ${opt('saved', '★', t('fromSaved'), t('addSavedHint'))}
       ${opt('meal', '🍽', t('meal'), t('addMealHint'))}
       ${opt('block', '▭', t('block'), t('addBlockHint'))}
@@ -573,6 +712,7 @@ function openAddMenu() {
     <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('cancel'))}</button></div>`, (form, action) => {
     setTimeout(() => {
       if (action === 'saved') openSavedPicker(date);
+      if (action === 'task') openTaskAdd(date);
       if (action === 'meal') { ui.mealDate = date; openMeal(null); }
       if (action === 'templates') openTemplatesMenu();
       if (action === 'block') {
@@ -695,6 +835,10 @@ function ensureGroceries(meal, newId = null) {
     && (b.date < meal.date || (b.date === meal.date && b.start + b.minutes <= meal.start)))
     .sort((a, b) => (isBefore(a, b) ? 1 : -1))[0];
   let g = existing;
+  if (!g && shopsList().length) {
+    const { blocks } = planGroceryTrips({ meal, newId });
+    g = blocks.filter((x) => x.date < meal.date || (x.date === meal.date && x.start < meal.start)).pop() || blocks[0] || null;
+  }
   if (!g) {
     const pos = placeGroceries({ meal, minutes: GROCERY_MINUTES, blocksOn: busyOn, today: td, nowMin: nowMinutes(), settings: planSettings() });
     g = newBlock({ ...(newId ? { id: newId } : {}), ...pos, kind: 'groceries', title: t('groceryTitle'), minutes: GROCERY_MINUTES, category: 'meals', auto: true });
@@ -918,7 +1062,7 @@ function viewPlan(date) {
   const head = `
   <div class="plan-top">
     <div class="view-switch" role="tablist">${VIEWS.map((k) => `<button type="button" role="tab" class="${k === v ? 'on' : ''}" data-action="view" data-id="${k}" aria-selected="${k === v}">${esc(t(`v_${k}`))}</button>`).join('')}</div>
-    ${v === 'day' || v === 'list' ? `<button class="icon steps-toggle" type="button" data-action="toggle-steps" aria-pressed="${showSteps()}" title="${esc(t(showSteps() ? 'hideSteps' : 'showSteps'))}" aria-label="${esc(t(showSteps() ? 'hideSteps' : 'showSteps'))}">▤</button>` : ''}
+    ${v === 'day' || v === 'list' ? `<button class="steps-switch" type="button" role="switch" data-action="toggle-steps" aria-checked="${showSteps()}" aria-pressed="${showSteps()}" title="${esc(t(showSteps() ? 'hideSteps' : 'showSteps'))}"><span class="sw" aria-hidden="true"></span>${esc(t('steps'))}</button>` : ''}
   </div>
   <div class="day-head">
     <a class="round" href="#/plan/${prev}" aria-label="${esc(t('previous'))}">‹</a>
@@ -1637,7 +1781,102 @@ function setShopPref(id, value) {
 }
 
 const LIST_MODES = ['dept', 'recipe', 'plain'];
-function listMode() { const m = shopPref('listMode', 'dept'); return LIST_MODES.includes(m) ? m : 'dept'; }
+// "By shop" is Everyday's own view (kept on this device, so Ricette never sees a mode it doesn't know).
+function listModes() { return shopsList().length ? [...LIST_MODES, 'shop'] : LIST_MODES; }
+function listMode() {
+  if (state.settings.shopMode === 'shop' && shopsList().length) return 'shop';
+  const m = shopPref('listMode', 'dept'); return LIST_MODES.includes(m) ? m : 'dept';
+}
+
+// ---------- shops ----------
+// Shops live with the shopping list: in Ricette's repo (data/shops.json) once it's connected.
+function SHOPS() { return ricetteConfigured() ? 'r_shops' : 'shops'; }
+function shopsList() { return live(SHOPS()).sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || (a.name || '').localeCompare(b.name || '')); }
+function shopName(id) { return get(SHOPS(), id)?.name || ''; }
+function tripMode() { return get('config', 'shopping')?.value?.tripMode || 'perShop'; }
+function tripTitle(ids) {
+  const names = (ids || []).map(shopName).filter(Boolean);
+  if (!names.length) return t('groceryTitle');
+  return names.length === 1 ? `${t('groceryTitle')} · ${names[0]}` : `${t('groceryTitle')}: ${names.join(' → ')}`;
+}
+// The hours the planner may use on a day (Settings → Planner): weekdays and weekends apart.
+function autoHoursFor(date) {
+  const h = state.settings.autoHours || {};
+  const we = [0, 6].includes(parseDate(date).getDay());
+  const [f, to] = (we ? h.we : h.wd) || (we ? [600, 1200] : [540, 1200]);
+  return [f, Math.max(to, f + 30)];
+}
+// Plan the grocery trips for what's on the list: which shop gets each item (as few shops as possible),
+// then a time for each trip (or one trip for all, Settings → Shops), inside opening hours. Before
+// `meal` when given (as late as possible, so things are fresh), otherwise as soon as possible.
+// Earlier automatic trips that haven't happened yet are replaced; ones you moved by hand are kept.
+function planGroceryTrips({ meal = null, newId = null } = {}) {
+  const td = today(); const now = nowMinutes();
+  const items = live(SH()).filter((i) => !i.checked);
+  if (!items.length) return { blocks: [], missing: [] };
+  const shops = shopsList();
+  const byShop = assignItems(items, shops);
+  const kept = live('blocks').filter((b) => b.kind === 'groceries' && !outcomeOf(b) && b.date >= td && !b.auto);
+  for (const b of live('blocks').filter((x) => x.kind === 'groceries' && !outcomeOf(x) && x.date >= td && x.auto && x.shops)) remove('blocks', b.id);
+  const keptShops = new Set(kept.flatMap((b) => b.shops || []));
+  const shopIds = byShop ? [...byShop.keys()].filter((id) => !keptShops.has(id)) : ['_any'];
+  if (!shopIds.length) return { blocks: [], missing: [] };
+  const list = byShop ? shops : [{ id: '_any', name: t('groceryTitle'), minutes: GROCERY_MINUTES }];
+  const lastDay = meal ? meal.date : addDays(td, 13);
+  const days = []; for (let d = td; d <= lastDay; d = addDays(d, 1)) days.push(d);
+  const trips = planTrips({
+    shopIds, shops: list, mode: tripMode(), days, snap: planSettings().snap,
+    busyOn: (d) => busyOn(d).filter((b) => !b.allowOverlap && !outcomeOf(b)),
+    from: { date: td, minute: now + 5 }, deadline: meal ? { date: meal.date, minute: meal.start - 15 } : null, hours: autoHoursFor,
+  });
+  const blocks = []; const missing = [];
+  trips.forEach((tr, n) => {
+    if (!tr.date) { missing.push(...tr.shopIds); return; }
+    blocks.push(newBlock({
+      ...(newId && n === 0 ? { id: newId } : {}), date: tr.date, start: tr.start, minutes: tr.minutes, kind: 'groceries',
+      title: byShop ? tripTitle(tr.shopIds) : t('groceryTitle'), shops: byShop ? tr.shopIds : null, category: 'meals', auto: true,
+    }));
+  });
+  return { blocks, missing };
+}
+// What to buy on this trip: the items whose shop (as assigned now) is on it; all of them for a trip without shops.
+function tripItems(b) {
+  const all = live(SH());
+  if (!b?.shops?.length) return all;
+  const byShop = assignItems(all, shopsList()) || new Map();
+  const ids = new Set(b.shops.flatMap((id) => (byShop.get(id) || []).map((i) => i.id)));
+  return all.filter((i) => ids.has(i.id) || (i.checked && shopsFor(i, shopsList()).some((id) => b.shops.includes(id))));
+}
+function openShopRec(shop = null) {
+  const x = shop ? { ...shop, hours: (shop.hours || []).map((w) => ({ ...w })) } : { name: '', minutes: 30, hours: [], place: '', link: '' };
+  const draw = () => openModal(`
+    <h2>🏪 ${esc(shop ? x.name : t('newShop'))}</h2>
+    <label>${esc(t('name'))}<input name="name" required value="${esc(x.name)}" autocomplete="off"></label>
+    <label>${esc(t('shopVisit'))}${durField('minutes', x.minutes || 30)}</label>
+    <div class="field-label">🕒 ${esc(t('openingHours'))}</div>
+    ${windowsEditor('w_', x.hours)}
+    <small class="hint">${esc(t('openingHoursHint'))}</small>
+    <label>${esc(t('place'))}<input name="place" value="${esc(x.place || '')}" autocomplete="off"></label>
+    <label>${esc(t('placeLink'))}<input name="link" type="url" value="${esc(x.link || '')}" autocomplete="off"></label>
+    <div class="button-row">
+      <button class="btn primary" value="ok">${esc(t('save'))}</button>
+      <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
+      ${shop ? `<button class="btn danger" value="delete" formnovalidate>${esc(t('delete'))}</button>` : ''}
+    </div>`, (form, action, e) => {
+    x.name = form.elements.namedItem('name').value.trim();
+    x.minutes = readDur(form, 'minutes', 30);
+    x.hours = readWindows(form, 'w_', x.hours.length);
+    x.place = form.place.value.trim(); x.link = form.link.value.trim();
+    const wm = action.match(/^w_(add|rm:(\d+))$/);
+    if (wm) { e.preventDefault(); if (wm[1] === 'add') x.hours.push({ days: x.hours.length ? [6] : [1, 2, 3, 4, 5], from: 480, to: 1200 }); else x.hours.splice(Number(wm[2]), 1); draw(); return; }
+    if (action === 'delete') { if (confirm(t('confirmDeleteShop'))) remove(SHOPS(), shop.id); render(); return; }
+    if (!x.name) { e.preventDefault(); return; }
+    upsert(SHOPS(), { ...(shop || {}), id: shop?.id || uid(), name: x.name, minutes: x.minutes, hours: cleanWindows(x.hours), place: x.place, link: x.link, order: shop?.order ?? shopsList().length }, { silent: true });
+    changed();
+    render();
+  });
+  draw();
+}
 function deptOrder() { return byOrder(DEPT_IDS, shopPref('deptOrder', [])); }
 function shopDept(i) {
   if (i.cat && DEPT_IDS.includes(i.cat)) return i.cat;
@@ -1670,6 +1909,10 @@ function listGroups(open, mode = listMode()) {
     }
     const natural = [...groups.keys()].sort((a, b) => (a === '__pantry') - (b === '__pantry') || first.get(a) - first.get(b));
     return byOrder(natural, shopPref('recipeOrder', [])).map((k) => [k, recipeGroupLabel(k), groups.get(k)]);
+  }
+  if (mode === 'shop') {
+    const byShop = assignItems(items, shopsList()) || new Map();
+    return shopsList().filter((s) => byShop.get(s.id)?.length).map((s) => [s.id, `🏪 ${s.name}`, [...byShop.get(s.id)].sort(byItemOrder)]);
   }
   const groups = new Map(deptOrder().map((c) => [c, []]));
   for (const i of items) groups.get(shopDept(i)).push(i);
@@ -1715,11 +1958,15 @@ function viewShop() {
     <button class="btn primary" aria-label="${esc(t('add'))}">+</button>
   </form>
   <div class="seg" role="radiogroup" aria-label="${esc(t('listView'))}">
-    ${LIST_MODES.map((m) => `<button type="button" role="radio" aria-checked="${m === mode}" class="${m === mode ? 'on' : ''}" data-action="list-mode" data-id="${m}">${esc(t(`listMode_${m}`))}</button>`).join('')}
+    ${listModes().map((m) => `<button type="button" role="radio" aria-checked="${m === mode}" class="${m === mode ? 'on' : ''}" data-action="list-mode" data-id="${m}">${esc(t(`listMode_${m}`))}</button>`).join('')}
   </div>
   ${open.length ? `${body}
     <p class="hint">${esc(t(grouped ? 'dragHintGroups' : 'dragHintItems'))}</p>
-    <button class="btn" type="button" data-action="shop-share">${esc(t('shareList'))}</button>` : `<p class="empty">${esc(t('listEmpty'))}</p>`}
+    <div class="button-row">
+      <button class="btn primary" type="button" data-action="plan-trips">🛒 ${esc(t('planTrips'))}</button>
+      <button class="btn" type="button" data-action="shop-share">${esc(t('shareList'))}</button>
+    </div>
+    <p class="hint">${esc(shopsList().length ? t(tripMode() === 'oneTrip' ? 'planTripsHintOne' : 'planTripsHintPer') : t('planTripsHintNoShops'))}</p>` : `<p class="empty">${esc(t('listEmpty'))}</p>`}
   ${done.length ? `<h2>${esc(t('inCart'))} <small>${done.length}</small></h2><ul class="list shop done">${done.map((i) => shopRow(i)).join('')}</ul>
     <div class="button-row">
       <button class="btn primary" type="button" data-action="shop-putaway">📦 ${esc(ricetteConfigured() && food ? t('putAway') : t('doneShopping'))}</button>
@@ -1750,6 +1997,9 @@ function openShopItem(it) {
     </div>
     <label>${esc(t('department'))}<select name="cat">${DEPTS.map((d) => `<option value="${d.id}" ${d.id === dept ? 'selected' : ''}>${d.icon} ${esc(t(`dept_${d.id}`))}</option>`).join('')}</select></label>
     <label>${esc(t('notes'))}<input name="note" value="${esc(it.note || '')}" autocomplete="off"></label>
+    ${shopsList().length ? `<div class="field-label">🏪 ${esc(t('whichShops'))}</div>
+    <div class="days shops-pick">${shopsList().map((sh) => `<label class="day-pill"><input type="checkbox" name="shops" value="${esc(sh.id)}" ${(it.shops || []).includes(sh.id) ? 'checked' : ''}><span>${esc(sh.name)}</span></label>`).join('')}</div>
+    <small class="hint">${esc(t('whichShopsHint'))}</small>` : ''}
     ${(it.sources || []).length ? `<p class="hint">${esc(t('forRecipes', it.sources.join(', ')))}</p>` : ''}
     <div class="button-row">
       <button class="btn primary" value="ok">${esc(t('save'))}</button>
@@ -1761,6 +2011,7 @@ function openShopItem(it) {
     upsert(SH(), {
       ...get(SH(), it.id), name: form.name.value.trim() || it.name, qty: q === '' ? null : Number(q) || null,
       unit: form.unit.value, cat: form.cat.value, note: form.note.value.trim(),
+      ...(shopsList().length ? { shops: [...form.querySelectorAll('input[name=shops]:checked')].map((el) => el.value) } : {}),
     }, { silent: true });
     changed();
   });
@@ -1768,12 +2019,21 @@ function openShopItem(it) {
 
 // After a drag: save the new order of the items, or of the groups (shared with Ricette).
 function onSorted({ kind, group, keys }) {
+  if (kind === 'tasks') {
+    // Your own order: the whole list (all groups), with this group's tasks as dragged.
+    reorderSubset(manualOrder().map((x) => x.id), keys).forEach((id, n) => { const x = get('tasks', id); if (x && x.order !== n) upsert('tasks', { ...x, order: n }, { silent: true }); });
+    changed();
+    return;
+  }
   if (kind === 'items') {
     const open = live(SH()).filter((i) => !i.checked);
     const flat = listGroups(open).flatMap(([k, , list]) => (k === group ? keys.map((id) => list.find((i) => i.id === id)).filter(Boolean) : list));
     flat.forEach((i, n) => { if (i.order !== n) upsert(SH(), { ...i, order: n }, { silent: true }); });
   } else if (kind === 'groups') {
-    if (group === 'dept') setShopPref('deptOrder', reorderSubset(deptOrder(), keys));
+    if (group === 'shop') {
+      reorderSubset(shopsList().map((x) => x.id), keys).forEach((id, n) => { const sh = get(SHOPS(), id); if (sh && sh.order !== n) upsert(SHOPS(), { ...sh, order: n }, { silent: true }); });
+    }
+    else if (group === 'dept') setShopPref('deptOrder', reorderSubset(deptOrder(), keys));
     else if (group === 'recipe') setShopPref('recipeOrder', reorderSubset(shopPref('recipeOrder', []), keys).slice(-200));
   }
   changed();
@@ -1789,8 +2049,43 @@ async function shareShopList() {
 
 // ---------- view: tasks ----------
 
+// ---------- sorting tasks ----------
+// "Smart" = overdue first, then importance, then due date (what the planner also weighs). "Manual" =
+// your own order, dragged by hand; the auto-planner takes it into account as a preference.
+const TASK_SORTS = ['smart', 'manual', 'due', 'importance', 'length', 'category', 'added'];
+function manualOrder() {
+  const open = sortTasks(openTasks(), today());
+  return open.map((x, i) => ({ x, i })).sort((a, b) => (a.x.order ?? 1e9 + a.i) - (b.x.order ?? 1e9 + b.i)).map((y) => y.x);
+}
+function sortTaskList(list, mode) {
+  const td = today();
+  const smart = sortTasks(list, td);
+  const pos = new Map(smart.map((x, i) => [x.id, i]));
+  const tie = (a, b) => pos.get(a.id) - pos.get(b.id);
+  const by = {
+    manual: (a, b) => (a.order ?? 1e9 + pos.get(a.id)) - (b.order ?? 1e9 + pos.get(b.id)),
+    due: (a, b) => (a.due || '9999') .localeCompare(b.due || '9999') || tie(a, b),
+    importance: (a, b) => importanceOf(b) - importanceOf(a) || tie(a, b),
+    length: (a, b) => (a.minutes || 30) - (b.minutes || 30) || tie(a, b),
+    category: (a, b) => (catName(get('categories', a.category)) || '~').localeCompare(catName(get('categories', b.category)) || '~') || tie(a, b),
+    added: (a, b) => (b.createdAt || 0) - (a.createdAt || 0) || tie(a, b),
+  }[mode];
+  return by ? [...list].sort(by) : smart;
+}
+function sortPicker(id, mode) {
+  return `<label class="sort-pick">⇅ <select id="${id}" aria-label="${esc(t('sortBy'))}">${TASK_SORTS.map((m) => `<option value="${m}" ${m === mode ? 'selected' : ''}>${esc(t(`sort_${m}`))}</option>`).join('')}</select></label>`;
+}
+
 // Tasks tab: "To do" (your to-dos, in groups you can fold) and "Saved" (saved tasks, day templates
 // and preparations: the things you set up once and reuse).
+// Search: case and accents don't matter; every word must appear in the title, notes, place, category, steps,
+// checklist or rule names.
+const fold = (v) => String(v || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+function taskHay(x) {
+  const cat = get('categories', x.category);
+  return fold([x.title, x.notes, x.place, cat ? catName(cat) : '', ...(x.steps || []).map((y) => y.title), ...(x.checklist || []).map((c) => c.text || c.title || c), ...(x.rules || []).map((r) => r.title)].join(' '));
+}
+function matchesQ(hay, q) { const words = fold(q).split(/\s+/).filter(Boolean); return words.every((w) => hay.includes(w)); }
 function folded(key) { return (state.settings.folded ?? ['grp_done']).includes(key); }
 function foldBtn(key, label, n, { open = !folded(key) } = {}) {
   return `<button class="fold" type="button" data-action="fold" data-id="${esc(key)}" aria-expanded="${open}"><span class="fold-ico">▸</span> ${esc(label)} <small>${n}</small></button>`;
@@ -1799,32 +2094,42 @@ function viewTasks() {
   const td = today();
   const all = live('tasks');
   const tab = ui.tasksTab || 'todo';
+  const q = (ui.taskQ || '').trim();
+  const hit = (x) => !q || matchesQ(taskHay(x), q);
+  const isFolded = (key) => !q && folded(key); // while searching, every group shows its matches
+  const search = `<div class="task-search"><input type="search" id="task-q" value="${esc(ui.taskQ || '')}" placeholder="${esc(t('searchTasks'))}" autocomplete="off" aria-label="${esc(t('searchTasks'))}"></div>`;
   const switcher = `<div class="seg" role="tablist">${['todo', 'saved'].map((k) => `<button type="button" role="tab" class="${k === tab ? 'on' : ''}" aria-selected="${k === tab}" data-action="tasks-tab" data-id="${k}">${esc(t(`tasksTab_${k}`))}</button>`).join('')}</div>`;
   if (tab === 'saved') {
-    const helpers = all.filter((x) => x.helper).sort((a, b) => a.title.localeCompare(b.title));
-    const tpls = templates();
+    const helpers = all.filter((x) => x.helper && hit(x)).sort((a, b) => a.title.localeCompare(b.title));
+    const tpls = templates().filter((tp) => !q || matchesQ(fold(tp.name), q));
+    const groups = savedGroups().map(([cat, list]) => [cat, list.filter(hit)]).filter(([, list]) => list.length);
+    const nSaved = groups.reduce((n, [, l]) => n + l.length, 0);
     return `${switcher}
+    ${search}
+    ${q && !nSaved && !tpls.length && !helpers.length ? `<p class="empty">${esc(t('noMatch'))}</p>` : ''}
     <section class="fold-sec first">
-      ${foldBtn('saved', t('savedTasks'), savedTasks().length)}
-      ${folded('saved') ? '' : `<p class="hint">${esc(t('savedHint'))}</p>
-      ${savedGroups().map(([cat, list]) => `<div class="sub">${esc(cat ? catName(cat) : t('noCategory'))}</div>
+      ${foldBtn('saved', t('savedTasks'), nSaved, { open: !isFolded('saved') })}
+      ${isFolded('saved') ? '' : `<p class="hint">${esc(t('savedHint'))}</p>
+      ${groups.map(([cat, list]) => `<div class="sub">${esc(cat ? catName(cat) : t('noCategory'))}</div>
       <ul class="list saved">${list.map((tp) => `<li><button class="task-main" type="button" data-action="task-edit" data-id="${esc(tp.id)}"><span class="item-text">${tp.meal ? '🍽 ' : ''}${impBadge(tp) ? `${impBadge(tp)} ` : ''}${esc(tp.title)}<small>${esc(savedInfo(tp))}</small></span></button></li>`).join('')}</ul>`).join('')}
       <button class="btn small" type="button" data-action="saved-new">+ ${esc(t('newSaved'))}</button>`}
     </section>
     <section class="fold-sec">
-      ${foldBtn('templates', t('templates'), tpls.length)}
-      ${folded('templates') ? '' : `<p class="hint">${esc(t('templatesHint'))}</p>
+      ${foldBtn('templates', t('templates'), tpls.length, { open: !isFolded('templates') })}
+      ${isFolded('templates') ? '' : `<p class="hint">${esc(t('templatesHint'))}</p>
       <ul class="list">${tpls.map((tp) => `<li><button class="task-main" type="button" data-action="tpl-edit" data-id="${esc(tp.id)}"><span class="item-text">${esc(tp.name)}<small>${esc(t('nBlocks', (tp.blocks || []).length))}${tp.days?.length ? ` · ${esc(t('autoOn', daysLabel(tp.days)))}` : ''}</small></span></button></li>`).join('') || `<li class="pad"><span class="hint">${esc(t('noTemplates'))}</span></li>`}</ul>
       <button class="btn small" type="button" data-action="tpl-new">+ ${esc(t('newTemplate'))}</button>`}
     </section>
     <section class="fold-sec">
-      ${foldBtn('preps', t('preparations'), helpers.length)}
-      ${folded('preps') ? '' : `<p class="hint">${esc(t('prepsHint'))}</p>${helpers.length ? `<ul class="list tasks">${helpers.map(taskRow).join('')}</ul>` : `<p class="hint">${esc(t('noPreps'))}</p>`}`}
+      ${foldBtn('preps', t('preparations'), helpers.length, { open: !isFolded('preps') })}
+      ${isFolded('preps') ? '' : `<p class="hint">${esc(t('prepsHint'))}</p>${helpers.length ? `<ul class="list preps">${helpers.map(prepRow).join('')}</ul>` : `<p class="hint">${esc(t('noPreps'))}</p>`}`}
     </section>`;
   }
-  const g = groupTasks(all.filter(isTodo), td);
-  const section = (key, items) => (items.length ? `<section class="fold-sec grp-sec">${foldBtn(`grp_${key}`, t(`grp_${key}`), items.length)}
-    ${folded(`grp_${key}`) ? '' : `<ul class="list tasks">${items.map(taskRow).join('')}</ul>`}</section>` : '');
+  const g = groupTasks(all.filter((x) => isTodo(x) && hit(x)), td);
+  const mode = state.settings.taskSort || 'smart';
+  const manual = mode === 'manual' && !q; // no dragging while the list is filtered
+  const section = (key, items) => (items.length ? `<section class="fold-sec grp-sec">${foldBtn(`grp_${key}`, t(`grp_${key}`), items.length, { open: !isFolded(`grp_${key}`) })}
+    ${isFolded(`grp_${key}`) ? '' : `<ul class="list tasks${manual ? ' sortable' : ''}" ${manual && key !== 'done' ? `data-sortable="tasks" data-group="${key}"` : ''}>${sortTaskList(items, mode).map((x) => taskRow(x, { drag: manual && key !== 'done' })).join('')}</ul>`}</section>` : '');
   const open = g.overdue.length + g.today.length + g.upcoming.length + g.anytime.length;
   return `${switcher}
   <form id="task-add" class="row">
@@ -1832,17 +2137,48 @@ function viewTasks() {
     <button class="btn primary">${esc(t('add'))}</button>
   </form>
   <p class="hint">${esc(t('quickHint'))}</p>
-  ${open ? '' : `<p class="empty">${esc(t('noTasks'))}</p>`}
+  <div class="task-tools">${sortPicker('task-sort', mode)}<button class="btn small" type="button" data-action="import">⤓ ${esc(t('importTasks'))}</button></div>
+  ${search}
+  ${manual && !q ? `<p class="hint">${esc(t('manualHint'))}</p>` : ''}
+  ${open || g.done.length ? '' : `<p class="empty">${esc(q ? t('noMatch') : t('noTasks'))}</p>`}
   ${section('overdue', g.overdue)}
   ${section('today', g.today)}
   ${section('upcoming', g.upcoming)}
   ${section('anytime', g.anytime)}
-  ${g.done.length ? `<section class="fold-sec grp-sec">${foldBtn('grp_done', t('grp_done'), g.done.length)}
-    ${folded('grp_done') ? '' : `<ul class="list tasks done">${g.done.slice(0, 50).map(taskRow).join('')}</ul>
+  ${g.done.length ? `<section class="fold-sec grp-sec">${foldBtn('grp_done', t('grp_done'), g.done.length, { open: !isFolded('grp_done') })}
+    ${isFolded('grp_done') ? '' : `<ul class="list tasks done">${g.done.slice(0, 50).map(taskRow).join('')}</ul>
     <button class="btn small ghost" type="button" data-action="clear-done">${esc(t('clearDone'))}</button>`}</section>` : ''}`;
 }
 
-function taskRow(x) {
+// Which tasks use a small step (preparation or rule follow-up), and how.
+function ownersOf(x) {
+  const out = [];
+  for (const y of live('tasks')) {
+    if (y.id === x.id) continue;
+    for (const p of y.prep || []) if (p.taskId === x.id) out.push({ task: y, how: t('ownerPrep', t(`pw_${p.when || 'before'}`)) });
+    for (const r of y.rules || []) {
+      if (r.taskId !== x.id) continue;
+      const step = r.stepId && (y.steps || []).find((z) => z.id === r.stepId);
+      out.push({ task: y, how: step ? t('ownerStepRule', step.title, t(`rws_${r.when}`)) : t('ownerRule', t(`rw_${r.when}`)) });
+    }
+  }
+  return out;
+}
+function prepRow(x) {
+  const own = ownersOf(x);
+  const bits = [fmtDur(x.minutes || 10)];
+  if (x.checklist?.length) bits.push(`☑ ${x.checklist.length}`);
+  if (x.steps?.length) bits.push(`▤ ${x.steps.length}`);
+  if (x.rules?.length) bits.push(`⚙ ${x.rules.length}`);
+  return `<li class="prep-row">
+    <button class="task-main" type="button" data-action="task-edit" data-id="${esc(x.id)}"><span class="item-text">↳ ${esc(x.title)}<small>${esc(bits.join(' · '))}</small></span></button>
+    <div class="prep-owners">${own.length ? own.map((o) => `<button class="owner" type="button" data-action="task-edit" data-id="${esc(o.task.id)}" title="${esc(t('openTask', o.task.title))}">
+      <span class="owner-t">${o.task.meal ? '🍽 ' : o.task.routine ? '★ ' : ''}${esc(o.task.title)} ↗</span><small>${esc(o.how)}</small></button>`).join('')
+    : `<span class="hint">${esc(t('prepUnused'))}</span><button class="btn small ghost" type="button" data-action="prep-del" data-id="${esc(x.id)}">${esc(t('delete'))}</button>`}</div>
+  </li>`;
+}
+
+function taskRow(x, { drag = false } = {}) {
   const td = today();
   const bits = [];
   if (x.helper) {
@@ -1866,7 +2202,8 @@ function taskRow(x) {
   if (cat) bits.push(`<span class="cat" style="--c:${esc(cat.color)}">${esc(catName(cat))}</span>`);
   const planned = live('blocks').filter((b) => b.taskId === x.id && !b.done && b.date >= td && b.kind !== 'prep').sort((a, b) => ((a.date + a.start) < (b.date + b.start) ? -1 : 1))[0];
   if (planned && !x.done) bits.push(`<span class="badge">${esc(t('plannedAt', relDay(planned.date), fmtTime(planned.start)))}</span>`);
-  return `<li class="imp-${importanceOf(x)}">
+  return `<li class="imp-${importanceOf(x)}" ${drag ? `data-sort-key="${esc(x.id)}"` : ''}>
+    ${drag ? grip(`th-${x.id}`, x.title) : ''}
     ${x.helper ? '<span class="helper-dot">↳</span>' : `<input type="checkbox" data-action="task-done" data-id="${esc(x.id)}" ${x.done || (x.repeat === 'times' && timesDone(x, td) >= (x.timesN || 1)) ? 'checked' : ''} aria-label="${esc(t('markDone'))}">`}
     <button class="task-main" type="button" data-action="task-edit" data-id="${esc(x.id)}">
       <span class="item-text">${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}<small>${bits.join(' · ')}</small></span>
@@ -1903,10 +2240,22 @@ function viewSettings() {
     <div class="field-label">${esc(t('glanceTitle'))}</div>
     <div class="days glance">${GLANCE.map((k) => `<label class="day-pill"><input type="checkbox" name="glance" value="${k}" ${glance().has(k) ? 'checked' : ''}><span>${esc(t(`gl_${k}`))}</span></label>`).join('')}</div>
     <p class="hint">${esc(t('glanceHint'))}</p>
+    <div class="field-label">✦ ${esc(t('autoHours'))}</div>
+    <div class="auto-hours">
+      <span>${esc(t('weekdays'))}</span><input name="ahWdF" ${TIME24} value="${fmtTime(autoHoursFor('2026-11-02')[0])}" aria-label="${esc(t('weekdays'))} ${esc(t('from'))}"> – <input name="ahWdT" ${TIME24} value="${fmtTime(autoHoursFor('2026-11-02')[1])}" aria-label="${esc(t('weekdays'))} ${esc(t('to'))}">
+      <span>${esc(t('weekend'))}</span><input name="ahWeF" ${TIME24} value="${fmtTime(autoHoursFor('2026-11-07')[0])}" aria-label="${esc(t('weekend'))} ${esc(t('from'))}"> – <input name="ahWeT" ${TIME24} value="${fmtTime(autoHoursFor('2026-11-07')[1])}" aria-label="${esc(t('weekend'))} ${esc(t('to'))}">
+    </div>
+    <small class="hint">${esc(t('autoHoursHint'))}</small>
     <label class="check"><input type="checkbox" name="longUnits" ${s.longUnits ? 'checked' : ''}> <span>${esc(t('longUnits'))}<small>${esc(t('longUnitsHint'))}</small></span></label>
     <label>${esc(t('maxLoad'))}<select name="maxLoad">${opts([4, 5, 6, 7, 8, 9, 10, 11, 12, 14], s.maxLoad ?? 8, (h) => `${h} h`)}</select>
       <small>${esc(t('maxLoadHint'))}</small></label>
   </form>
+
+  <h2>🏪 ${esc(t('shopsTitle'))}</h2>
+  <p class="hint">${esc(t('shopsHint'))}</p>
+  ${shopsList().length ? `<ul class="list">${shopsList().map((sh) => `<li><button class="task-main" type="button" data-action="shop-rec" data-id="${esc(sh.id)}"><span class="item-text">${esc(sh.name)}<small>${esc([fmtDur(sh.minutes || 30), sh.hours?.length ? windowsText(sh.hours) : t('alwaysOpen'), sh.place || ''].filter(Boolean).join(' · '))}</small></span></button></li>`).join('')}</ul>` : ''}
+  <button class="btn small" type="button" data-action="shop-new">+ ${esc(t('newShop'))}</button>
+  <label class="form trip-mode">${esc(t('tripModeLabel'))}<select id="trip-mode">${['perShop', 'oneTrip'].map((m) => `<option value="${m}" ${m === tripMode() ? 'selected' : ''}>${esc(t(`trip_${m}`))}</option>`).join('')}</select></label>
 
   <h2>${esc(t('categories'))}</h2>
   <ul class="list">
@@ -1964,6 +2313,12 @@ function viewSettings() {
   </div>`;
 }
 
+// Reminders: Google Calendar notifies you (the "Everyday" calendar's events carry them). A default for
+// everything (shared through the data repo, read by the sync), and each task can have its own.
+const REMINDS = [-1, 0, 5, 10, 15, 30, 60, 120, 1440];
+function remindDefault() { const v = get('config', 'reminders')?.value?.default; return v == null ? 10 : Number(v); }
+function remindLabel(m) { return m < 0 ? t('remindNone') : m === 0 ? t('remindAtStart') : m === 1440 ? t('remindDayBefore') : t('remindBefore', fmtDur(m)); }
+
 function gcalSection() {
   const st = get('gcal', 'status');
   if (!st) {
@@ -1978,6 +2333,8 @@ function gcalSection() {
     ${st.error ? `<p class="conn bad">${esc(st.error)}</p>` : ''}
     ${ui.gcalMsg ? `<p class="hint">${esc(t(ui.gcalMsg))}</p>` : ''}
     <label class="check"><input type="checkbox" id="show-events" ${state.settings.showEvents === false ? '' : 'checked'}> ${esc(t('showEvents'))}</label>
+    <label>🔔 ${esc(t('remindDefault'))}<select id="remind-default">${REMINDS.map((m) => `<option value="${m}" ${m === remindDefault() ? 'selected' : ''}>${esc(remindLabel(m))}</option>`).join('')}</select>
+      <small>${esc(t('remindHint'))}</small></label>
     <div class="button-row"><button class="btn small" type="button" data-action="gcal-now">${esc(t('gcalNow'))}</button></div>
   </div>`;
 }
@@ -2135,6 +2492,11 @@ function openModal(html, onSubmit, { cls = '' } = {}) {
 modal.addEventListener('close', () => render());
 modal.addEventListener('change', (e) => { if (ui.modalSwap) e.stopImmediatePropagation(); }, true);
 modal.addEventListener('input', (e) => { if (ui.modalSwap) e.stopImmediatePropagation(); }, true);
+// A time window with a date: its weekdays don't count, so they fade as soon as a date is picked.
+modal.addEventListener('change', (e) => {
+  const row = e.target.closest?.('.win-row');
+  if (row && e.target.type === 'date') row.querySelector('.days.mini')?.classList.toggle('off', Boolean(e.target.value));
+});
 
 const durOptions = (sel, list = [5, 10, 15, 20, 30, 45, 60, 75, 90, 120, 150, 180, 240]) => {
   const opts = [...list];
@@ -2185,11 +2547,12 @@ function readDur(form, name, fallback = null) {
 // Time windows: when something can happen at all (office hours, opening times). [{days: [1-7], from, to}]
 function dayShort(d) { return fmtDay(addDays('2026-11-02', d - 1), { weekday: 'short' }); } // 2026-11-02 is a Monday
 function windowsText(wins) {
-  return (wins || []).map((w) => `${w.days.length === 7 ? t('everyDay') : w.days.map(dayShort).join(' ')} ${fmtTime(w.from)}–${fmtTime(w.to)}`).join(', ');
+  return (wins || []).map((w) => `${w.date ? fmtDay(w.date, { weekday: 'short', day: 'numeric', month: 'short' }) : (w.days || []).length === 7 ? t('everyDay') : (w.days || []).map(dayShort).join(' ')} ${fmtTime(w.from)}–${fmtTime(w.to)}`).join(', ');
 }
 function windowsEditor(prefix, wins) {
   return `<div class="wins">${(wins || []).map((w, k) => `<div class="win-row">
-      <div class="days mini">${[1, 2, 3, 4, 5, 6, 7].map((d) => `<label class="day-pill"><input type="checkbox" name="${prefix}d${k}" value="${d}" ${w.days.includes(d) ? 'checked' : ''}><span>${esc(dayShort(d))}</span></label>`).join('')}</div>
+      <div class="days mini${w.date ? ' off' : ''}">${[1, 2, 3, 4, 5, 6, 7].map((d) => `<label class="day-pill"><input type="checkbox" name="${prefix}d${k}" value="${d}" ${(w.days || []).includes(d) ? 'checked' : ''}><span>${esc(dayShort(d))}</span></label>`).join('')}</div>
+      <label class="win-date">${esc(t('orOnDate'))}<input type="date" name="${prefix}x${k}" value="${esc(w.date || '')}"></label>
       <span class="win-times"><input name="${prefix}f${k}" ${TIME24} value="${w.from != null ? fmtTime(w.from) : ''}" aria-label="${esc(t('from'))}"> – <input name="${prefix}t${k}" ${TIME24} value="${w.to != null ? fmtTime(w.to) : ''}" aria-label="${esc(t('to'))}">
       <button class="icon" value="${prefix}rm:${k}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></span></div>`).join('')}
     <button class="btn small ghost" value="${prefix}add" formnovalidate>+ ${esc(t('addWindow'))}</button></div>`;
@@ -2200,12 +2563,14 @@ function readWindows(form, prefix, n) {
   for (let k = 0; k < n; k++) {
     out.push({
       days: [...form.querySelectorAll(`input[name="${prefix}d${k}"]:checked`)].map((el) => Number(el.value)),
+      date: form.elements.namedItem(`${prefix}x${k}`)?.value || null,
       from: parseTime(form.elements.namedItem(`${prefix}f${k}`)?.value), to: parseTime(form.elements.namedItem(`${prefix}t${k}`)?.value),
     });
   }
   return out;
 }
-const cleanWindows = (wins) => (wins || []).filter((w) => w.days?.length && w.from != null && w.to != null && w.to > w.from);
+const cleanWindows = (wins) => (wins || []).filter((w) => (w.date || w.days?.length) && w.from != null && w.to != null && w.to > w.from)
+  .map((w) => (w.date ? { date: w.date, from: w.from, to: w.to } : { days: w.days, from: w.from, to: w.to }));
 
 // Where a task happens: a place, and a link (a map, a booking…). Without a link, the place opens in Maps.
 function placeLink(x, { short = false } = {}) {
@@ -2309,7 +2674,7 @@ function openTask(task, draft = null) {
     : `<label>${esc(t('duration'))}${durField('minutes', x.minutes || 30)}</label>`}
       ${helper ? '' : `<label>${esc(t('importance'))}<select name="importance">${IMPORTANCE.map((n) => `<option value="${n}" ${n === x.importance ? 'selected' : ''}>${'★'.repeat(n)}${'☆'.repeat(5 - n)} ${esc(t(`imp_${n}`))}</option>`).join('')}</select></label>`}
     </div>
-    ${helper ? '' : `<label>${esc(t('category'))}<select name="category">${catOptions(x.category)}</select></label>`}
+    ${helper ? '' : `<div class="field-label">${esc(t('category'))}</div>${catChips(x.category)}`}
     ${routine ? `<label class="check"><input type="checkbox" name="meal" data-rerender="1" ${x.meal ? 'checked' : ''}> <span>${esc(t('isMeal'))}</span></label>` : ''}`;
   const whenBody = todo ? `
     <div class="two">
@@ -2324,13 +2689,15 @@ function openTask(task, draft = null) {
     ${x.repeat === 'times' ? `<div class="times-row"><input name="timesN" type="number" min="1" max="99" step="1" value="${esc(x.timesN || 3)}" aria-label="${esc(t('timesN'))}"><span>${esc(t('timesPer'))}</span>
       <select name="timesPer">${['day', 'week', 'month', 'year'].map((u) => `<option value="${u}" ${u === (x.timesPer || 'week') ? 'selected' : ''}>${esc(t(`per_${u}`))}</option>`).join('')}</select></div>
       <small class="hint">${esc(t('timesHint'))}</small>` : ''}
-    <label>${esc(t('bestTime'))}<select name="when">${['', 'morning', 'afternoon', 'evening'].map((w) => `<option value="${w}" ${w === (x.when || '') ? 'selected' : ''}>${esc(t(`when_${w || 'any'}`))}</option>`).join('')}</select></label>`
+    <label>${esc(t('bestTime'))}<select name="when">${['', 'morning', 'afternoon', 'evening'].map((w) => `<option value="${w}" ${w === (x.when || '') ? 'selected' : ''}>${esc(t(`when_${w || 'any'}`))}</option>`).join('')}</select></label>
+    ${remindField(x)}`
     : routine ? `
     <div class="two">
       <label>${esc(x.steps.length > 1 && ai > 0 && anchor ? t('anchorAt', anchor.title || '…') : t('usualTimeOpt'))}<input name="defaultStart" ${TIME24} value="${x.defaultStart != null ? fmtTime(x.defaultStart) : ''}"></label>
       <label>${esc(t('bestTime'))}<select name="when">${['', 'morning', 'afternoon', 'evening'].map((w) => `<option value="${w}" ${w === (x.when || '') ? 'selected' : ''}>${esc(t(`when_${w || 'any'}`))}</option>`).join('')}</select></label>
     </div>
-    <small class="hint">${esc(t('usualTimeHint'))}</small>` : '';
+    <small class="hint">${esc(t('usualTimeHint'))}</small>
+    ${remindField(x)}` : '';
   // Tasks it needs done first (not itself, not meals, not ones that already need it: no loops).
   const needCandidates = live('tasks').filter((y) => y.id !== x.id && !y.meal && !y.check && !y.done && !(y.after || []).includes(x.id) && !(x.after || []).includes(y.id))
     .sort((a, b) => a.title.localeCompare(b.title));
@@ -2476,6 +2843,7 @@ function openTask(task, draft = null) {
       x.planTime = form.planTime.value ? parseTime(form.planTime.value) : null;
     }
     if (form.elements.namedItem('when')) x.when = form.elements.namedItem('when').value || '';
+    if (form.remind) { if (form.remind.value === '') delete x.remind; else x.remind = Number(form.remind.value); }
     if (form.category) x.category = form.category.value || null;
     if (routine) {
       x.defaultStart = form.defaultStart.value ? parseTime(form.defaultStart.value) : null;
@@ -2509,6 +2877,11 @@ function openTask(task, draft = null) {
   for (const d of form.querySelectorAll('details.ed-sec')) {
     d.addEventListener('toggle', () => { saveSettings({ edSec: { ...(state.settings.edSec || {}), [d.dataset.sec]: d.open } }); });
   }
+}
+
+function remindField(x) {
+  return `<label>🔔 ${esc(t('remind'))}<select name="remind"><option value="">${esc(t('remindUseDefault', remindLabel(remindDefault())))}</option>${REMINDS.map((m) => `<option value="${m}" ${x.remind === m ? 'selected' : ''}>${esc(remindLabel(m))}</option>`).join('')}</select>
+    <small>${esc(get('gcal', 'status') ? t('remindViaGcal') : t('remindNeedsGcal'))}</small></label>`;
 }
 
 // Tasks a rule can add: your to-dos and small steps, not meal types, and not the task itself.
@@ -2635,7 +3008,10 @@ function openBlock(block, defaults = {}) {
     ${status === 'failed' ? `<p class="conn bad">✕ ${esc(t('markedCouldnt'))}${b.missing?.length ? ` ${esc(t('missingWere', b.missing.join(', ')))}` : ''}</p>` : ''}
     ${isCheckStep(b) && !status ? `<p class="hint">${esc(t('checkStepHint'))}</p>` : ''}
     ${isShop ? '' : `
-      ${b.kind === 'prep' ? '' : `<label>${esc(t('linkTask'))}<select name="taskId"><option value="">—</option>${taskChoices.map((x) => `<option value="${esc(x.id)}" ${x.id === b.taskId ? 'selected' : ''}>${x.helper ? '↳ ' : ''}${esc(x.title)}</option>`).join('')}</select></label>`}
+      ${b.kind === 'prep' ? '' : `<input type="hidden" name="taskId" value="${esc(b.taskId || '')}">
+      <details class="task-pick" ${isNew && !b.taskId ? 'open' : ''}><summary><span class="field-label">${esc(t('linkTask'))}</span> <span class="tp-cur">${esc(task ? task.title : t('noTaskLinked'))}</span></summary>
+        ${taskPickList(b.taskId)}
+        <button type="button" class="tp-item none" data-tp="" data-q="">${esc(t('noTaskLinked'))}</button></details>`}
       <label>${esc(t('title'))}<input name="title" value="${esc(b.title)}" autocomplete="off"></label>`}
     <div class="three">
       <label>${esc(t('date'))}<input name="date" type="date" required value="${esc(b.date)}"></label>
@@ -2644,11 +3020,11 @@ function openBlock(block, defaults = {}) {
     </div>
     ${anchorName ? `<p class="hint">⚓ ${esc(t('blockAnchorHint', fmtTime(b.start), fmtTime(b.start + b.minutes)))}</p>` : ''}
     ${task?.place || task?.link ? `<p class="hint">${placeLink(task)}</p>` : ''}
-    ${isShop ? shoppingSection() : ''}
+    ${isShop ? shoppingSection(b) : ''}
     ${items.length && !isNew ? `<div class="field-label">${esc(t('checklist'))}</div>
       <ul class="list checklist">${items.map((it, i) => `<li><label><input type="checkbox" data-ci="${i}" ${(b.checked || [])[i] ? 'checked' : ''}><span class="item-text">${esc(it)}</span></label></li>`).join('')}</ul>` : ''}
     ${stepsSection(b)}
-    ${isShop ? '' : `<label>${esc(t('category'))}<select name="category">${catOptions(b.category)}</select></label>`}
+    ${isShop ? '' : `<div class="field-label">${esc(t('category'))}</div>${catChips(b.category)}`}
     <label>${esc(t('notes'))}<textarea name="notes" rows="2">${esc(b.notes || '')}</textarea></label>
     <label class="check"><input type="checkbox" name="allowOverlap" ${b.allowOverlap ? 'checked' : ''}> ${esc(t('allowOverlap'))}</label>
     ${isShop || isNew ? '' : task ? `<button class="btn small edit-task" value="edit-task" formnovalidate>▤ ${esc(t('editTaskSteps', task.title))}</button>`
@@ -2704,6 +3080,17 @@ function openBlock(block, defaults = {}) {
   });
   wireSteps(b, openBlock);
   const form = modal.querySelector('form');
+  // Picking a task fills in the hidden field and tells the form (title, length and category follow).
+  const pickBox = form.querySelector('.task-pick');
+  if (pickBox) {
+    wirePicker(pickBox, (id) => {
+      form.taskId.value = id;
+      for (const el of pickBox.querySelectorAll('.tp-item')) el.classList.toggle('on', el.dataset.tp === id);
+      pickBox.querySelector('.tp-cur').textContent = id ? get('tasks', id)?.title || '' : t('noTaskLinked');
+      pickBox.open = false;
+      form.taskId.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  }
   // Checklist items and shopping items are saved as you tick them.
   form.addEventListener('change', (ev) => {
     const el = ev.target;
@@ -2717,6 +3104,7 @@ function openBlock(block, defaults = {}) {
     if (el.name === 'taskId') {
       const x = get('tasks', el.value);
       if (!x) return;
+      form.querySelector('.tp-cur').textContent = x.title;
       const ti = form.elements.namedItem('title');
       if (ti && (!ti.value.trim() || isNew)) ti.value = x.title;
       if (isNew && x.minutes) { const inH = x.minutes >= 60 && x.minutes % 30 === 0; form.minutes.value = inH ? x.minutes / 60 : x.minutes; form.minutes_u.value = inH ? 'h' : 'min'; }
@@ -2757,9 +3145,9 @@ function wireSteps(b, reopen) {
   });
 }
 
-function shoppingSection() {
-  if (!ricetteConfigured()) return '';
-  const items = shoppingItems();
+function shoppingSection(b = null) {
+  if (!ricetteConfigured() && !live('shopping').length) return '';
+  const items = (b ? tripItems(b) : shoppingItems()).sort((x, y) => Number(x.checked) - Number(y.checked) || (x.name || '').localeCompare(y.name || ''));
   if (!items.length) return `<p class="hint">${esc(t('listEmpty'))}</p>`;
   return `<div class="field-label">${esc(t('shoppingList'))}</div>
     <ul class="list checklist shop">${items.map((it) => `<li class="${it.checked ? 'got' : ''}"><label><input type="checkbox" data-shop="${esc(it.id)}" ${it.checked ? 'checked' : ''}>
@@ -2939,6 +3327,11 @@ view.addEventListener('submit', (e) => {
   else if (form.id === 'ric-form') saveRicette(form);
 });
 
+view.addEventListener('input', (e) => {
+  if (e.target.id === 'tray-q' && ui.assign) { ui.assign.q = e.target.value; render(); }
+  if (e.target.id === 'task-q') { ui.taskQ = e.target.value; render(); }
+});
+
 view.addEventListener('change', (e) => {
   const el = e.target;
   const { action, id } = el.dataset;
@@ -2972,6 +3365,10 @@ view.addEventListener('change', (e) => {
     render();
   }
   if (el.id === 'show-events') { saveSettings({ showEvents: el.checked }); }
+  if (el.id === 'task-sort') { saveSettings({ taskSort: el.value }); render(); return; }
+  if (el.id === 'tray-sort') { saveSettings({ traySort: el.value }); render(); return; }
+  if (el.id === 'trip-mode') { upsert('config', { id: 'shopping', value: { ...(get('config', 'shopping')?.value || {}), tripMode: el.value } }); changed(); }
+  if (el.id === 'remind-default') { upsert('config', { id: 'reminders', value: { ...(get('config', 'reminders')?.value || {}), default: Number(el.value) } }); changed(); }
   if (el.form?.id === 'assign-opts') {
     saveSettings({ maxLoad: Number(el.form.maxLoad.value) || 8, freeWeekends: el.form.freeWeekends.checked });
     render();
@@ -2988,7 +3385,11 @@ view.addEventListener('change', (e) => {
     const f = Object.fromEntries(new FormData(el.form));
     const dayStart = Number(f.dayStart); const dayEnd = Number(f.dayEnd);
     const glanceSel = new FormData(el.form).getAll('glance');
-    saveSettings({ dayStart, dayEnd: Math.max(dayEnd, dayStart + 1), snap: Number(f.snap), buffer: Number(f.buffer), maxLoad: Number(f.maxLoad), defaultView: f.defaultView, glance: glanceSel, longUnits: el.form.longUnits.checked });
+    const hr = (a, b, d) => { const x = parseTime(f[a]); const y = parseTime(f[b]); return x != null && y != null && y > x ? [x, y] : d; };
+    saveSettings({
+      dayStart, dayEnd: Math.max(dayEnd, dayStart + 1), snap: Number(f.snap), buffer: Number(f.buffer), maxLoad: Number(f.maxLoad), defaultView: f.defaultView, glance: glanceSel, longUnits: el.form.longUnits.checked,
+      autoHours: { wd: hr('ahWdF', 'ahWdT', autoHoursFor('2026-11-02')), we: hr('ahWeF', 'ahWeT', autoHoursFor('2026-11-07')) },
+    });
     if (el.name === 'defaultView') ui.view = null;
   }
 });
@@ -3040,18 +3441,10 @@ view.addEventListener('click', (e) => {
     case 'new-meal': ui.mealDate = currentDate(); openMeal(null); break;
     case 'new-saved': openSavedPicker(currentDate()); break;
     case 'add-menu': openAddMenu(); break;
-    case 'auto': {
-      // The auto-planner: everything still to place, laid out over what's on screen, as previews.
-      if (!ui.assign) ui.assign = { sel: new Set(), ghosts: [], range: null, opts: false };
-      ui.suggest = null;
-      const days = spreadDays();
-      const ids = trayTasks().map((x) => x.id);
-      if (!days.length) { toast(t('pastDay')); render(); break; }
-      if (!ids.length) { toast(t('trayEmpty')); render(); break; }
-      placeGhosts(ids, days);
-      break;
-    }
-    case 'assign': ui.assign = ui.assign ? null : { sel: new Set(), ghosts: [], range: null, opts: false }; ui.suggest = null; render(); break;
+    case 'auto': openAutoPlanner(); break;
+    case 'assign': ui.assign = ui.assign ? null : { sel: new Set(), ghosts: [], range: null, opts: false, open: true, q: '' }; ui.suggest = null; render(); break;
+    case 'tray-toggle': ui.assign.open = !ui.assign.open; render(); break;
+    case 'import': openImport(); break;
     case 'assign-close': ui.assign = null; render(); break;
     case 'assign-opts': ui.assign.opts = !ui.assign.opts; render(); break;
     case 'assign-all': for (const x of trayTasks()) ui.assign.sel.add(x.id); render(); break;
@@ -3100,7 +3493,16 @@ view.addEventListener('click', (e) => {
       break;
     }
     case 'task-edit': openTask(get('tasks', id)); break;
-    case 'list-mode': setShopPref('listMode', id); changed(); break;
+    case 'list-mode': if (id === 'shop') saveSettings({ shopMode: 'shop' }); else { saveSettings({ shopMode: null }); setShopPref('listMode', id); } changed(); break;
+    case 'plan-trips': {
+      const { blocks, missing } = planGroceryTrips();
+      if (blocks.length) toast(t('tripsPlanned', blocks.map((b) => `${b.title.replace(`${t('groceryTitle')}`, '').replace(/^[ ·:]+/, '') || t('groceryTitle')} ${relDay(b.date)} ${fmtTime(b.start)}`).join(' · ')), 7000);
+      if (missing.length) toast(t('tripNoTime', missing.map(shopName).join(', ')), 7000);
+      changed();
+      break;
+    }
+    case 'shop-new': openShopRec(null); break;
+    case 'shop-rec': openShopRec(get(SHOPS(), id)); break;
     case 'shop-edit': openShopItem(get(SH(), id)); break;
     case 'shop-del': remove(SH(), id); changed(); break;
     case 'shop-share': shareShopList(); break;
@@ -3115,6 +3517,7 @@ view.addEventListener('click', (e) => {
     case 'toggle-helpers': ui.showHelpers = !ui.showHelpers; render(); break;
     case 'toggle-saved': ui.showSaved = !ui.showSaved; render(); break;
     case 'tasks-tab': ui.tasksTab = id; render(); window.scrollTo(0, 0); break;
+    case 'prep-del': if (confirm(t('confirmDeleteTask'))) { remove('tasks', id); changed(); } break;
     case 'fold': {
       // Done tasks start folded; everything else starts open. The choice is remembered.
       const cur = state.settings.folded ?? ['grp_done'];
@@ -3235,19 +3638,25 @@ function trayTasks() {
   const planned = plannedTaskIds();
   const ghosted = new Set((ui.assign?.ghosts || []).map((g) => g.taskId));
   const td = today();
-  return sortTasks(openTasks().filter((x) => {
+  return sortTaskList(openTasks().filter((x) => {
     if (x.repeat === 'times') return timesLeft(x, td) > 0;
     if (splitsSteps(x)) return partsLeft(x).length > 0;
     return !planned.has(x.id) && !ghosted.has(x.id);
-  }), td);
+  }), state.settings.traySort || 'smart');
 }
 // What the planner places for these tasks over these days: one item per occurrence or step part.
 function planningItems(tasks, dates) {
   const items = []; const skipped = [];
+  // Your own order (once you've dragged tasks into one) nudges the planner: up to +30 for the first.
+  const boostOf = new Map();
+  if (openTasks().some((x) => x.order != null)) {
+    const ord = manualOrder();
+    ord.forEach((x, i) => boostOf.set(x.id, Math.round(30 * (1 - i / Math.max(1, ord.length - 1)))));
+  }
   const inRun = new Set(tasks.map((x) => x.id));
   const lastItem = new Map();
   for (const x of tasks) {
-    const base = { taskId: x.id, title: x.title, minutes: x.minutes || 30, due: x.repeat === 'times' ? null : x.due || null, importance: importanceOf(x), priority: x.priority, when: x.when, createdAt: x.createdAt, windows: x.windows?.length ? x.windows : null, prep: x.prep };
+    const base = { taskId: x.id, boost: boostOf.get(x.id) || 0, title: x.title, minutes: x.minutes || 30, due: x.repeat === 'times' ? null : x.due || null, importance: importanceOf(x), priority: x.priority, when: x.when, createdAt: x.createdAt, windows: x.windows?.length ? x.windows : null, prep: x.prep };
     let notBefore = null; const afterTasks = [];
     let waiting = null;
     for (const { task: p, block } of prereqsOf(x)) {
@@ -3327,7 +3736,8 @@ function placeGhosts(ids, dates, minute = null) {
   const dayInfo = (d) => ({
     date: d,
     blocks: [...busyOn(d).filter((b) => !b.allowOverlap), ...ghostsOn(d).map((g) => ({ start: g.start - (g.lead || 0), minutes: g.minutes + (g.lead || 0) }))],
-    from: d === td ? Math.ceil((now + 5) / 5) * 5 : s.dayStart,
+    from: Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((now + 5) / 5) * 5 : 0),
+    to: autoHoursFor(d)[1],
   });
   let placed = []; let skipped = [];
   if (minute != null && dates.length === 1) {
@@ -3410,30 +3820,43 @@ function trayInfo(x) {
 }
 function trayHtml() {
   const a = ui.assign;
-  const list = trayTasks();
-  const sel = list.filter((x) => a.sel.has(x.id));
+  const all = trayTasks();
+  const q = (a.q || '').trim().toLowerCase();
+  const list = q ? all.filter((x) => x.title.toLowerCase().includes(q)) : all;
+  const sel = all.filter((x) => a.sel.has(x.id));
   const selMin = sel.reduce((n, x) => n + (x.minutes || 30), 0);
-  const chip = (x) => `<button type="button" class="tchip${a.sel.has(x.id) ? ' on' : ''}" data-id="${esc(x.id)}" style="--c:${esc(catColor(x.category) || 'var(--accent)')}" aria-pressed="${a.sel.has(x.id)}">
-      ${a.sel.has(x.id) ? '<span class="tchip-ok">✓</span>' : '<span class="chip-dot"></span>'}${impBadge(x) ? `${impBadge(x)} ` : ''}<span class="chip-title">${esc(x.title)}</span>
-      <small>${esc(trayInfo(x))}</small></button>`;
-  // The how-to line shows until you've placed something once (or while a range is picked).
+  const mode = state.settings.traySort || 'smart';
+  const row = (x) => `<button type="button" class="tchip trow${a.sel.has(x.id) ? ' on' : ''}" data-id="${esc(x.id)}" style="--c:${esc(catColor(x.category) || 'var(--accent)')}" aria-pressed="${a.sel.has(x.id)}">
+      <span class="trow-tick">${a.sel.has(x.id) ? '✓' : ''}</span>
+      <span class="trow-text"><span class="chip-title">${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}</span><small>${esc(trayInfo(x))}</small></span>
+      <span class="trow-grip" aria-hidden="true">⠿</span></button>`;
+  // Grouped by when it's due (like the Tasks tab) when sorted smartly or by due date; otherwise one list.
+  let body;
+  if (mode === 'smart' || mode === 'due') {
+    const g = groupTasks(list, today());
+    body = ['overdue', 'today', 'upcoming', 'anytime'].filter((k) => g[k].length)
+      .map((k) => `<div class="tray-grp">${esc(t(`grp_${k}`))} <small>${g[k].length}</small></div>${sortTaskList(g[k], mode).map(row).join('')}`).join('');
+  } else body = list.map(row).join('');
   const hint = a.range ? t('trayHintRange') : state.settings.trayHintSeen ? '' : t('trayHint');
-  return `<div class="tray" role="region" aria-label="${esc(t('assignTitle'))}">
+  return `<div class="tray${a.open ? ' open' : ''}" role="region" aria-label="${esc(t('assignTitle'))}">
     <div class="tray-head">
-      <b>${esc(t('assignTitle'))}</b>
-      <small>${esc(sel.length ? t('nSelected', sel.length, fmtDur(selMin)) : t('nToPlan', list.length))}</small>
-      ${sel.length ? `<button class="linkish" type="button" data-action="assign-none">${esc(t('selectNone'))}</button>` : list.length > 1 ? `<button class="linkish" type="button" data-action="assign-all">${esc(t('selectAll'))}</button>` : ''}
+      <button class="tray-toggle" type="button" data-action="tray-toggle" aria-expanded="${Boolean(a.open)}"><span class="fold-ico">▴</span> <b>${esc(t('assignTitle'))}</b>
+        <small>${esc(sel.length ? t('nSelected', sel.length, fmtDur(selMin)) : t('nToPlan', all.length))}</small></button>
+      ${sel.length ? `<button class="linkish" type="button" data-action="assign-none">${esc(t('selectNone'))}</button>` : all.length > 1 && a.open ? `<button class="linkish" type="button" data-action="assign-all">${esc(t('selectAll'))}</button>` : ''}
       <button class="icon" type="button" data-action="assign-opts" aria-label="${esc(t('options'))}" aria-expanded="${Boolean(a.opts)}">⚙</button>
       <button class="icon" type="button" data-action="assign-close" aria-label="${esc(t('close'))}">✕</button>
     </div>
     ${a.opts ? `<form class="tray-opts" id="assign-opts">
       <label>${esc(t('maxLoad'))}<select name="maxLoad">${[2, 3, 4, 5, 6, 7, 8, 9, 10, 12].map((h) => `<option value="${h}" ${h === Number(state.settings.maxLoad ?? 8) ? 'selected' : ''}>${h} h</option>`).join('')}</select></label>
       <label class="check"><input type="checkbox" name="freeWeekends" ${state.settings.freeWeekends ? 'checked' : ''}> <span>${esc(t('freeWeekends'))}</span></label>
+      <small class="hint">${esc(t('autoHoursNow', fmtTime(autoHoursFor('2026-11-02')[0]), fmtTime(autoHoursFor('2026-11-02')[1]), fmtTime(autoHoursFor('2026-11-07')[0]), fmtTime(autoHoursFor('2026-11-07')[1])))}</small>
     </form>` : ''}
-    ${list.length ? `<div class="tray-chips">${list.map(chip).join('')}</div>` : `<p class="hint tray-hint">${esc(a.ghosts.length ? t('trayAllPlaced') : t('trayEmpty'))}</p>`}
-    ${hint ? `<p class="hint tray-hint">${esc(hint)}</p>` : ''}
+    ${a.open ? `
+    <div class="tray-tools"><input type="search" id="tray-q" value="${esc(a.q || '')}" placeholder="${esc(t('searchTasks'))}" autocomplete="off" aria-label="${esc(t('searchTasks'))}">${sortPicker('tray-sort', mode)}</div>
+    ${list.length ? `<div class="tray-list">${body}</div>` : `<p class="hint tray-hint">${esc(q ? t('noMatch') : a.ghosts.length ? t('trayAllPlaced') : t('trayEmpty'))}</p>`}
+    ${hint ? `<p class="hint tray-hint">${esc(hint)}</p>` : ''}` : ''}
     <div class="tray-actions">
-      ${list.length ? `<button class="btn${a.ghosts.length ? ' small' : ' primary'} spread" type="button" data-action="assign-spread">✦ ${esc(a.ghosts.length ? t('spreadMore') : t(sel.length ? 'spreadSel' : 'spreadAll', spreadLabel()))}</button>` : ''}
+      ${all.length ? `<button class="btn${a.ghosts.length ? ' small' : ' primary'} spread" type="button" data-action="assign-spread">✦ ${esc(a.ghosts.length ? t('spreadMore') : t(sel.length ? 'spreadSel' : 'spreadAll', spreadLabel()))}</button>` : ''}
       ${a.range ? `<button class="btn small ghost" type="button" data-action="assign-range-clear">${esc(t('clearRange'))}</button>` : ''}
       ${a.ghosts.length ? `<button class="btn small" type="button" data-action="assign-clear">${esc(t('cancel'))}</button>
         <button class="btn primary" type="button" data-action="assign-add">${esc(t('addN', a.ghosts.length))}</button>` : ''}
@@ -3463,7 +3886,12 @@ $('#app-title').addEventListener('keydown', (e) => { if (e.key === 'Enter') loca
 setupTrayDrag({
   onTap: (id) => { if (!ui.assign) return; if (ui.assign.sel.has(id)) ui.assign.sel.delete(id); else ui.assign.sel.add(id); render(); },
   onDrop: (id, tgt) => { if (ui.assign) assignDrop(id, tgt); },
-  onDragging: (on) => { ui.dragging = on; document.body.classList.toggle('is-dragging', on); },
+  onDragging: (on) => {
+    // Folding the tray while dragging must not move the page under the finger: keep its old height as margin.
+    const tray = document.querySelector('.tray'), h = tray?.offsetHeight || 0;
+    ui.dragging = on; document.body.classList.toggle('is-dragging', on);
+    if (tray) tray.style.marginBottom = on ? `${Math.max(0, h - tray.offsetHeight)}px` : '';
+  },
   label: (id, tgt) => {
     const n = ui.assign?.sel.has(id) ? ui.assign.sel.size : 1;
     const what = n > 1 ? t('nTasks', n) : get('tasks', id)?.title || '';
@@ -3501,6 +3929,7 @@ async function saveRicette(form) {
     const own = live('shopping');
     for (const it of own) upsert('r_shopping', { ...it }, { silent: true });
     for (const it of own) remove('shopping', it.id);
+    for (const sh of live('shops')) { upsert('r_shops', { ...sh }, { silent: true }); remove('shops', sh.id); }
     if (own.length) await runSync();
     if (state.meta.lastError) ui.ricMsg = `err_${state.meta.lastError}`;
   }
