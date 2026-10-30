@@ -340,7 +340,10 @@ export function spreadTasks({ tasks, days, settings, leadOf = () => 0, now = Dat
       if (!best || cost < best.cost) best = { d, at, cost };
     });
     if (!best) { skipped.push({ taskId: out(t), key: t.id, why: minutes > s.maxLoad ? 'toolong' : why }); continue; }
-    placed.push({ taskId: out(t), key: t.id, stepId: t.stepId || null, date: best.d.date, start: best.at + lead, minutes, lead, score, reasons });
+    // Say so when it landed in its time window or its preferred part of the day.
+    const win = WINDOWS[t.when]; const st = best.at + lead;
+    const extra = t.windows?.length ? [{ k: 'r_window' }] : win && st >= win[0] && st < win[1] ? [{ k: `r_${t.when}` }] : [];
+    placed.push({ taskId: out(t), key: t.id, stepId: t.stepId || null, date: best.d.date, start: st, minutes, lead, score, reasons: [...reasons, ...extra] });
     busy.get(best.d.date).push({ start: best.at, minutes: need });
     load.set(best.d.date, load.get(best.d.date) + need);
     endOf.set(t.id, { date: best.d.date, minute: best.at + need });

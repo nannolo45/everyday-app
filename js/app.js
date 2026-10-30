@@ -8,7 +8,7 @@ import {
   parseTemplateLines, IMPORTANCE, importanceOf, formatTemplateLines, templateBlocks, autoTemplatesFor,
 } from './plan.js';
 import {
-  candidates, suggestDay, spareTime, spreadTasks, scoreTask, WINDOWS, windowOn, nearestSlot, placePrep, placeGroceries, findConflicts, recipeMinutes,
+  candidates, spareTime, spreadTasks, scoreTask, WINDOWS, windowOn, nearestSlot, placePrep, placeGroceries, findConflicts, recipeMinutes,
 } from './smart.js';
 import { makeKitchen } from './kitchen.js';
 import { DEPTS, DEPT_IDS, NONFOOD, deptIcon, deptOf } from './depts.js';
@@ -27,7 +27,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 
 const view = $('#view');
 const modal = $('#modal');
-const ui = { view: null, expanded: new Set(), connMsg: '', ricMsg: '', dragging: false, scrolledFor: null, showDone: false, showHelpers: false, suggest: null, showConflicts: false };
+const ui = { view: null, expanded: new Set(), connMsg: '', ricMsg: '', dragging: false, scrolledFor: null, showDone: false, showHelpers: false, showConflicts: false };
 
 const PPM = 1.2; // timeline pixels per minute (72 px per hour)
 const GROCERY_MINUTES = 45;
@@ -622,7 +622,6 @@ function openAutoPlanner() {
     const weekend = (d) => [0, 6].includes(parseDate(d).getDay());
     if (state.settings.freeWeekends && days.some((d) => !weekend(d))) days = days.filter((d) => !weekend(d));
     if (!ui.assign) ui.assign = { sel: new Set(), ghosts: [], range: null, opts: false, open: false, q: '' };
-    ui.suggest = null;
     const ids = ui.assign.sel.size ? trayTasks().filter((x) => ui.assign.sel.has(x.id)).map((x) => x.id) : trayTasks().map((x) => x.id);
     if (!ids.length) { toast(t('trayEmpty')); render(); return; }
     ui.assign.open = false; // the previews matter now; the list can be opened again
@@ -1092,6 +1091,7 @@ function viewPlan(date) {
   // planning what's still open (Auto-planner, Assign), and adding something by hand (+ Add).
   const head = `
   <div class="plan-top">
+    <button class="steps-switch side-switch" type="button" role="switch" data-action="side-toggle" aria-checked="${sideShown()}" aria-pressed="${sideShown()}" title="${esc(t(sideShown() ? 'hideTasks' : 'showTasks'))}"><span class="sw" aria-hidden="true"></span>${esc(t('tasksCol'))}</button>
     <div class="view-switch" role="tablist">${VIEWS.map((k) => `<button type="button" role="tab" class="${k === v ? 'on' : ''}" data-action="view" data-id="${k}" aria-selected="${k === v}">${esc(t(`v_${k}`))}</button>`).join('')}</div>
     ${v === 'day' || v === 'list' ? `<button class="steps-switch" type="button" role="switch" data-action="toggle-steps" aria-checked="${showSteps()}" aria-pressed="${showSteps()}" title="${esc(t(showSteps() ? 'hideSteps' : 'showSteps'))}"><span class="sw" aria-hidden="true"></span>${esc(t('steps'))}</button>` : ''}
   </div>
@@ -1107,16 +1107,42 @@ function viewPlan(date) {
   <div class="day-actions">
     ${showToday ? `<a class="btn small" href="#/plan/${td}">${esc(t('today'))}</a>` : ''}
     <div class="act-group" role="group" aria-label="${esc(t('planningTools'))}">
-      <button class="btn small primary" type="button" data-action="auto">✦ ${esc(t('autoPlanner'))}</button>
+      <button class="btn small primary" type="button" data-action="auto">✦ ${esc(t('suggestPlan'))}</button>
       <button class="btn small${ui.assign ? ' on' : ''}" type="button" data-action="assign" aria-pressed="${Boolean(ui.assign)}">⇢ ${esc(t('assign'))}</button>
     </div>
+    ${showToday ? '' : `<button class="btn small" type="button" data-action="spare">⏱ ${esc(t('haveTime'))}</button>`}
     <button class="btn small" type="button" data-action="add-menu">＋ ${esc(t('addMenu'))}</button>
   </div>`;
   const tray = ui.assign ? trayHtml() : '';
-  if (v === 'list') return head + viewList(date) + tray;
-  if (v === 'week') return head + viewWeek(date) + tray;
-  if (v === 'month') return head + viewMonth(date) + tray;
-  return head + viewDay(date) + tray;
+  const main = v === 'list' ? viewList(date) : v === 'week' ? viewWeek(date) : v === 'month' ? viewMonth(date) : viewDay(date);
+  // The tasks still to plan sit in a column beside every view (hide it with the "Tasks" switch).
+  return `${head}<div class="plan-layout${sideShown() ? '' : ' side-off'}">${sideShown() ? sidePanel(date, v) : ''}<section class="plan-main">${main}</section></div>${tray}`;
+}
+
+// The column of tasks to plan, beside every view. Shown by default on wide screens, hidden on phones
+// until you switch it on (kept per device).
+function sideShown() { const h = state.settings.sideHidden; return h === undefined ? window.innerWidth >= 900 : !h; }
+function sidePanel(date, v) {
+  const td = today();
+  const plannedIds = new Set(alreadyPlanned().map((x) => x.id));
+  const previewed = new Set((ui.assign?.ghosts || []).map((g) => g.taskId)); // waiting for "Add" in the tray
+  const list = openTasks().filter((x) => !plannedIds.has(x.id) && !previewed.has(x.id) && !(v === 'day' && scheduledOn(x.id, date)));
+  const g = dateBuckets(list, (x) => x.due, td);
+  const label = (k) => (k === 'soon' ? t('grp_soonN', Number(taskGroupsCfg().soonDays) || 7) : k === 'nodate' ? t('grp_anytime') : t(`grp_${k}`));
+  // Day view: tap = next free time that day, drag onto the timeline. Other views: drag onto a day
+  // (or a time in Week), tap to choose when.
+  const chip = (x) => (v === 'day'
+    ? `<button class="chip" type="button" data-action="plan-task" data-task="1" data-id="${esc(x.id)}" data-title="${esc(x.title)}" data-minutes="${x.minutes || 30}" style="--c:${esc(catColor(x.category) || 'var(--accent)')}">`
+    : `<button class="chip tchip" type="button" data-id="${esc(x.id)}" style="--c:${esc(catColor(x.category) || 'var(--accent)')}">`)
+    + `<span class="chip-dot"></span><span class="chip-title">${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}</span><small>${esc(fmtDur(x.minutes || 30))}</small></button>`;
+  return `<aside class="to-plan">
+    <div class="side-head"><h2>${esc(t('toPlan'))} <small>${list.length}</small></h2>
+      <button class="icon" type="button" data-action="side-toggle" aria-label="${esc(t('hideTasks'))}" title="${esc(t('hideTasks'))}">⟨</button></div>
+    <form id="side-add" class="row tight"><input id="side-add-input" name="title" autocomplete="off" placeholder="${esc(v === 'day' ? t('sideAddPh') : t('sideAddPhAny'))}"><button class="btn small">+</button></form>
+    ${list.length ? ['overdue', ...DATE_GROUPS, 'nodate'].filter((k) => g[k].length).map((k) => `<div class="sub">${esc(label(k))} <small>${g[k].length}</small></div><div class="chips">${sortTasks(g[k], td).map(chip).join('')}</div>`).join('')
+      + `<p class="hint">${esc(t(v === 'day' ? 'chipHint' : 'chipHintAny'))}</p>` : `<p class="hint">${esc(t('nothingToPlan'))}</p>`}
+    ${plannedList(alreadyPlanned(), 'side-planned', ui.sidePlanned)}
+  </aside>`;
 }
 
 function isoWeek(date) {
@@ -1154,50 +1180,22 @@ function viewDay(date) {
   const blocks = blocksOn(date);
   const events = timedEventsOn(date);
   const allDay = eventsOn(date).filter((e) => e.allDay);
-  const sug = ui.suggest?.date === date ? ui.suggest : null;
-  const ghosts = sug ? sug.placed.filter((p) => !sug.off.has(p.taskId)) : [];
-  const { startMin, endMin, hours } = timelineRange([...blocks, ...events, ...ghosts, ...ghostsOn(date)]);
+  const { startMin, endMin, hours } = timelineRange([...blocks, ...events, ...ghostsOn(date)]);
   const inConflict = new Set(conflictsOn(date).flatMap((c) => c.ids));
   const laid = layoutBlocks([...blocks, ...events]);
   const isToday = date === td;
 
-  const plannedElsewhere = plannedTaskIds();
-  const toPlan = sortTasks(openTasks().filter((x) => !scheduledOn(x.id, date) && (x.repeat || !plannedElsewhere.has(x.id))
-    && (x.due ? x.due === date || (x.due < date && date === td) : date >= td)), td);
-  const due = toPlan.filter((x) => x.due);
-  const anytime = toPlan.filter((x) => !x.due);
-  const chip = (x) => `<button class="chip" type="button" data-action="plan-task" data-task="1" data-id="${esc(x.id)}" data-title="${esc(x.title)}" data-minutes="${x.minutes || 30}" style="--c:${esc(catColor(x.category) || 'var(--accent)')}">
-      <span class="chip-dot"></span><span class="chip-title">${esc(x.title)}</span><small>${esc(fmtDur(x.minutes || 30))}${x.due && x.due < date ? ` · ${esc(t('late'))}` : ''}</small></button>`;
 
   return `
-  <div class="plan-layout">
-    <aside class="to-plan">
-      ${sug ? suggestPanel(sug) : `
-      <div class="smart-row">
-        ${date >= td ? `<button class="btn small primary" type="button" data-action="suggest">✦ ${esc(t('suggestPlan'))}</button>` : ''}
-        ${isToday ? `<button class="btn small" type="button" data-action="spare">⏱ ${esc(t('haveTime'))}</button>` : ''}
-      </div>
-      <h2>${esc(t('toPlan'))}</h2>
-      <form id="side-add" class="row tight"><input id="side-add-input" name="title" autocomplete="off" placeholder="${esc(t('sideAddPh'))}"><button class="btn small">+</button></form>
-      ${toPlan.length ? `
-        ${due.length ? `<div class="chips">${due.map(chip).join('')}</div>` : ''}
-        ${anytime.length ? `<div class="sub">${esc(t('anytime'))}</div><div class="chips">${anytime.map(chip).join('')}</div>` : ''}
-        <p class="hint">${esc(t('chipHint'))}</p>` : `<p class="hint">${esc(t('nothingToPlan'))}</p>`}
-      ${plannedList(date >= td ? alreadyPlanned() : [], 'side-planned', ui.sidePlanned)}`}
-    </aside>
-    <section>
       ${conflictBanner(date)}
       ${allDay.length ? `<div class="allday">${allDay.map((e) => `<button class="allday-chip" type="button" data-action="event" data-id="${esc(e.id)}" style="--c:${esc(e.color)}">${esc(e.title)}</button>`).join('')}</div>` : ''}
       <div class="timeline" data-start="${startMin}" data-ppm="${PPM}" data-snap="${s.snap}" data-date="${date}" style="height:${(endMin - startMin) * PPM}px">
         ${hours.map((m) => `<div class="hour" style="top:${(m - startMin) * PPM}px"><span>${fmtTime(m)}</span></div>`).join('')}
         ${isToday ? '<div class="now" id="now-line" hidden></div>' : ''}
         ${laid.map((b) => (b.isEvent ? eventHtml(b, startMin, inConflict.has(b.id)) : blockHtml(b, startMin, inConflict.has(b.id)))).join('')}
-        ${ghosts.map((g) => ghostHtml(g, startMin)).join('')}
         ${ghostsOn(date).map((g) => assignGhostHtml(g, startMin)).join('')}
-        ${blocks.length || events.length || ghosts.length ? '' : `<div class="tl-empty">${esc(t('emptyDay'))}</div>`}
-      </div>
-    </section>
-  </div>`;
+        ${blocks.length || events.length ? '' : `<div class="tl-empty">${esc(t('emptyDay'))}</div>`}
+      </div>`;
 }
 
 // Week: seven day columns side by side. Blocks can be dragged within a day and across days.
@@ -1214,7 +1212,7 @@ function viewWeek(date) {
   return `
   <div class="week">
     <div class="week-head"><div class="wk-gutter"></div>
-      ${days.map((d) => `<button type="button" class="wk-day${d === td ? ' today' : ''}${inRange(d) ? ' in-range' : ''}" data-action="${ui.assign ? 'assign-range' : 'view-day'}" data-id="${d}" ${ui.assign ? `data-drop="${d}"` : ''}><span>${esc(wd(d))}</span><b>${parseDate(d).getDate()}</b>${loadBar(d)}</button>`).join('')}
+      ${days.map((d) => `<button type="button" class="wk-day${d === td ? ' today' : ''}${inRange(d) ? ' in-range' : ''}" data-action="${ui.assign ? 'assign-range' : 'view-day'}" data-id="${d}" data-drop="${d}"><span>${esc(wd(d))}</span><b>${parseDate(d).getDate()}</b>${loadBar(d)}</button>`).join('')}
     </div>
     ${allDay.some((x) => x.length) ? `<div class="week-allday"><div class="wk-gutter"></div>${allDay.map((list) => `<div>${list.map((e) => `<button class="allday-chip" type="button" data-action="event" data-id="${esc(e.id)}" style="--c:${esc(e.color)}">${esc(e.title)}</button>`).join('')}</div>`).join('')}</div>` : ''}
     <div class="week-body">
@@ -1251,10 +1249,10 @@ function viewMonth(date) {
     const items = [...eventsOn(d).filter((e) => e.allDay), ...[...blocksOn(d), ...timedEventsOn(d)].sort((a, b) => a.start - b.start)];
     const conflict = conflictsOn(d).length > 0;
     const gh = ghostsOn(d);
-    return `<button type="button" class="m-cell${d.slice(0, 7) !== month ? ' other' : ''}${d === td ? ' today' : ''}${inRange(d) ? ' in-range' : ''}" data-action="${ui.assign ? 'assign-range' : 'view-day'}" data-id="${d}" ${ui.assign ? `data-drop="${d}"` : ''}>
+    return `<button type="button" class="m-cell${d.slice(0, 7) !== month ? ' other' : ''}${d === td ? ' today' : ''}${inRange(d) ? ' in-range' : ''}" data-action="${ui.assign ? 'assign-range' : 'view-day'}" data-id="${d}" data-drop="${d}">
         <span class="m-num">${parseDate(d).getDate()}${conflict ? ' <span class="warn-ico">⚠</span>' : ''}</span>
         ${loadBar(d, { text: false })}
-        ${gh.map((g) => `<span class="m-item ghost">${esc(ghostTitle(g))}</span>`).join('')}
+        ${gh.map((g) => `<span class="m-item ghost" title="${esc(ghostTip(g))}">${esc(ghostTitle(g))}</span>`).join('')}
         ${items.slice(0, 3).map((x) => `<span class="m-item${outcomeOf(x) ? ' done' : ''}" style="--c:${esc(x.isEvent || x.allDay ? x.color : catColor(x.category) || 'var(--accent)')}">${x.allDay ? '' : `<i>${fmtTime(x.start)}</i> `}${esc(x.title)}</span>`).join('')}
         ${items.length > 3 ? `<span class="m-more">${esc(t('nMore', items.length - 3))}</span>` : ''}
       </button>`;
@@ -1288,11 +1286,11 @@ function viewList(date) {
     const totals = dayTotals(blocksOn(d));
     const inConflict = new Set(conflictsOn(d).flatMap((c) => c.ids));
     const gh = ghostsOn(d);
-    return `<section class="ag-day${d === td ? ' today' : ''}${inRange(d) ? ' in-range' : ''}" ${ui.assign ? `data-drop="${d}"` : ''}>
+    return `<section class="ag-day${d === td ? ' today' : ''}${inRange(d) ? ' in-range' : ''}" data-drop="${d}">
       <h2><button type="button" class="linkish plain" data-action="${ui.assign ? 'assign-range' : 'view-day'}" data-id="${d}">${esc(d === td || d === addDays(td, 1) ? relDay(d) : fmtDay(d, { weekday: 'long' }))}</button>
         <small>${esc(fmtDay(d, { day: 'numeric', month: 'long' }))}${totals.planned ? ` · ${esc(t('plannedSum', fmtDur(totals.planned)))}` : ''}</small>${loadBar(d)}</h2>
       ${inConflict.size ? conflictBanner(d) : ''}
-      ${gh.length ? `<ul class="ag-list ghosts">${gh.map((g) => `<li class="ag-row ghost"><button type="button" class="ag-main" data-action="ghost-rm" data-i="${g.i}" title="${esc(t('ghostTap'))}"><span class="ag-time">${esc(range(g.start, g.minutes))}</span><span class="ag-text"><span class="ag-title">${esc(ghostTitle(g))}</span><small>${esc(t('ghostTap'))}</small></span><span class="ghost-x">✕</span></button></li>`).join('')}</ul>` : ''}
+      ${gh.length ? `<ul class="ag-list ghosts">${gh.map((g) => `<li class="ag-row ghost"><button type="button" class="ag-main" data-action="ghost-rm" data-i="${g.i}" title="${esc(ghostTip(g))}"><span class="ag-time">${esc(range(g.start, g.minutes))}</span><span class="ag-text"><span class="ag-title">${esc(ghostTitle(g))}</span><small>${esc(ghostWhy(g) ? `✦ ${ghostWhy(g)}` : t('ghostTap'))}</small></span><span class="ghost-x">✕</span></button></li>`).join('')}</ul>` : ''}
       ${items.length || dueTasks.length ? `<ul class="ag-list">${items.map((x) => agendaRow(x, inConflict.has(x.id))).join('')}${dueTasks.map((x) => dueRow(x, d)).join('')}</ul>`
     : gh.length ? '' : `<p class="hint ag-empty">${esc(t('nothingPlanned'))}</p>`}
     </section>`;
@@ -1449,29 +1447,6 @@ function openEvent(e) {
     </div>`, () => {});
 }
 
-function ghostHtml(g, startMin) {
-  const task = get('tasks', g.taskId);
-  const color = catColor(task?.category) || 'var(--accent)';
-  return `<div class="block ghost suggestion" style="--c:${esc(color)};top:${(g.start - g.lead - startMin) * PPM}px;height:${Math.max((g.minutes + g.lead) * PPM, 16)}px;left:1px;right:3px">
-    <div class="blk-body"><div class="blk-title">✦ ${esc(task?.title)}</div><div class="blk-time">${range(g.start, g.minutes)}${g.lead ? ` · ${esc(t('plusPrep', fmtDur(g.lead)))}` : ''}</div></div></div>`;
-}
-
-function suggestPanel(sug) {
-  const on = sug.placed.filter((p) => !sug.off.has(p.taskId));
-  return `
-  <h2>✦ ${esc(t('suggestedPlan'))}</h2>
-  <p class="hint">${esc(t('suggestHint'))}</p>
-  <ul class="list sugg">${sug.placed.map((p) => {
-    const x = get('tasks', p.taskId);
-    return `<li><label><input type="checkbox" data-action="sug-toggle" data-id="${esc(p.taskId)}" ${sug.off.has(p.taskId) ? '' : 'checked'}>
-      <span class="item-text"><b>${fmtTime(p.start)}</b> ${esc(x?.title)}<small>${esc(fmtDur(p.minutes))}${p.reasons.length ? ` · ${esc(reasonText(p.reasons))}` : ''}</small></span></label></li>`;
-  }).join('')}</ul>
-  ${sug.skipped.length ? `<p class="hint">${esc(t('didntFit'))}: ${sug.skipped.map((x) => esc(get('tasks', x.taskId)?.title)).join(', ')}${sug.skipped.some((x) => x.why === 'full') ? ` <small>(${esc(t('dayFull', fmtDur(planSettings().maxLoad)))})</small>` : ''}</p>` : ''}
-  <div class="button-row">
-    <button class="btn primary" type="button" data-action="sug-accept" ${on.length ? '' : 'disabled'}>${esc(t('addN', on.length))}</button>
-    <button class="btn" type="button" data-action="sug-cancel">${esc(t('cancel'))}</button>
-  </div>`;
-}
 
 // ---------- meals: the meal dialog and the recipe picker ----------
 
@@ -3332,30 +3307,6 @@ function openCategory(cat) {
 
 // ---------- smart: suggest a plan / I have some time ----------
 
-function startSuggest() {
-  const date = currentDate();
-  const s = planSettings();
-  const from = date === today() ? Math.ceil((nowMinutes() + 5) / 5) * 5 : s.dayStart;
-  const tasks = candidates(live('tasks'), plannedTaskIds(), date);
-  const res = suggestDay({ tasks, blocks: busyOn(date).filter((b) => !b.allowOverlap), date, from, settings: s, leadOf });
-  if (!res.placed.length) { toast(tasks.length ? t('noRoomToday') : t('nothingToSuggest')); return; }
-  ui.suggest = { date, ...res, off: new Set() };
-  render();
-}
-
-function acceptSuggest() {
-  const sug = ui.suggest;
-  let n = 0;
-  for (const p of sug.placed) {
-    if (sug.off.has(p.taskId)) continue;
-    const task = get('tasks', p.taskId);
-    if (task) { planTask(task, sug.date, p.start); n++; }
-  }
-  ui.suggest = null;
-  toast(t('addedN', n));
-  changed();
-}
-
 function openSpare(minutes = null) {
   const date = today();
   const now = nowMinutes();
@@ -3402,7 +3353,7 @@ view.addEventListener('submit', (e) => {
   if (form.id === 'task-add' || form.id === 'side-add') {
     const q = quickAdd(form.title.value);
     if (!q.title) return;
-    const onDay = form.id === 'side-add' ? currentDate() : null;
+    const onDay = form.id === 'side-add' && currentView() === 'day' ? currentDate() : null;
     upsert('tasks', {
       id: uid(), createdAt: Date.now(), title: q.title, minutes: q.minutes || 30, priority: q.priority, importance: q.importance || 3,
       category: findCategory(q.category), due: onDay, repeat: null, notes: '', done: false,
@@ -3452,10 +3403,6 @@ view.addEventListener('change', (e) => {
     next[Number(el.dataset.ci)] = el.checked;
     upsert('blocks', { ...cur, checked: next }, { silent: true });
     changed();
-  }
-  if (action === 'sug-toggle') {
-    if (el.checked) ui.suggest.off.delete(id); else ui.suggest.off.add(id);
-    render();
   }
   if (el.id === 'show-events') { saveSettings({ showEvents: el.checked }); }
   if (el.id === 'task-sort') { saveSettings({ taskSort: el.value }); render(); return; }
@@ -3540,9 +3487,11 @@ view.addEventListener('click', (e) => {
     case 'new-saved': openSavedPicker(currentDate()); break;
     case 'add-menu': openAddMenu(); break;
     case 'auto': openAutoPlanner(); break;
-    case 'assign': ui.assign = ui.assign ? null : { sel: new Set(), ghosts: [], range: null, opts: false, open: true, q: '' }; ui.suggest = null; render(); break;
+    case 'assign': ui.assign = ui.assign ? null : { sel: new Set(), ghosts: [], range: null, opts: false, open: true, q: '' }; render(); break;
     case 'tray-toggle': ui.assign.open = !ui.assign.open; render(); break;
     case 'tray-planned': e.preventDefault(); ui.assign.showPlanned = !ui.assign.showPlanned; render(); break;
+    case 'tray-why': e.preventDefault(); ui.assign.showWhy = !ui.assign.showWhy; render(); break;
+    case 'side-toggle': saveSettings({ sideHidden: sideShown() }); render(); break;
     case 'side-planned': e.preventDefault(); ui.sidePlanned = !ui.sidePlanned; render(); break;
     case 'import': openImport(); break;
     case 'assign-close': ui.assign = null; render(); break;
@@ -3569,7 +3518,7 @@ view.addEventListener('click', (e) => {
     case 'assign-add': addGhosts(); break;
     case 'ghost-rm': ui.assign?.ghosts.splice(Number(btn.dataset.i), 1); render(); break;
     case 'toggle-steps': saveSettings({ showSteps: !showSteps() }); render(); break;
-    case 'view': ui.view = id; ui.scrolledFor = null; ui.suggest = null; render(); if (id !== 'day') window.scrollTo(0, 0); break;
+    case 'view': ui.view = id; ui.scrolledFor = null; render(); if (id !== 'day') window.scrollTo(0, 0); break;
     case 'view-day': ui.view = 'day'; ui.scrolledFor = null; if (currentDate() === id) render(); else location.hash = `#/plan/${id}`; break;
     case 'ag-toggle': if (ui.expanded.has(id)) ui.expanded.delete(id); else ui.expanded.add(id); render(); break;
     case 'block-edit': openBlock(get('blocks', id)); break;
@@ -3579,9 +3528,6 @@ view.addEventListener('click', (e) => {
     case 'saved-new': openTask(null, { title: '', minutes: 30, routine: true, meal: false, defaultStart: null, when: '', category: null, importance: 3, prep: [], rules: [], steps: [], checklist: [], notes: '' }); break;
     case 'event': openEvent(get('events', id)); break;
     case 'templates': openTemplatesMenu(); break;
-    case 'suggest': startSuggest(); break;
-    case 'sug-accept': acceptSuggest(); break;
-    case 'sug-cancel': ui.suggest = null; render(); break;
     case 'spare': openSpare(); break;
     case 'toggle-conflicts': ui.showConflicts = !ui.showConflicts; render(); break;
     case 'fix': fixConflict(conflictsOn(btn.dataset.date || currentDate())[Number(btn.dataset.i)]); break;
@@ -3865,7 +3811,7 @@ function placeGhosts(ids, dates, minute = null) {
   }
   skipped = [...blocked, ...skipped];
   if (placed.length && !state.settings.trayHintSeen) saveSettings({ trayHintSeen: true });
-  ui.assign.ghosts.push(...placed.map(({ taskId, stepId, date, start, minutes, lead }) => ({ taskId, stepId: stepId || null, date, start, minutes, lead })));
+  ui.assign.ghosts.push(...placed.map(({ taskId, stepId, date, start, minutes, lead, reasons }) => ({ taskId, stepId: stepId || null, date, start, minutes, lead, reasons: reasons || [] })));
   for (const p of placed) if (!trayTasks().some((x) => x.id === p.taskId)) ui.assign.sel.delete(p.taskId);
   ui.assign.skipped = skipped;
   if (skipped.length) toast(skipNote(skipped), 6000);
@@ -3959,6 +3905,9 @@ function trayHtml() {
     ${list.length ? `<div class="tray-list">${body}</div>` : `<p class="hint tray-hint">${esc(q ? t('noMatch') : a.ghosts.length ? t('trayAllPlaced') : t('trayEmpty'))}</p>`}
     ${hint ? `<p class="hint tray-hint">${esc(hint)}</p>` : ''}
     ${plannedList(planned, 'tray-planned', a.showPlanned)}` : ''}
+    ${a.ghosts.length ? `<details class="tray-planned tray-why"${a.showWhy ? ' open' : ''}><summary data-action="tray-why">✦ ${esc(t('whyThese'))} <small>${a.ghosts.length}</small></summary>
+      ${[...a.ghosts].sort((x, y) => (x.date === y.date ? x.start - y.start : x.date < y.date ? -1 : 1)).map((g) => `<a class="tp-planned" href="#/plan/${esc(g.date)}" style="--c:${esc(catColor(get('tasks', g.taskId)?.category) || 'var(--accent)')}"><span class="tp-dot"></span><span>${esc(ghostTitle(g))}<small class="why-line">${esc(ghostWhy(g) || t('noReason'))}</small></span><small>${esc(relDay(g.date))} ${esc(fmtTime(g.start))}</small></a>`).join('')}
+    </details>` : ''}
     <div class="tray-actions">
       ${all.length ? `<button class="btn${a.ghosts.length ? ' small' : ' primary'} spread" type="button" data-action="assign-spread">✦ ${esc(a.ghosts.length ? t('spreadMore') : t(sel.length ? 'spreadSel' : 'spreadAll', spreadLabel()))}</button>` : ''}
       ${a.range ? `<button class="btn small ghost" type="button" data-action="assign-range-clear">${esc(t('clearRange'))}</button>` : ''}
@@ -3973,10 +3922,13 @@ function ghostTitle(g) {
   return step ? `${task.title} · ${step.title}` : task?.title || '';
 }
 // A preview on a timeline (Day and Week views): tap to take it back.
+// Why a suggestion was picked ("due today · very important"), from the planner's scores.
+function ghostWhy(g) { return g.reasons?.length ? reasonText(g.reasons) : ''; }
+function ghostTip(g) { return [ghostWhy(g), t('ghostTap')].filter(Boolean).join(' — '); }
 function assignGhostHtml(g, startMin) {
   const task = get('tasks', g.taskId);
-  return `<div class="block ghost assign" data-action="ghost-rm" data-i="${g.i}" title="${esc(t('ghostTap'))}" style="--c:${esc(catColor(task?.category) || 'var(--accent)')};top:${(g.start - (g.lead || 0) - startMin) * PPM}px;height:${Math.max((g.minutes + (g.lead || 0)) * PPM, 16)}px;left:1px;right:3px">
-    <div class="blk-body"><div class="blk-title">${esc(ghostTitle(g))} <span class="ghost-x">✕</span></div><div class="blk-time">${range(g.start, g.minutes)}</div></div></div>`;
+  return `<div class="block ghost assign" data-action="ghost-rm" data-i="${g.i}" title="${esc(ghostTip(g))}" style="--c:${esc(catColor(task?.category) || 'var(--accent)')};top:${(g.start - (g.lead || 0) - startMin) * PPM}px;height:${Math.max((g.minutes + (g.lead || 0)) * PPM, 16)}px;left:1px;right:3px">
+    <div class="blk-body"><div class="blk-title">${esc(ghostTitle(g))} <span class="ghost-x">✕</span></div><div class="blk-time">${range(g.start, g.minutes)}</div>${ghostWhy(g) ? `<div class="blk-why">✦ ${esc(ghostWhy(g))}</div>` : ''}</div></div>`;
 }
 
 // The app name in the corner takes you back to the plan.
@@ -3988,8 +3940,19 @@ $('#app-title').tabIndex = 0;
 $('#app-title').addEventListener('keydown', (e) => { if (e.key === 'Enter') location.hash = '#/plan'; });
 
 setupTrayDrag({
-  onTap: (id) => { if (!ui.assign) return; if (ui.assign.sel.has(id)) ui.assign.sel.delete(id); else ui.assign.sel.add(id); render(); },
-  onDrop: (id, tgt) => { if (ui.assign) assignDrop(id, tgt); },
+  onTap: (id, chip) => {
+    if (ui.assign && !chip?.closest('.to-plan')) { if (ui.assign.sel.has(id)) ui.assign.sel.delete(id); else ui.assign.sel.add(id); render(); return; }
+    const x = get('tasks', id); if (x) openPlanSaved(x, currentDate() < today() ? today() : currentDate());
+  },
+  onDrop: (id, tgt, chip) => {
+    if (ui.assign && !chip?.closest('.to-plan')) { assignDrop(id, tgt); return; }
+    if (!tgt?.date) return;
+    if (tgt.date < today()) { toast(t('pastDay')); return; }
+    const b = planTask(get('tasks', id), tgt.date, tgt.minute ?? undefined);
+    toast(t('plannedToast', relDay(tgt.date), fmtTime(b.start)));
+    changed();
+    warnConflicts(get('blocks', b.id));
+  },
   onDragging: (on) => {
     // Folding the tray while dragging must not move the page under the finger: keep its old height as margin.
     const tray = document.querySelector('.tray'), h = tray?.offsetHeight || 0;
@@ -4093,7 +4056,6 @@ async function start() {
   });
   let lastTab = TAB_OF[route().name] || 'plan';
   window.addEventListener('hashchange', () => {
-    if (ui.suggest && ui.suggest.date !== currentDate()) ui.suggest = null;
     const tab = TAB_OF[route().name] || 'plan';
     if (tab === 'plan' && lastTab !== 'plan') ui.scrolledFor = null; // back on the planner: jump to now again
     // Back to today from another day (the "Today" button): show now again.

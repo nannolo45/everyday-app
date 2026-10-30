@@ -1,4 +1,5 @@
-// Dragging tasks from the planner's tray onto days, with mouse, pen or finger.
+// Dragging tasks from the planner's tray (or the tasks column beside Week, Month and List) onto days,
+// with mouse, pen or finger.
 // - Mouse/pen: press and move. Finger: press and hold for a moment, then move (scrolling still works).
 // - A tap (no drag) selects/unselects the task.
 // Drop targets: a day timeline (Day and Week views: drops at that time) or anything marked
@@ -12,7 +13,7 @@ export function setupTrayDrag({ onTap, onDrop, label, onDragging = () => {} }) {
 
   function targetAt(x, y) {
     const el = document.elementFromPoint(x, y);
-    if (!el || el.closest('.tray')) return null;
+    if (!el || el.closest('.tray, .to-plan')) return null;
     const tl = el.closest('.timeline[data-date]');
     if (tl) {
       const r = tl.getBoundingClientRect();
@@ -63,7 +64,7 @@ export function setupTrayDrag({ onTap, onDrop, label, onDragging = () => {} }) {
     const cur = d;
     const tgt = cur.started ? targetAt(e.clientX, e.clientY) : null;
     end();
-    if (cur.started) { if (tgt) onDrop(cur.id, tgt); } else if (!cur.moved) onTap(cur.id);
+    if (cur.started) { if (tgt) onDrop(cur.id, tgt, cur.chip); } else if (!cur.moved) onTap(cur.id, cur.chip);
   });
   document.addEventListener('pointercancel', () => end());
 
