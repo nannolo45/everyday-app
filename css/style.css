@@ -847,3 +847,10 @@ body.is-dragging .tray { opacity: .92; }
 .task-tools .search-box { order: 0; }
 .tray-tools .search-box { max-width: none; }
 .search-box[data-for="tp-q"] { max-width: none; margin: 4px 0 6px; }
+
+/* Task list: two parts, To plan and Planned, each with its date groups */
+.task-part { margin: 6px 0 14px; }
+.part-h { margin: 14px 0 2px; font-size: 1.15rem; }
+.part-h .fold { font-size: 1.1rem; font-weight: 800; }
+.task-part .grp-sec { margin-left: 10px; }
+.task-part .grp-sec .fold { font-size: .95rem; }

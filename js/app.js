@@ -13,6 +13,7 @@ import {
 import { makeKitchen } from './kitchen.js';
 import { DEPTS, DEPT_IDS, NONFOOD, deptIcon, deptOf } from './depts.js';
 import { reorderSubset, byOrder, isDragging } from './sortable.js';
+import { availableModes, currentMode, saveModeTarget, GROUPED_MODES, DRAG_MODES, fold, matchesQ, itemMatches as itemMatchesQ, addedOf, byItemOrder, recipeGroupOf, groupItems } from './shoplist.js';
 import { tagsOf, tagLabel, folderOfRecipe, folderTree, filterRecipes, tagCounts, minutesOf, timeParts, prepMinutes } from './recipes.js';
 import { pantryCoverage } from './recipe-tools.js';
 import { formatQty, setDecimalSeparator, namesMatch, addQuantities, parseIngredient } from './parse.js';
@@ -1811,13 +1812,16 @@ function setShopPref(id, value) {
   else saveSettings({ [`shop_${id}`]: value });
 }
 
-const LIST_MODES = ['dept', 'recipe', 'plain'];
-// "By shop" is Everyday's own view (kept on this device, so Ricette never sees a mode it doesn't know).
-function listModes() { return shopsList().length ? [...LIST_MODES, 'shop'] : LIST_MODES; }
-function listMode() {
-  if (state.settings.shopMode === 'shop' && shopsList().length) return 'shop';
-  const m = shopPref('listMode', 'dept'); return LIST_MODES.includes(m) ? m : 'dept';
+// The views (shoplist.js, shared with Ricette): dept / recipe / plain are saved in Ricette's prefs;
+// shop / alpha / newest / oldest on this device.
+function listModes() { return availableModes(shopsList().length > 0); }
+function listMode() { return currentMode({ local: state.settings.shopMode, shared: shopPref('listMode', 'dept'), hasShops: shopsList().length > 0 }); }
+function setListMode(m) {
+  const to = saveModeTarget(m);
+  saveSettings({ shopMode: to.local });
+  if (to.shared) setShopPref('listMode', to.shared);
 }
+function itemMatches(i, q) { return itemMatchesQ(i, q, (i.shops || []).map(shopName).filter(Boolean)); }
 
 // ---------- shops ----------
 // Shops live with the shopping list: in Ricette's repo (data/shops.json) once it's connected.
@@ -1916,38 +1920,13 @@ function shopDept(i) {
 }
 const isFood = (i) => !NONFOOD.includes(shopDept(i));
 
-// Manual order first (drag and drop), then items nobody has placed yet, by name — as in Ricette.
-function byItemOrder(a, b) {
-  const oa = Number.isFinite(a.order) ? a.order : Infinity;
-  const ob = Number.isFinite(b.order) ? b.order : Infinity;
-  if (oa !== ob) return oa - ob;
-  return (a.name || '').localeCompare(b.name || '');
-}
-function recipeGroupOf(i) { return i.auto ? '__pantry' : (i.sources || [])[0] || '__other'; }
 function recipeGroupLabel(k) { return k === '__pantry' ? `🔁 ${t('restock')}` : k === '__other' ? `🧺 ${t('otherItems')}` : `🍽 ${k}`; }
 
 // Open items as the list shows them: [[groupKey, label, items]].
 function listGroups(open, mode = listMode()) {
-  const items = [...open].sort(byItemOrder);
-  if (mode === 'plain') return [['all', '', items]];
-  if (mode === 'recipe') {
-    const groups = new Map(); const first = new Map();
-    for (const i of items) {
-      const k = recipeGroupOf(i);
-      if (!groups.has(k)) groups.set(k, []);
-      groups.get(k).push(i);
-      first.set(k, Math.min(first.get(k) ?? Infinity, i.addedAt || 0));
-    }
-    const natural = [...groups.keys()].sort((a, b) => (a === '__pantry') - (b === '__pantry') || first.get(a) - first.get(b));
-    return byOrder(natural, shopPref('recipeOrder', [])).map((k) => [k, recipeGroupLabel(k), groups.get(k)]);
-  }
-  if (mode === 'shop') {
-    const byShop = assignItems(items, shopsList()) || new Map();
-    return shopsList().filter((s) => byShop.get(s.id)?.length).map((s) => [s.id, `🏪 ${s.name}`, [...byShop.get(s.id)].sort(byItemOrder)]);
-  }
-  const groups = new Map(deptOrder().map((c) => [c, []]));
-  for (const i of items) groups.get(shopDept(i)).push(i);
-  return deptOrder().filter((c) => groups.get(c).length).map((c) => [c, `${deptIcon(c)} ${t(`dept_${c}`)}`, groups.get(c)]);
+  const groups = groupItems(open, mode, { deptOf: shopDept, deptOrder: deptOrder(), recipeOrder: shopPref('recipeOrder', []), shops: shopsList(), lang: getLang() });
+  const label = (g) => (g.kind === 'all' ? '' : g.kind === 'recipe' ? recipeGroupLabel(g.key) : g.kind === 'shop' ? `🏪 ${shopName(g.key)}` : g.kind === 'anyShop' ? `🛒 ${t('anyShop')}` : `${deptIcon(g.key)} ${t(`dept_${g.key}`)}`);
+  return groups.map((g) => [g.key, label(g), g.items]);
 }
 
 const GRIP = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/></svg>';
@@ -1955,33 +1934,36 @@ const grip = (id, label) => `<button type="button" class="drag-handle" id="${esc
 
 // The shops an item names (live ones), for its row.
 function itemShops(i) { return (i.shops || []).map(shopName).filter(Boolean).join(', '); }
-function shopRow(i, { drag = false, showSource = true } = {}) {
+function shopRow(i, { drag = false, showSource = true, showShops = true, added = false } = {}) {
   const src = i.auto ? `<span class="badge warn">${esc(t('runningLow'))}</span>`
     : showSource && (i.sources || []).length ? `<small>${esc(i.sources.join(', '))}</small>` : '';
   return `<li class="${i.checked ? 'checked' : ''}" ${drag ? `data-sort-key="${esc(i.id)}"` : ''}>
     ${drag ? grip(`h-${i.id}`, i.name) : ''}
     <input type="checkbox" data-action="shop-toggle" data-id="${esc(i.id)}" ${i.checked ? 'checked' : ''} aria-label="${esc(i.name)}">
     <button type="button" class="shop-main" data-action="shop-edit" data-id="${esc(i.id)}">
-      <span class="item-text"><span class="q">${esc(qtyText(i.qty, i.unit))}</span> ${esc(i.name)}${i.note ? ` <small class="inline">(${esc(i.note)})</small>` : ''} ${src}${itemShops(i) ? ` <small class="item-shops">🏪 ${esc(itemShops(i))}</small>` : ''}</span>
+      <span class="item-text"><span class="q">${esc(qtyText(i.qty, i.unit))}</span> ${esc(i.name)}${i.note ? ` <small class="inline">(${esc(i.note)})</small>` : ''} ${src}${showShops && itemShops(i) ? ` <small class="item-shops">🏪 ${esc(itemShops(i))}</small>` : ''}${added && addedOf(i) ? ` <small class="item-shops">＋ ${esc(relDay(today(new Date(addedOf(i)))))}</small>` : ''}</span>
     </button>
     <button class="icon" type="button" data-action="shop-del" data-id="${esc(i.id)}" aria-label="${esc(t('remove'))}">×</button>
   </li>`;
 }
 
 function viewShop() {
-  const items = live(SH());
+  const q = (ui.shopQ || '').trim();
+  const items = live(SH()).filter((i) => !q || itemMatches(i, q));
   const mode = listMode();
   const open = items.filter((i) => !i.checked);
+  const dated = mode === 'newest' || mode === 'oldest';
+  const canDrag = !q && DRAG_MODES.includes(mode);
   const done = items.filter((i) => i.checked).sort(byItemOrder);
   const groups = listGroups(open, mode);
-  const grouped = mode !== 'plain';
+  const grouped = GROUPED_MODES.includes(mode);
   const body = grouped
-    ? `<div class="groups" data-sortable="groups" data-group="${mode}">${groups.map(([k, label, list]) => `
+    ? `<div class="groups" ${canDrag ? `data-sortable="groups" data-group="${mode}"` : ''}>${groups.map(([k, label, list]) => `
       <section class="grp" data-sort-key="${esc(k)}">
-        <h3 class="dept-h">${grip(`g-${mode}-${k}`, label)}<span>${esc(label)}</span><small>${list.length}</small></h3>
-        <ul class="list shop" data-sortable="items" data-group="${esc(k)}">${list.map((i) => shopRow(i, { drag: true, showSource: mode !== 'recipe' })).join('')}</ul>
+        <h3 class="dept-h">${canDrag && k !== '__any' ? grip(`g-${mode}-${k}`, label) : ''}<span>${esc(label)}</span><small>${list.length}</small></h3>
+        <ul class="list shop" ${canDrag ? `data-sortable="items" data-group="${esc(k)}"` : ''}>${list.map((i) => shopRow(i, { drag: canDrag, showSource: mode !== 'recipe', showShops: mode !== 'shop' })).join('')}</ul>
       </section>`).join('')}</div>`
-    : `<ul class="list shop" data-sortable="items" data-group="all">${groups[0][2].map((i) => shopRow(i, { drag: true })).join('')}</ul>`;
+    : `<ul class="list shop" ${canDrag ? 'data-sortable="items" data-group="all"' : ''}>${(groups[0]?.[2] || []).map((i) => shopRow(i, { drag: canDrag, added: dated })).join('')}</ul>`;
   const food = done.filter(isFood).length;
   return `
   <h1>${esc(t('tabShop'))}</h1>
@@ -1993,16 +1975,16 @@ function viewShop() {
     <input name="item" id="shop-add-input" required placeholder="${esc(t('shopAddPh'))}" autocomplete="off">
     <button class="btn primary" aria-label="${esc(t('add'))}">+</button>
   </form>
-  <div class="seg" role="radiogroup" aria-label="${esc(t('listView'))}">
-    ${listModes().map((m) => `<button type="button" role="radio" aria-checked="${m === mode}" class="${m === mode ? 'on' : ''}" data-action="list-mode" data-id="${m}">${esc(t(`listMode_${m}`))}</button>`).join('')}
-  </div>
+  <div class="task-tools shop-tools">${searchBox({ id: 'shop-q', value: ui.shopQ || '', ph: t('searchItems') })}
+    <label class="sort-pick">⇅ <select id="shop-sort" aria-label="${esc(t('listView'))}">${listModes().map((m) => `<option value="${m}" ${m === mode ? 'selected' : ''}>${esc(t(`listMode_${m}`))}</option>`).join('')}</select></label></div>
   ${open.length ? `${body}
-    <p class="hint">${esc(t(grouped ? 'dragHintGroups' : 'dragHintItems'))} ${esc(t('tapItemHint'))}</p>
+    <p class="hint">${canDrag ? `${esc(t(grouped ? 'dragHintGroups' : 'dragHintItems'))} ` : ''}${esc(t('tapItemHint'))}</p>
     <div class="button-row">
       <button class="btn primary" type="button" data-action="plan-trips">🛒 ${esc(t('planTrips'))}</button>
       <button class="btn" type="button" data-action="shop-share">${esc(t('shareList'))}</button>
     </div>
-    <p class="hint">${esc(shopsList().length ? t(tripMode() === 'oneTrip' ? 'planTripsHintOne' : 'planTripsHintPer') : t('planTripsHintNoShops'))}</p>` : `<p class="empty">${esc(t('listEmpty'))}</p>`}
+    <p class="hint">${esc(shopsList().length ? t(tripMode() === 'oneTrip' ? 'planTripsHintOne' : 'planTripsHintPer') : t('planTripsHintNoShops'))}</p>` : q ? '' : `<p class="empty">${esc(t('listEmpty'))}</p>`}
+  ${q && !items.length ? `<p class="empty">${esc(t('noItemMatch'))}</p>` : ''}
   ${done.length ? `<h2>${esc(t('inCart'))} <small>${done.length}</small></h2><ul class="list shop done">${done.map((i) => shopRow(i)).join('')}</ul>
     <div class="button-row">
       <button class="btn primary" type="button" data-action="shop-putaway">📦 ${esc(ricetteConfigured() && food ? t('putAway') : t('doneShopping'))}</button>
@@ -2124,8 +2106,8 @@ function sortTaskList(list, mode) {
 }
 // A search field: magnifier in front, ✕ to clear once something is typed (shown by CSS, no redraw needed).
 const SEARCH_ICO = '<svg class="search-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>';
-function searchBox({ id = '', cls = '', value = '' } = {}) {
-  return `<div class="search-box"${cls ? ` data-for="${cls}"` : ''}>${SEARCH_ICO}<input type="search" ${id ? `id="${id}"` : ''} class="${cls}" value="${esc(value)}" placeholder="${esc(t('searchTasks'))}" autocomplete="off" enterkeyhint="search" aria-label="${esc(t('searchTasks'))}"><button type="button" class="search-clear" aria-label="${esc(t('clearSearch'))}" title="${esc(t('clearSearch'))}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button></div>`;
+function searchBox({ id = '', cls = '', value = '', ph = t('searchTasks') } = {}) {
+  return `<div class="search-box"${cls ? ` data-for="${cls}"` : ''}>${SEARCH_ICO}<input type="search" ${id ? `id="${id}"` : ''} class="${cls}" value="${esc(value)}" placeholder="${esc(ph)}" autocomplete="off" enterkeyhint="search" aria-label="${esc(ph)}"><button type="button" class="search-clear" aria-label="${esc(t('clearSearch'))}" title="${esc(t('clearSearch'))}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"/></svg></button></div>`;
 }
 function sortPicker(id, mode) {
   return `<label class="sort-pick">⇅ <select id="${id}" aria-label="${esc(t('sortBy'))}">${TASK_SORTS.map((m) => `<option value="${m}" ${m === mode ? 'selected' : ''}>${esc(t(`sort_${m}`))}</option>`).join('')}</select></label>`;
@@ -2135,12 +2117,28 @@ function sortPicker(id, mode) {
 // and preparations: the things you set up once and reuse).
 // Search: case and accents don't matter; every word must appear in the title, notes, place, category, steps,
 // checklist or rule names.
-const fold = (v) => String(v || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 function taskHay(x) {
   const cat = get('categories', x.category);
   return fold([x.title, x.notes, x.place, cat ? catName(cat) : '', ...(x.steps || []).map((y) => y.title), ...(x.checklist || []).map((c) => c.text || c.title || c), ...(x.rules || []).map((r) => r.title)].join(' '));
 }
-function matchesQ(hay, q) { const words = fold(q).split(/\s+/).filter(Boolean); return words.every((w) => hay.includes(w)); }
+// Groups by date in the task list (Settings → Task list): today, tomorrow and "soon" can be switched
+// on or off; a group that's off hands its tasks to the next one that's on ("later" is always there).
+const DATE_GROUPS = ['today', 'tomorrow', 'soon', 'later'];
+function taskGroupsCfg() { return { today: true, tomorrow: false, soon: true, soonDays: 7, ...(state.settings.taskGroups || {}) }; }
+function dateBuckets(items, dateOf, td) {
+  const cfg = taskGroupsCfg();
+  const on = (k) => k === 'later' || cfg[k];
+  const out = { overdue: [], today: [], tomorrow: [], soon: [], later: [], nodate: [] };
+  const tmr = addDays(td, 1); const soonEnd = addDays(td, Number(cfg.soonDays) || 7);
+  for (const x of items) {
+    const d = dateOf(x);
+    if (!d) { out.nodate.push(x); continue; }
+    if (d < td) { out.overdue.push(x); continue; }
+    const natural = d === td ? 'today' : d === tmr ? 'tomorrow' : d <= soonEnd ? 'soon' : 'later';
+    out[DATE_GROUPS.slice(DATE_GROUPS.indexOf(natural)).find(on)].push(x);
+  }
+  return out;
+}
 function folded(key) { return (state.settings.folded ?? ['grp_done']).includes(key); }
 function foldBtn(key, label, n, { open = !folded(key) } = {}) {
   return `<button class="fold" type="button" data-action="fold" data-id="${esc(key)}" aria-expanded="${open}"><span class="fold-ico">▸</span> ${esc(label)} <small>${n}</small></button>`;
@@ -2183,9 +2181,25 @@ function viewTasks() {
   const g = groupTasks(all.filter((x) => isTodo(x) && hit(x)), td);
   const mode = state.settings.taskSort || 'smart';
   const manual = mode === 'manual' && !q; // no dragging while the list is filtered
-  const section = (key, items) => (items.length ? `<section class="fold-sec grp-sec">${foldBtn(`grp_${key}`, t(`grp_${key}`), items.length, { open: !isFolded(`grp_${key}`) })}
-    ${isFolded(`grp_${key}`) ? '' : `<ul class="list tasks${manual ? ' sortable' : ''}" ${manual && key !== 'done' ? `data-sortable="tasks" data-group="${key}"` : ''}>${sortTaskList(items, mode).map((x) => taskRow(x, { drag: manual && key !== 'done' })).join('')}</ul>`}</section>` : '');
-  const open = g.overdue.length + g.today.length + g.upcoming.length + g.anytime.length;
+  // Two parts: to plan (grouped by due date) and already planned (grouped by the day they're on).
+  const openList = [...g.overdue, ...g.today, ...g.upcoming, ...g.anytime];
+  const plannedIds = new Set(alreadyPlanned().map((x) => x.id));
+  const toPlan = openList.filter((x) => !plannedIds.has(x.id));
+  const planned = openList.filter((x) => plannedIds.has(x.id));
+  const whenOf = (x) => { const b = nextPlanned(x.id); return b ? b.date + String(b.start).padStart(4, '0') : ''; };
+  const byWhen = (list) => (mode === 'smart' || mode === 'due' ? [...list].sort((a, b) => (whenOf(a) < whenOf(b) ? -1 : 1)) : sortTaskList(list, mode));
+  const groupLabel = (k) => (k === 'soon' ? t('grp_soonN', Number(taskGroupsCfg().soonDays) || 7) : k === 'nodate' ? t('grp_anytime') : t(`grp_${k}`));
+  const section = (key, label, items, sorted) => (items.length ? `<section class="fold-sec grp-sec">${foldBtn(key, label, items.length, { open: !isFolded(key) })}
+    ${isFolded(key) ? '' : `<ul class="list tasks${manual ? ' sortable' : ''}" ${manual ? `data-sortable="tasks" data-group="${key}"` : ''}>${sorted.map((x) => taskRow(x, { drag: manual })).join('')}</ul>`}</section>` : '');
+  const part = (key, label, items, buckets, sortFn, hint = '') => {
+    if (!items.length) return '';
+    const open = !isFolded(key);
+    return `<section class="task-part">
+      <h2 class="part-h">${foldBtn(key, label, items.length, { open })}</h2>
+      ${open ? `${hint ? `<p class="hint">${esc(hint)}</p>` : ''}${['overdue', ...DATE_GROUPS, 'nodate'].map((k) => section(`${key}_${k}`, groupLabel(k), buckets[k], sortFn(buckets[k]))).join('')}` : ''}
+    </section>`;
+  };
+  const open = openList.length;
   return `${switcher}
   <form id="task-add" class="row">
     <input id="task-input" name="title" autocomplete="off" placeholder="${esc(t('addTaskPh'))}">
@@ -2195,10 +2209,8 @@ function viewTasks() {
   <div class="task-tools">${search}${sortPicker('task-sort', mode)}<button class="btn small" type="button" data-action="import">⤓ ${esc(t('importTasks'))}</button></div>
   ${manual && !q ? `<p class="hint">${esc(t('manualHint'))}</p>` : ''}
   ${open || g.done.length ? '' : `<p class="empty">${esc(q ? t('noMatch') : t('noTasks'))}</p>`}
-  ${section('overdue', g.overdue)}
-  ${section('today', g.today)}
-  ${section('upcoming', g.upcoming)}
-  ${section('anytime', g.anytime)}
+  ${part('part_toplan', t('partToPlan'), toPlan, dateBuckets(toPlan, (x) => x.due, td), (l) => sortTaskList(l, mode))}
+  ${part('part_planned', t('partPlanned'), planned, dateBuckets(planned, (x) => nextPlanned(x.id)?.date, td), byWhen, t('partPlannedHint'))}
   ${g.done.length ? `<section class="fold-sec grp-sec">${foldBtn('grp_done', t('grp_done'), g.done.length, { open: !isFolded('grp_done') })}
     ${isFolded('grp_done') ? '' : `<ul class="list tasks done">${g.done.slice(0, 50).map(taskRow).join('')}</ul>
     <button class="btn small ghost" type="button" data-action="clear-done">${esc(t('clearDone'))}</button>`}</section>` : ''}`;
@@ -2303,6 +2315,14 @@ function viewSettings() {
     <label class="check"><input type="checkbox" name="longUnits" ${s.longUnits ? 'checked' : ''}> <span>${esc(t('longUnits'))}<small>${esc(t('longUnitsHint'))}</small></span></label>
     <label>${esc(t('maxLoad'))}<select name="maxLoad">${opts([4, 5, 6, 7, 8, 9, 10, 11, 12, 14], s.maxLoad ?? 8, (h) => `${h} h`)}</select>
       <small>${esc(t('maxLoadHint'))}</small></label>
+  </form>
+
+  <h2>✓ ${esc(t('taskListSettings'))}</h2>
+  <form class="form" id="tasklist-form">
+    <div class="field-label">${esc(t('taskGroupsLabel'))}</div>
+    <div class="days glance">${['today', 'tomorrow', 'soon'].map((k) => `<label class="day-pill"><input type="checkbox" name="tg" value="${k}" ${taskGroupsCfg()[k] ? 'checked' : ''}><span>${esc(k === 'soon' ? t('grp_soon') : t(`grp_${k}`))}</span></label>`).join('')}</div>
+    <label>${esc(t('soonDays'))}<select name="soonDays">${[3, 5, 7, 14, 30].map((n) => `<option value="${n}" ${n === Number(taskGroupsCfg().soonDays) ? 'selected' : ''}>${esc(t('nDays', n))}</option>`).join('')}</select></label>
+    <p class="hint">${esc(t('taskGroupsHint'))}</p>
   </form>
 
   <h2>🏪 ${esc(t('shopsTitle'))}</h2>
@@ -3402,6 +3422,7 @@ view.addEventListener('submit', (e) => {
 view.addEventListener('input', (e) => {
   if (e.target.id === 'tray-q' && ui.assign) { ui.assign.q = e.target.value; render(); }
   if (e.target.id === 'task-q') { ui.taskQ = e.target.value; render(); }
+  if (e.target.id === 'shop-q') { ui.shopQ = e.target.value; render(); }
 });
 
 view.addEventListener('change', (e) => {
@@ -3439,6 +3460,7 @@ view.addEventListener('change', (e) => {
   if (el.id === 'show-events') { saveSettings({ showEvents: el.checked }); }
   if (el.id === 'task-sort') { saveSettings({ taskSort: el.value }); render(); return; }
   if (el.id === 'tray-sort') { saveSettings({ traySort: el.value }); render(); return; }
+  if (el.id === 'shop-sort') { setListMode(el.value); changed(); }
   if (el.id === 'trip-mode') { upsert('config', { id: 'shopping', value: { ...(get('config', 'shopping')?.value || {}), tripMode: el.value } }); changed(); }
   if (el.id === 'remind-default') { upsert('config', { id: 'reminders', value: { ...(get('config', 'reminders')?.value || {}), default: Number(el.value) } }); changed(); }
   if (el.form?.id === 'assign-opts') {
@@ -3452,6 +3474,10 @@ view.addEventListener('change', (e) => {
     applyLang(el.value);
     renderShell();
     render();
+  }
+  if (el.form?.id === 'tasklist-form') {
+    const fd = new FormData(el.form); const on = fd.getAll('tg');
+    saveSettings({ taskGroups: { today: on.includes('today'), tomorrow: on.includes('tomorrow'), soon: on.includes('soon'), soonDays: Number(fd.get('soonDays')) || 7 } });
   }
   if (el.form?.id === 'planner-form') {
     const f = Object.fromEntries(new FormData(el.form));
@@ -3567,7 +3593,7 @@ view.addEventListener('click', (e) => {
       break;
     }
     case 'task-edit': openTask(get('tasks', id)); break;
-    case 'list-mode': if (id === 'shop') saveSettings({ shopMode: 'shop' }); else { saveSettings({ shopMode: null }); setShopPref('listMode', id); } changed(); break;
+    case 'list-mode': setListMode(id); changed(); break;
     case 'plan-trips': {
       const { blocks, missing } = planGroceryTrips();
       if (blocks.length) toast(t('tripsPlanned', blocks.map((b) => `${b.title.replace(`${t('groceryTitle')}`, '').replace(/^[ ·:]+/, '') || t('groceryTitle')} ${relDay(b.date)} ${fmtTime(b.start)}`).join(' · ')), 7000);
@@ -3909,9 +3935,10 @@ function trayHtml() {
   // Grouped by when it's due (like the Tasks tab) when sorted smartly or by due date; otherwise one list.
   let body;
   if (mode === 'smart' || mode === 'due') {
-    const g = groupTasks(list, today());
-    body = ['overdue', 'today', 'upcoming', 'anytime'].filter((k) => g[k].length)
-      .map((k) => `<div class="tray-grp">${esc(t(`grp_${k}`))} <small>${g[k].length}</small></div>${sortTaskList(g[k], mode).map(row).join('')}`).join('');
+    const g = dateBuckets(list, (x) => x.due, today()); // the same date groups as the task list
+    const label = (k) => (k === 'soon' ? t('grp_soonN', Number(taskGroupsCfg().soonDays) || 7) : k === 'nodate' ? t('grp_anytime') : t(`grp_${k}`));
+    body = ['overdue', ...DATE_GROUPS, 'nodate'].filter((k) => g[k].length)
+      .map((k) => `<div class="tray-grp">${esc(label(k))} <small>${g[k].length}</small></div>${sortTaskList(g[k], mode).map(row).join('')}`).join('');
   } else body = list.map(row).join('');
   const hint = a.range ? t('trayHintRange') : state.settings.trayHintSeen ? '' : t('trayHint');
   return `<div class="tray${a.open ? ' open' : ''}" role="region" aria-label="${esc(t('assignTitle'))}">
