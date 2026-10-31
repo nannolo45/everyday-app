@@ -1,0 +1,83 @@
+{
+  "name": "Everyday",
+  "short_name": "Everyday",
+  "description": "Day planner, tasks and more",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f4ef",
+  "theme_color": "#2f6b6f",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Today",
+      "short_name": "Today",
+      "url": "./?go=today",
+      "icons": [
+        {
+          "src": "icons/sc-today.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Add a task",
+      "short_name": "Add task",
+      "url": "./?go=add",
+      "icons": [
+        {
+          "src": "icons/sc-add.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "I have time",
+      "short_name": "I have time",
+      "url": "./?go=time",
+      "icons": [
+        {
+          "src": "icons/sc-time.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Plan a meal",
+      "short_name": "+ Meal",
+      "url": "./?go=meal",
+      "icons": [
+        {
+          "src": "icons/sc-meal.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
+}
