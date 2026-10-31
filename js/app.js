@@ -1,5 +1,5 @@
 import {
-  state, load, live, get, has, upsert, remove, uid, onChange, saveSettings, saveMeta, COLLECTIONS, RICETTE, kvGet, kvSet,
+  state, load, live, get, has, upsert, remove, uid, onChange, saveSettings, saveMeta, COLLECTIONS, RICETTE, replaceCollection, kvGet, kvSet,
 } from './store.js';
 import { syncNow, isConfigured, isSyncing, testConnection, watchMonth, ricetteConfigured, runWorkflow, fetchRicettePhoto } from './sync.js';
 import {
@@ -2596,6 +2596,7 @@ function viewSettings() {
     <div class="button-row">
       <button class="btn small" type="button" data-action="sync-now">${esc(t('syncNow'))}</button>
       <button class="btn small ghost" type="button" data-action="gh-edit">${esc(t('changeConn'))}</button>
+      <button class="btn small ghost" type="button" data-action="wipe-local">${esc(t('wipeLocal'))}</button>
     </div>
   </div>` : `
   <p class="hint">${esc(t('syncHint'))}</p>
@@ -3869,6 +3870,7 @@ view.addEventListener('click', (e) => {
     case 'side-filters': ui.sideFilters = !ui.sideFilters; render(); break;
     case 'filter': saveSettings({ taskFilter: { ...taskFilter(), [id]: !taskFilter()[id] } }); render(); break;
     case 'filter-cat': saveSettings({ taskFilter: { ...taskFilter(), cat: taskFilter().cat === id ? '' : id } }); render(); break;
+    case 'wipe-local': if (confirm(t('wipeLocalConfirm'))) { wipeLocalData().then(() => { toast(t('wipedLocal')); changed(); }); } break;
     case 'filter-clear': saveSettings({ taskFilter: { fix: false, recurring: false, place: false, cat: '' } }); render(); break;
     case 'compact': saveSettings({ compact: !state.settings.compact }); render(); break;
     case 'side-planned': e.preventDefault(); ui.sidePlanned = !ui.sidePlanned; render(); break;
@@ -4360,11 +4362,28 @@ setupTrayDrag({
   },
 });
 
-async function saveGithub(form) {
-  await saveSettings({
-    owner: form.owner.value.trim(), repo: form.repo.value.trim(),
-    token: form.token.value.trim() || state.settings.token, branch: form.branch.value.trim() || 'main',
-  });
+// Everything this device holds, gone (the repos are untouched): for handing a device to someone
+// else, or a fresh start. Settings stay.
+async function wipeLocalData() {
+  for (const c of [...COLLECTIONS, ...Object.keys(RICETTE)]) await replaceCollection(c, []);
+  await saveMeta({ dirty: false, dirtyShards: {}, syncedShards: {}, lastSync: null, lastError: null, ricetteSynced: null });
+  ui.assign = null;
+}
+async function saveGithub(form, { fresh = null } = {}) {
+  const prev = state.settings;
+  const next = { owner: form.owner.value.trim(), repo: form.repo.value.trim(), token: form.token.value.trim() || state.settings.token, branch: form.branch.value.trim() || 'main' };
+  const switching = prev.owner && prev.repo && (prev.owner !== next.owner || prev.repo !== next.repo) && live('tasks').concat(live('blocks')).length > 0;
+  if (switching && fresh === null) {
+    // Another repo: the data on this device would otherwise be merged into it (and its calendar
+    // and tasks would keep showing until the first successful sync).
+    askScope({
+      title: t('switchRepoTitle'), thisLabel: t('switchRepoFresh'), followingLabel: t('switchRepoKeep'),
+      onThis: () => saveGithub(form, { fresh: true }), onFollowing: () => saveGithub(form, { fresh: false }),
+    });
+    return;
+  }
+  if (fresh) await wipeLocalData();
+  await saveSettings(next);
   const res = await testConnection();
   ui.connMsg = res.ok ? 'connected' : `err_${res.error}`;
   await saveMeta({ ghOk: Boolean(res.ok) });
