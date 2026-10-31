@@ -935,3 +935,11 @@ body.compact .tray-grp, body.compact .to-plan .sub { padding: 3px 2px 2px; margi
 body.compact .list.tasks .task-main { min-width: 0; overflow: hidden; }
 
 .button-row.subtle .version { margin-left: auto; color: var(--muted); font-size: .8rem; align-self: center; }
+/* Settings: folding sections */
+details.set-sec { border-top: 1px solid var(--line); }
+details.set-sec > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+details.set-sec > summary::-webkit-details-marker { display: none; }
+details.set-sec > summary::after { content: '›'; margin-left: auto; color: var(--muted); font-size: 1.4rem; transition: transform .15s; }
+details.set-sec[open] > summary::after { transform: rotate(90deg); }
+details.set-sec > summary h2 { margin: 10px 0; }
+details.set-sec > .set-body { padding-bottom: 8px; }

@@ -24,9 +24,12 @@ import { setupTrayDrag } from './tray.js';
 import { assignItems, planTrips, openOn, shopsFor } from './shops.js';
 
 // Shown under Settings; keep in step with VERSION in sw.js (a unit test checks).
-export const APP_VERSION = 'v26';
+export const APP_VERSION = 'v27';
 
 const $ = (sel, root = document) => root.querySelector(sel);
+// Hints that were emptied in i18n (the guide explains instead) render nothing.
+const hint = (key, ...a) => { const v = t(key, ...a); return v ? `<p class="hint">${esc(v)}</p>` : ''; };
+const small = (key, ...a) => { const v = t(key, ...a); return v ? `<small>${esc(v)}</small>` : ''; };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const view = $('#view');
@@ -141,7 +144,7 @@ function alreadyPlanned() {
 function plannedList(list, action, open) {
   if (!list.length) return '';
   return `<details class="tray-planned"${open ? ' open' : ''}><summary data-action="${action}">📅 ${esc(t('grp_planned'))} <small>${list.length}</small></summary>
-    <p class="hint">${esc(t('plannedNote'))}</p>
+    ${hint('plannedNote')}
     ${sortTasks(list, today()).map((x) => { const b = nextPlanned(x.id); return `<a class="tp-planned" href="#/plan/${esc(b.date)}" style="--c:${esc(catColor(x.category) || 'var(--accent)')}"><span class="tp-dot"></span><span>${esc(x.title)}</span><small>${esc(plannedWhen(x))}</small></a>`; }).join('')}
   </details>`;
 }
@@ -165,10 +168,36 @@ function checklistOf(block) { return (block?.taskId && get('tasks', block.taskId
 // "Come back" after it (off unless switched on). They are real steps with fixed ids, so they show
 // on the plan, can be ticked and count in the task's length; the editor keeps them out of the
 // editable list. A task without steps of its own gets a hidden "main" step for its own length.
-const TRV = { there: 'trv_there', back: 'trv_back', main: 'trv_main' };
-const isTravelStep = (y) => Boolean(y?.travel) || Boolean(y?.main);
+const TRV = { there: 'trv_there', back: 'trv_back', main: 'trv_main', buffer: 'trv_buf' };
+const isTravelStep = (y) => Boolean(y?.travel) || Boolean(y?.main) || Boolean(y?.buffer);
 const realSteps = (task) => (task?.steps || []).filter((y) => y.title && !isTravelStep(y));
-const travelStep = (task, kind) => (task?.steps || []).find((y) => y.travel === kind) || null;
+// The leg's step that carries the looked-up time (a leg built from a saved task with steps has more).
+const travelStep = (task, kind) => (task?.steps || []).find((y) => y.travel === kind && y.lookup !== false) || null;
+const legMinutes = (task, kind) => (task?.steps || []).filter((y) => y.travel === kind).reduce((n, y) => n + (Number(y.minutes) || 0), 0);
+// "Get there" and "Come back" are saved tasks (`travelRole`): rename them, give them steps. The step
+// marked ⚓ (else the first) gets the travel time; the other steps keep their own length.
+const LEGS = ['there', 'back'];
+function legTemplate(kind) { return live('tasks').filter((x) => x.travelRole === kind).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))[0] || null; }
+function ensureLegTasks() {
+  let made = false;
+  if (isConfigured() && !state.meta.lastSync) return false; // wait for the first sync: another device may have them
+  for (const kind of LEGS) {
+    // Two devices made one each before syncing: drop the newer one if it's still untouched.
+    const dups = live('tasks').filter((x) => x.travelRole === kind).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)).slice(1);
+    for (const d of dups) if (!realSteps(d).length && d.title === t(kind === 'there' ? 'getThere' : 'comeBack')) { remove('tasks', d.id); made = true; }
+    if (legTemplate(kind)) continue;
+    upsert('tasks', { id: uid(), title: t(kind === 'there' ? 'getThere' : 'comeBack'), routine: true, travelRole: kind, minutes: 30, steps: [], checklist: [], notes: '', category: '', createdAt: Date.now() }, { silent: true });
+    made = true;
+  }
+  return made;
+}
+function setLegTask(kind, id) {
+  for (const x of live('tasks').filter((y) => y.travelRole === kind && y.id !== id)) upsert('tasks', { ...x, travelRole: null }, { silent: true });
+  const x = get('tasks', id);
+  if (x && x.travelRole !== kind) upsert('tasks', { ...x, travelRole: kind, routine: true }, { silent: true });
+}
+// Margin after a task: its own, or the default from Settings → Planner.
+function bufferOf(task) { const b = task?.buffer; return b == null || b === '' ? Number(state.settings.taskBuffer) || 0 : Number(b) || 0; }
 // The task's own length, without travel.
 function ownMinutes(task) {
   const rs = realSteps(task);
@@ -176,8 +205,9 @@ function ownMinutes(task) {
   const m = (task?.steps || []).find((y) => y.main);
   return Number(m?.minutes) || Number(task?.minutes) || 30;
 }
-function travelCfg() { const s = state.settings.travel || {}; return { home: '', mode: 'transit', back: false, buffer: 5, googleKey: '', startHere: false, thereDefault: 'place', ...s }; }
-function travelOf(task) { return { there: travelCfg().thereDefault !== 'off', back: travelCfg().back, mode: 'default', ...(task?.travel || {}) }; }
+function travelCfg() { const s = state.settings.travel || {}; return { home: '', mode: 'transit', buffer: 5, googleKey: '', startHere: false, thereDefault: 'place', backDefault: s.back ? 'place' : 'off', ...s }; }
+function travelOf(task) { const c = travelCfg(); return { there: c.thereDefault !== 'off', back: c.backDefault !== 'off', mode: 'default', ...(task?.travel || {}) }; }
+const travelAffected = (x) => x.place || x.steps?.some((y) => y.travel || y.buffer) || travelCfg().thereDefault === 'always' || travelCfg().backDefault === 'always' || bufferOf(x) > 0;
 const travelMode = (task) => { const m = travelOf(task).mode; return TRAVEL_MODES.includes(m) ? m : travelCfg().mode; };
 const travelCache = () => state.settings.travelCache || {};
 function hereNow(date = today()) {
@@ -209,28 +239,47 @@ function withTravel(task, { origin = null, block = null } = {}) {
   const own = ownMinutes(task);
   const mode = travelMode(task);
   const core = rs.length ? rs : [{ id: TRV.main, title: task.title, minutes: own, main: true }];
-  if (!task.place && tv.there && c.thereDefault === 'always' && !task.routine) {
-    // "Get there" on every task: without a place it's a reminder to account for the trip.
-    const steps = [{ id: TRV.there, title: t('getThere'), travel: 'there', mode, from: '', to: '', minutes: UNKNOWN_MINUTES, known: false, pending: false, noPlace: true }, ...core];
-    return { ...task, steps, minutes: steps.reduce((n, y) => n + (Number(y.minutes) || 0), 0) };
+  const total = (steps) => steps.reduce((n, y) => n + (Number(y.minutes) || 0), 0);
+  if (task.helper || task.travelRole) return { ...task, steps: rs, minutes: own };
+  const buf = bufferOf(task);
+  const bufSteps = buf > 0 ? [{ id: TRV.buffer, title: t('bufferStep'), buffer: true, minutes: buf }] : [];
+  // A leg: the saved task's title and steps, with the looked-up time on its ⚓ step (else its only step).
+  const legOf = (kind, look) => {
+    const tpl = legTemplate(kind);
+    const name = tpl?.title || t(kind === 'there' ? 'getThere' : 'comeBack');
+    const subs = realSteps(tpl);
+    if (!subs.length) return [{ ...look, title: name }];
+    const ai = Math.min(anchorIndex(subs, tpl.anchorStepId), subs.length - 1);
+    return subs.map((y, i) => (i === ai ? { ...look, title: y.title || name }
+      : { id: `${TRV[kind]}_${y.id}`, title: y.title, travel: kind, lookup: false, mode, from: '', to: '', minutes: Number(y.minutes) || 10, known: true, pending: false }));
+  };
+  const placeholder = (kind) => ({ id: TRV[kind], travel: kind, mode, from: '', to: '', minutes: UNKNOWN_MINUTES, known: false, pending: false, noPlace: true });
+  if (!task.place) {
+    // "Always": without a place the leg is a "?" reminder to account for the trip.
+    const there = tv.there && c.thereDefault === 'always' && !task.routine ? legOf('there', placeholder('there')) : [];
+    const back = tv.back && c.backDefault === 'always' && !task.routine ? legOf('back', placeholder('back')) : [];
+    if (!there.length && !back.length && !bufSteps.length) return { ...task, steps: rs, minutes: own };
+    const steps = [...there, ...core, ...back, ...bufSteps];
+    return { ...task, steps, minutes: total(steps) };
   }
-  if (!task.place || (!tv.there && !tv.back)) {
-    const steps = rs.length ? rs : [];
-    return { ...task, steps, minutes: own };
+  if (!tv.there && !tv.back) {
+    const steps = bufSteps.length ? [...core, ...bufSteps] : rs;
+    return { ...task, steps, minutes: bufSteps.length ? total(steps) : own };
   }
   const from = origin ?? originFor(task, block);
   const mk = (kind, a, b, old) => {
     const to = kind === 'there' ? task.place : travelDest(task);
     const m = cachedMinutes(travelCache(), mode, a, b);
     const known = m != null && m !== undefined;
-    return { id: TRV[kind], title: t(kind === 'there' ? 'getThere' : 'comeBack'), travel: kind, mode, from: a, to,
-      minutes: known ? m + (m ? Number(c.buffer) || 0 : 0) : (old?.known ? old.minutes : UNKNOWN_MINUTES), known, pending: m === undefined };
+    return legOf(kind, { id: TRV[kind], travel: kind, mode, from: a, to,
+      minutes: known ? m + (m ? Number(c.buffer) || 0 : 0) : (old?.known ? old.minutes : UNKNOWN_MINUTES), known, pending: m === undefined });
   };
   const steps = [];
-  if (tv.there) steps.push(mk('there', from, task.place, travelStep(task, 'there')));
+  if (tv.there) steps.push(...mk('there', from, task.place, travelStep(task, 'there')));
   steps.push(...core);
-  if (tv.back) steps.push(mk('back', task.place, travelDest(task), travelStep(task, 'back')));
-  return { ...task, steps, minutes: steps.reduce((n, y) => n + (Number(y.minutes) || 0), 0) };
+  if (tv.back) steps.push(...mk('back', task.place, travelDest(task), travelStep(task, 'back')));
+  steps.push(...bufSteps);
+  return { ...task, steps, minutes: total(steps) };
 }
 // Apply the travel steps to a saved task and move its blocks so the task itself stays at its time
 // (travel grows or shrinks in front of it). Returns the stored task.
@@ -240,8 +289,8 @@ function applyTravel(task, opts = {}) {
   const prev = opts.prev || task; // what the blocks were sized for
   const same = JSON.stringify(next.steps) === JSON.stringify(task.steps) && next.minutes === task.minutes && prev === task;
   if (same) return task;
-  const oldThere = travelStep(prev, 'there')?.minutes || 0;
-  const newThere = travelStep(next, 'there')?.minutes || 0;
+  const oldThere = legMinutes(prev, 'there');
+  const newThere = legMinutes(next, 'there');
   const saved = upsert('tasks', next, { silent: true });
   for (const b of live('blocks').filter((x) => x.taskId === task.id && !x.stepId && !outcomeOf(x) && x.date >= today() && x.kind !== 'prep')) {
     const delta = (next.minutes || 0) - (prev.minutes || 0);
@@ -276,7 +325,7 @@ async function refreshTravel() {
     if (changed) saveSettings({ travelCache: cache });
     // Apply what's known now (also when origins moved) to every task with a place.
     let any = false;
-    for (const task of openTasks().filter((x) => x.place || x.steps?.some((y) => y.travel) || travelCfg().thereDefault === 'always')) { const before = task.updatedAt; if (applyTravel(task).updatedAt !== before) any = true; }
+    for (const task of openTasks().filter(travelAffected)) { const before = task.updatedAt; if (applyTravel(task).updatedAt !== before) any = true; }
     if (any || changed) { render(); clearTimeout(syncTimer); syncTimer = setTimeout(runSync, 2500); }
   } finally { travelBusy = false; if (travelAgain) { travelAgain = false; scheduleTravelRefresh(); } }
 }
@@ -284,7 +333,7 @@ async function refreshTravel() {
 // ---------- readiness: what the planner still needs to know ----------
 // Each issue is an i18n key; the editor section to open is `secOf`.
 function taskIssues(x) {
-  if (!x || x.done || x.helper || x.routine) return [];
+  if (!x || x.done || x.helper || x.routine || x.travelRole) return [];
   const out = [];
   const rs = realSteps(x);
   if (!x.lenSet && !rs.length && ownMinutes(x) === 30) out.push('iss_len');
@@ -872,7 +921,7 @@ function openImport(draft = null) {
   const items = parseTaskLines(x.text);
   openModal(`
     <h2>⤓ ${esc(t('importTasks'))}</h2>
-    <p class="hint">${esc(t('importHint'))}</p>
+    ${hint('importHint')}
     <label><textarea name="text" rows="7" placeholder="${esc(t('importPh'))}" aria-label="${esc(t('importTasks'))}">${esc(x.text)}</textarea></label>
     <label>${esc(t('due'))}<input type="date" name="due" value="${esc(x.due || '')}"></label>
     <div class="field-label">${esc(t('category'))}</div>${catChips(x.category)}
@@ -991,7 +1040,7 @@ function openSavedPicker(date) {
     <p class="hint">${esc(fmtDay(date))}</p>
     ${groups.length ? groups.map(([cat, list]) => `<div class="sub">${esc(cat ? catName(cat) : t('noCategory'))}</div>
       <ul class="list saved-pick">${list.map((x) => `<li><button class="task-main" value="pick:${esc(x.id)}" formnovalidate><span class="item-text">${x.meal ? '🍽 ' : ''}${esc(x.title)}<small>${esc(savedInfo(x))}</small></span></button></li>`).join('')}</ul>`).join('')
-    : `<p class="hint">${esc(t('noSaved'))}</p>`}
+    : `${hint('noSaved')}`}
     <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('cancel'))}</button></div>`, (form, action, e) => {
     if (!action.startsWith('pick:')) return;
     e.preventDefault();
@@ -1071,7 +1120,7 @@ function checkMealNow(meal) {
   if (!missing.length) { toast(t('allInPantry')); return; }
   setTimeout(() => openModal(`
     <h2>${esc(t('missingTitle', meal.title))}</h2>
-    <p class="hint">${esc(t('missingHint'))}</p>
+    ${hint('missingHint')}
     <ul class="list checklist">${missing.map((m, i) => `<li><label><input type="checkbox" name="m" value="${i}" checked>
       <span class="item-text">${esc(m.name)}<small>${esc(qtyText(m.buy, m.unit))}${m.have ? ` · ${esc(t('inPantry'))}: ${esc(qtyText(Number(m.have.qty) || 0, m.have.unit))}` : ''}</small></span></label></li>`).join('')}</ul>
     <div class="button-row">
@@ -1376,7 +1425,7 @@ function sidePanel(date, v) {
     ${ui.sideFilters || filterActive() ? filterBar() : ''}
     <form id="side-add" class="row tight"><input id="side-add-input" name="title" autocomplete="off" placeholder="${esc(v === 'day' ? t('sideAddPh') : t('sideAddPhAny'))}"><button class="btn small">+</button></form>
     ${list.length ? ['overdue', ...DATE_GROUPS, 'nodate'].filter((k) => g[k].length).map((k) => `<div class="sub">${esc(label(k))} <small>${g[k].length}</small></div><div class="chips">${sortTasks(g[k], td).map(chip).join('')}</div>`).join('')
-      + `<p class="hint">${esc(t(v === 'day' ? 'chipHint' : 'chipHintAny'))}</p>` : `<p class="hint">${esc(t('nothingToPlan'))}</p>`}
+      + `<p class="hint">${esc(t(v === 'day' ? 'chipHint' : 'chipHintAny'))}</p>` : `${hint('nothingToPlan')}`}
     ${plannedList(alreadyPlanned(), 'side-planned', ui.sidePlanned)}
   </aside>`;
 }
@@ -1676,7 +1725,7 @@ function openEvent(e) {
     <h2>${esc(e.title)}</h2>
     <p class="hint"><span class="cat" style="--c:${esc(e.color)}">${esc(e.calendar)}</span> · ${esc(fmtDay(e.date))}${e.allDay ? '' : ` · ${range(e.start, e.minutes)}`}</p>
     ${e.location ? `<p>📍 ${esc(e.location)}</p>` : ''}
-    <p class="hint">${esc(t('eventReadOnly'))}</p>
+    ${hint('eventReadOnly')}
     <div class="button-row">
       ${e.link ? `<a class="btn" href="${esc(e.link)}" target="_blank" rel="noopener">${esc(t('openInGoogle'))}</a>` : ''}
       <button class="btn" value="cancel">${esc(t('close'))}</button>
@@ -2101,7 +2150,7 @@ function openShopRec(shop = null) {
     <label>${esc(t('shopVisit'))}${durField('minutes', x.minutes || 30)}</label>
     <div class="field-label">🕒 ${esc(t('openingHours'))}</div>
     ${windowsEditor('w_', x.hours)}
-    <small class="hint">${esc(t('openingHoursHint'))}</small>
+    ${hint('openingHoursHint')}
     <label>${esc(t('place'))}<input name="place" value="${esc(x.place || '')}" autocomplete="off"></label>
     <label>${esc(t('placeLink'))}<input name="link" type="url" value="${esc(x.link || '')}" autocomplete="off"></label>
     <div class="button-row">
@@ -2201,7 +2250,7 @@ function viewShop() {
       <button class="btn primary" type="button" data-action="shop-putaway">📦 ${esc(ricetteConfigured() && food ? t('putAway') : t('doneShopping'))}</button>
       ${ricetteConfigured() ? `<button class="btn" type="button" data-action="shop-clear">${esc(t('clearChecked'))}</button>` : ''}
     </div>
-    ${ricetteConfigured() ? `<p class="hint">${esc(t('putAwayFood'))}</p>` : ''}` : ''}`;
+    ${ricetteConfigured() ? `${hint('putAwayFood')}` : ''}` : ''}`;
 }
 
 function shopAdd(text) {
@@ -2396,20 +2445,20 @@ function viewTasks() {
     ${q && !nSaved && !tpls.length && !helpers.length ? `<p class="empty">${esc(t('noMatch'))}</p>` : ''}
     <section class="fold-sec first">
       ${foldBtn('saved', t('savedTasks'), nSaved, { open: !isFolded('saved') })}
-      ${isFolded('saved') ? '' : `<p class="hint">${esc(t('savedHint'))}</p>
+      ${isFolded('saved') ? '' : `${hint('savedHint')}
       ${groups.map(([cat, list]) => `<div class="sub">${esc(cat ? catName(cat) : t('noCategory'))}</div>
       <ul class="list saved">${list.map((tp) => `<li><button class="task-main" type="button" data-action="task-edit" data-id="${esc(tp.id)}"><span class="item-text">${tp.meal ? '🍽 ' : ''}${impBadge(tp) ? `${impBadge(tp)} ` : ''}${esc(tp.title)}<small>${esc(savedInfo(tp))}</small></span></button></li>`).join('')}</ul>`).join('')}
       <button class="btn small" type="button" data-action="saved-new">+ ${esc(t('newSaved'))}</button>`}
     </section>
     <section class="fold-sec">
       ${foldBtn('templates', t('templates'), tpls.length, { open: !isFolded('templates') })}
-      ${isFolded('templates') ? '' : `<p class="hint">${esc(t('templatesHint'))}</p>
+      ${isFolded('templates') ? '' : `${hint('templatesHint')}
       <ul class="list">${tpls.map((tp) => `<li><button class="task-main" type="button" data-action="tpl-edit" data-id="${esc(tp.id)}"><span class="item-text">${esc(tp.name)}<small>${esc(t('nBlocks', (tp.blocks || []).length))}${tp.days?.length ? ` · ${esc(t('autoOn', daysLabel(tp.days)))}` : ''}</small></span></button></li>`).join('') || `<li class="pad"><span class="hint">${esc(t('noTemplates'))}</span></li>`}</ul>
       <button class="btn small" type="button" data-action="tpl-new">+ ${esc(t('newTemplate'))}</button>`}
     </section>
     <section class="fold-sec">
       ${foldBtn('preps', t('preparations'), helpers.length, { open: !isFolded('preps') })}
-      ${isFolded('preps') ? '' : `<p class="hint">${esc(t('prepsHint'))}</p>${helpers.length ? `<ul class="list preps">${helpers.map(prepRow).join('')}</ul>` : `<p class="hint">${esc(t('noPreps'))}</p>`}`}
+      ${isFolded('preps') ? '' : `${hint('prepsHint')}${helpers.length ? `<ul class="list preps">${helpers.map(prepRow).join('')}</ul>` : `${hint('noPreps')}`}`}
     </section>`;
   }
   const g = groupTasks(all.filter((x) => isTodo(x) && hit(x)), td);
@@ -2439,10 +2488,10 @@ function viewTasks() {
     <input id="task-input" name="title" autocomplete="off" placeholder="${esc(t('addTaskPh'))}">
     <button class="btn primary">${esc(t('add'))}</button>
   </form>
-  <p class="hint">${esc(t('quickHint'))}</p>
+  ${hint('quickHint')}
   <div class="task-tools">${search}${sortPicker('task-sort', mode)}<button class="btn small${state.settings.compact ? ' on' : ''}" type="button" data-action="compact" aria-pressed="${Boolean(state.settings.compact)}" title="${esc(t('compactHint'))}">≡ ${esc(t('compact'))}</button><button class="btn small" type="button" data-action="import">⤓ ${esc(t('importTasks'))}</button></div>
   ${filterBar()}
-  ${manual && !q ? `<p class="hint">${esc(t('manualHint'))}</p>` : ''}
+  ${manual && !q ? `${hint('manualHint')}` : ''}
   ${open || g.done.length ? '' : `<p class="empty">${esc(q || filterActive() ? t('noMatch') : t('noTasks'))}</p>`}
   ${part('part_toplan', t('partToPlan'), toPlan, dateBuckets(toPlan, (x) => x.due, td), (l) => sortTaskList(l, mode))}
   ${part('part_planned', t('partPlanned'), planned, dateBuckets(planned, (x) => nextPlanned(x.id)?.date, td), byWhen, t('partPlannedHint'))}
@@ -2498,7 +2547,8 @@ function taskRow(x, { drag = false } = {}) {
   if (x.checklist?.length) bits.push(`☑ ${x.checklist.length}`);
   if (realSteps(x).length) bits.push(`▤ ${realSteps(x).length}`);
   if (x.place) bits.push(`📍 ${esc(x.place)}`);
-  for (const y of (x.steps || []).filter((z) => z.travel)) bits.push(`${MODE_ICON[y.mode] || '🚌'} ${y.known ? esc(fmtDur(y.minutes)) : '?'}`);
+  for (const y of (x.steps || []).filter((z) => z.travel && z.lookup !== false)) bits.push(`${MODE_ICON[y.mode] || '🚌'} ${y.known ? esc(fmtDur(y.minutes)) : '?'}`);
+  if (bufferOf(x) > 0 && (x.steps || []).some((z) => z.buffer)) bits.push(`⏳ ${esc(fmtDur(bufferOf(x)))}`);
   if (x.prep?.length) bits.push(`↳ ${esc(prepOf(x).map((p) => p.task.title).join(', '))}`);
   const cat = get('categories', x.category);
   if (cat) bits.push(`<span class="cat" style="--c:${esc(cat.color)}">${esc(catName(cat))}</span>`);
@@ -2516,9 +2566,33 @@ function taskRow(x, { drag = false } = {}) {
 
 // ---------- view: settings ----------
 
+// Saved tasks that can serve as "Get there" / "Come back" (no meals).
+function savedForLegs() { return live('tasks').filter((x) => x.routine && !x.meal && !x.done).sort((a, b) => a.title.localeCompare(b.title)); }
+// Every section after the language picker folds; open states live on the device (`settings.setOpen`).
+const SET_SECS = ['planner', 'tasklist', 'travel', 'shops', 'categories', 'sync', 'ricette', 'gcal'];
+function foldSettings(html) {
+  const open = state.settings.setOpen || {};
+  const parts = html.split(/(?=<h2>)/);
+  const tail = '<div class="button-row subtle">';
+  let out = parts[0]; let i = 0;
+  for (let p of parts.slice(1)) {
+    let after = '';
+    const cut = p.indexOf(tail); if (cut >= 0) { after = p.slice(cut); p = p.slice(0, cut); }
+    const key = SET_SECS[i++] || `s${i}`;
+    const dflt = true;
+    const isOpen = open[key] ?? dflt;
+    const h2End = p.indexOf('</h2>') + 5;
+    out += `<details class="set-sec" data-sec="${key}" ${isOpen ? 'open' : ''}><summary>${p.slice(0, h2End)}</summary><div class="set-body">${p.slice(h2End)}</div></details>${after}`;
+  }
+  return out;
+}
 function viewSettings() {
   const s = state.settings;
   const msg = ui.connMsg;
+  if (ensureLegTasks()) setTimeout(changed, 0);
+  return foldSettings(settingsHtml(s, msg));
+}
+function settingsHtml(s, msg) {
   const hourOpts = (sel, from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i).map((h) => `<option value="${h}" ${h === Number(sel) ? 'selected' : ''}>${fmtTime(h * 60)}</option>`).join('');
   const opts = (vals, sel, label) => vals.map((v) => `<option value="${v}" ${v === Number(sel) ? 'selected' : ''}>${esc(label(v))}</option>`).join('');
   return `
@@ -2539,19 +2613,20 @@ function viewSettings() {
       <label>${esc(t('snap'))}<select name="snap">${opts([5, 10, 15, 30], s.snap, (m) => `${m} min`)}</select></label>
       <label>${esc(t('buffer'))}<select name="buffer">${opts([0, 5, 10, 15], s.buffer ?? 5, (m) => (m ? `${m} min` : t('none')))}</select></label>
     </div>
+    <label>${esc(t('taskBuffer'))}<select name="taskBuffer">${opts([0, 5, 10, 15, 30], s.taskBuffer ?? 0, (m) => (m ? `${m} min` : t('none')))}</select></label>
     <label>${esc(t('defaultView'))}<select name="defaultView">${VIEWS.map((v) => `<option value="${v}" ${v === (s.defaultView || 'day') ? 'selected' : ''}>${esc(t(`v_${v}`))}</option>`).join('')}</select></label>
     <div class="field-label">${esc(t('glanceTitle'))}</div>
     <div class="days glance">${GLANCE.map((k) => `<label class="day-pill"><input type="checkbox" name="glance" value="${k}" ${glance().has(k) ? 'checked' : ''}><span>${esc(t(`gl_${k}`))}</span></label>`).join('')}</div>
-    <p class="hint">${esc(t('glanceHint'))}</p>
+    ${hint('glanceHint')}
     <div class="field-label">✦ ${esc(t('autoHours'))}</div>
     <div class="auto-hours">
       <span>${esc(t('weekdays'))}</span><input name="ahWdF" ${TIME24} value="${fmtTime(autoHoursFor('2026-11-02')[0])}" aria-label="${esc(t('weekdays'))} ${esc(t('from'))}"> – <input name="ahWdT" ${TIME24} value="${fmtTime(autoHoursFor('2026-11-02')[1])}" aria-label="${esc(t('weekdays'))} ${esc(t('to'))}">
       <span>${esc(t('weekend'))}</span><input name="ahWeF" ${TIME24} value="${fmtTime(autoHoursFor('2026-11-07')[0])}" aria-label="${esc(t('weekend'))} ${esc(t('from'))}"> – <input name="ahWeT" ${TIME24} value="${fmtTime(autoHoursFor('2026-11-07')[1])}" aria-label="${esc(t('weekend'))} ${esc(t('to'))}">
     </div>
-    <small class="hint">${esc(t('autoHoursHint'))}</small>
-    <label class="check"><input type="checkbox" name="longUnits" ${s.longUnits ? 'checked' : ''}> <span>${esc(t('longUnits'))}<small>${esc(t('longUnitsHint'))}</small></span></label>
+    ${hint('autoHoursHint')}
+    <label class="check"><input type="checkbox" name="longUnits" ${s.longUnits ? 'checked' : ''}> <span>${esc(t('longUnits'))}${small('longUnitsHint')}</span></label>
     <label>${esc(t('maxLoad'))}<select name="maxLoad">${opts([4, 5, 6, 7, 8, 9, 10, 11, 12, 14], s.maxLoad ?? 8, (h) => `${h} h`)}</select>
-      <small>${esc(t('maxLoadHint'))}</small></label>
+      ${small('maxLoadHint')}</label>
   </form>
 
   <h2>✓ ${esc(t('taskListSettings'))}</h2>
@@ -2559,27 +2634,32 @@ function viewSettings() {
     <div class="field-label">${esc(t('taskGroupsLabel'))}</div>
     <div class="days glance">${['today', 'tomorrow', 'soon'].map((k) => `<label class="day-pill"><input type="checkbox" name="tg" value="${k}" ${taskGroupsCfg()[k] ? 'checked' : ''}><span>${esc(k === 'soon' ? t('grp_soon') : t(`grp_${k}`))}</span></label>`).join('')}</div>
     <label>${esc(t('soonDays'))}<select name="soonDays">${[3, 5, 7, 14, 30].map((n) => `<option value="${n}" ${n === Number(taskGroupsCfg().soonDays) ? 'selected' : ''}>${esc(t('nDays', n))}</option>`).join('')}</select></label>
-    <p class="hint">${esc(t('taskGroupsHint'))}</p>
+    ${hint('taskGroupsHint')}
   </form>
 
   <h2>🚌 ${esc(t('travelSettings'))}</h2>
-  <p class="hint">${esc(t('travelSettingsHint'))}</p>
+  ${hint('travelSettingsHint')}
   <form class="form" id="travel-form">
     <label>${esc(t('homeAddress'))}<input name="home" value="${esc(travelCfg().home)}" placeholder="${esc(t('homePh'))}" autocomplete="street-address"></label>
     <div class="two">
       <label>${esc(t('travelModeDefault'))}<select name="mode">${TRAVEL_MODES.map((m) => `<option value="${m}" ${m === travelCfg().mode ? 'selected' : ''}>${MODE_ICON[m]} ${esc(t(`tm_${m}`))}</option>`).join('')}</select></label>
       <label>${esc(t('travelBuffer'))}<select name="buffer">${[0, 5, 10, 15].map((m) => `<option value="${m}" ${m === Number(travelCfg().buffer) ? 'selected' : ''}>${m ? `${m} min` : esc(t('none'))}</option>`).join('')}</select></label>
     </div>
-    <label>${esc(t('thereDefault'))}<select name="thereDefault">${['place', 'always', 'off'].map((k) => `<option value="${k}" ${k === travelCfg().thereDefault ? 'selected' : ''}>${esc(t(`there_${k}`))}</option>`).join('')}</select><small>${esc(t('thereDefaultHint'))}</small></label>
-    <label class="check"><input type="checkbox" name="back" ${travelCfg().back ? 'checked' : ''}> <span>${esc(t('backDefault'))}<small>${esc(t('backDefaultHint'))}</small></span></label>
+    <label>${esc(t('thereDefault'))}<select name="thereDefault">${['place', 'always', 'off'].map((k) => `<option value="${k}" ${k === travelCfg().thereDefault ? 'selected' : ''}>${esc(t(`there_${k}`))}</option>`).join('')}</select>${small('thereDefaultHint')}</label>
+    <label>${esc(t('backDefault'))}<select name="backDefault">${['place', 'always', 'off'].map((k) => `<option value="${k}" ${k === travelCfg().backDefault ? 'selected' : ''}>${esc(t(`back_${k}`))}</option>`).join('')}</select></label>
+    <div class="field-label">${esc(t('legTasks'))}</div>
+    <div class="two">
+      ${LEGS.map((kind) => `<label>${esc(t(kind === 'there' ? 'getThere' : 'comeBack'))}<select name="leg_${kind}">${savedForLegs().map((x) => `<option value="${esc(x.id)}" ${x.travelRole === kind ? 'selected' : ''}>${esc(x.title)}</option>`).join('')}</select></label>`).join('')}
+    </div>
+    <div class="button-row">${LEGS.map((kind) => `<button class="btn small ghost" type="button" data-action="leg-edit" data-kind="${kind}">✎ ${esc(legTemplate(kind)?.title || t(kind === 'there' ? 'getThere' : 'comeBack'))}</button>`).join('')}</div>
     <label class="check"><input type="checkbox" name="startHere" ${travelCfg().startHere ? 'checked' : ''}> <span>${esc(t('startHere'))}<small>${esc(state.settings.here ? t('hereSetAt', new Date(state.settings.here.at).toLocaleString(getLang())) : t('startHereHint'))}</small></span></label>
     <div class="button-row"><button class="btn small" type="button" data-action="use-location">📍 ${esc(t('useLocation'))}</button><button class="btn small ghost" type="button" data-action="travel-refresh">↻ ${esc(t('travelRefresh'))}</button></div>
-    <label>${esc(t('googleKey'))}<input name="googleKey" value="${esc(travelCfg().googleKey)}" placeholder="AIza…" autocomplete="off"><small>${esc(t('googleKeyHint'))}</small></label>
+    <label>${esc(t('googleKey'))}<input name="googleKey" value="${esc(travelCfg().googleKey)}" placeholder="AIza…" autocomplete="off">${small('googleKeyHint')}</label>
     <p class="hint">${esc(travelCfg().googleKey ? t('travelViaGoogle') : t('travelViaFree'))}</p>
   </form>
 
   <h2>🏪 ${esc(t('shopsTitle'))}</h2>
-  <p class="hint">${esc(t('shopsHint'))}</p>
+  ${hint('shopsHint')}
   ${shopsList().length ? `<ul class="list">${shopsList().map((sh) => `<li><button class="task-main" type="button" data-action="shop-rec" data-id="${esc(sh.id)}"><span class="item-text">${esc(sh.name)}<small>${esc([fmtDur(sh.minutes || 30), sh.hours?.length ? windowsText(sh.hours) : t('alwaysOpen'), sh.place || ''].filter(Boolean).join(' · '))}</small></span></button></li>`).join('')}</ul>` : ''}
   <button class="btn small" type="button" data-action="shop-new">+ ${esc(t('newShop'))}</button>
   <label class="form trip-mode">${esc(t('tripModeLabel'))}<select id="trip-mode">${['perShop', 'oneTrip'].map((m) => `<option value="${m}" ${m === tripMode() ? 'selected' : ''}>${esc(t(`trip_${m}`))}</option>`).join('')}</select></label>
@@ -2602,7 +2682,7 @@ function viewSettings() {
       <button class="btn small ghost" type="button" data-action="wipe-local">${esc(t('wipeLocal'))}</button>
     </div>
   </div>` : `
-  <p class="hint">${esc(t('syncHint'))}</p>
+  ${hint('syncHint')}
   <form class="form" id="gh-form">
     <div class="two">
       <label>${esc(t('owner'))}<input name="owner" value="${esc(s.owner)}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
@@ -2625,7 +2705,7 @@ function viewSettings() {
     ${ui.ricMsg && ui.ricMsg !== 'connected' ? `<p class="conn bad">${esc(t(ui.ricMsg))}</p>` : ''}
     <div class="button-row"><button class="btn small ghost" type="button" data-action="ric-off">${esc(t('disconnect'))}</button></div>
   </div>` : `
-  <p class="hint">${esc(t('ricetteHint'))}</p>
+  ${hint('ricetteHint')}
   <form class="form" id="ric-form">
     <label>${esc(t('ricetteRepo'))}<input name="ricetteRepo" value="${esc(s.ricetteRepo || 'ricette-data')}" autocomplete="off" autocapitalize="off" spellcheck="false" ${isConfigured() ? '' : 'disabled'}>
       <small>${esc(isConfigured() ? t('ricetteRepoHint') : t('ricetteNeedsSync'))}</small></label>
@@ -2651,9 +2731,9 @@ function remindLabel(m) { return m < 0 ? t('remindNone') : m === 0 ? t('remindAt
 function gcalSection() {
   const st = get('gcal', 'status');
   if (!st) {
-    return `<p class="hint">${esc(t('gcalIntro'))}</p>
+    return `${hint('gcalIntro')}
       <ol class="steps">${[1, 2, 3, 4].map((i) => `<li>${esc(t(`gcalStep${i}`))}</li>`).join('')}</ol>
-      <p class="hint">${esc(t('gcalGuide'))}</p>
+      ${hint('gcalGuide')}
       ${ghConnected() ? `<div class="button-row"><button class="btn small" type="button" data-action="sync-now">${esc(t('gcalCheck'))}</button></div>` : ''}`;
   }
   return `<div class="conn-card">
@@ -2663,10 +2743,10 @@ function gcalSection() {
     ${ui.gcalMsg ? `<p class="hint">${esc(t(ui.gcalMsg))}</p>` : ''}
     <label class="check"><input type="checkbox" id="show-events" ${state.settings.showEvents === false ? '' : 'checked'}> ${esc(t('showEvents'))}</label>
     <label>🔔 ${esc(t('remindDefault'))}<select id="remind-default">${REMINDS.map((m) => `<option value="${m}" ${m === remindDefault() ? 'selected' : ''}>${esc(remindLabel(m))}</option>`).join('')}</select>
-      <small>${esc(t('remindHint'))}</small></label>
+      ${small('remindHint')}</label>
     <div class="button-row"><button class="btn small" type="button" data-action="gcal-now">${esc(t('gcalNow'))}</button>
       <button class="btn small ghost" type="button" data-action="gcal-remove">${esc(t('gcalRemove'))}</button></div>
-    <p class="hint">${esc(t('gcalRemoveHint'))}</p>
+    ${hint('gcalRemoveHint')}
   </div>`;
 }
 
@@ -3035,10 +3115,11 @@ function openTask(task, draft = null, opts = {}) {
     <div class="two">
       ${x.steps.length ? `<label>${esc(t('duration'))}<span class="static">${esc(fromRecipes ? t('durationRecipes', fmtDur(stepTotal)) : t('durationFromSteps', fmtDur(stepTotal)))}</span></label>`
     : `<label>${esc(t('duration'))}${durField('minutes', x.minutes || 30)}</label>`}
+      ${helper || x.travelRole ? '' : `<label>${esc(t('bufferAfter'))}<select name="buffer"><option value="" ${x.buffer == null || x.buffer === '' ? 'selected' : ''}>${esc(t('bufferDefault', Number(state.settings.taskBuffer) || 0))}</option>${[0, 5, 10, 15, 30, 60].map((m) => `<option value="${m}" ${x.buffer != null && x.buffer !== '' && Number(x.buffer) === m ? 'selected' : ''}>${m ? esc(fmtDur(m)) : esc(t('none'))}</option>`).join('')}</select></label>`}
       ${helper ? '' : `<label>${esc(t('importance'))}<select name="importance">${IMPORTANCE.map((n) => `<option value="${n}" ${n === x.importance ? 'selected' : ''}>${'★'.repeat(n)}${'☆'.repeat(5 - n)} ${esc(t(`imp_${n}`))}</option>`).join('')}</select></label>`}
     </div>
     ${helper ? '' : `<div class="field-label">${esc(t('category'))}</div>${catChips(x.category)}`}
-    ${helper || x.meal ? '' : `<label class="check"><input type="checkbox" name="routine" ${routine ? 'checked' : ''}> <span>★ ${esc(t('keepSaved'))}<small>${esc(t('keepSavedHint'))}</small></span></label>`}
+    ${helper || x.meal ? '' : `<label class="check"><input type="checkbox" name="routine" ${routine ? 'checked' : ''}> <span>★ ${esc(t('keepSaved'))}${small('keepSavedHint')}</span></label>`}
     ${routine ? `<label class="check"><input type="checkbox" name="meal" data-rerender="1" ${x.meal ? 'checked' : ''}> <span>${esc(t('isMeal'))}</span></label>` : ''}`;
   const whenBody = !helper ? `
     <div class="two">
@@ -3052,7 +3133,7 @@ function openTask(task, draft = null, opts = {}) {
     </div>
     ${x.repeat === 'times' ? `<div class="times-row"><input name="timesN" type="number" min="1" max="99" step="1" value="${esc(x.timesN || 3)}" aria-label="${esc(t('timesN'))}"><span>${esc(t('timesPer'))}</span>
       <select name="timesPer">${['day', 'week', 'month', 'year'].map((u) => `<option value="${u}" ${u === (x.timesPer || 'week') ? 'selected' : ''}>${esc(t(`per_${u}`))}</option>`).join('')}</select></div>
-      <small class="hint">${esc(t('timesHint'))}</small>` : ''}
+      ${hint('timesHint')}` : ''}
     ${REPEATS.includes(x.repeat) ? `<div class="recur-box">
       ${x.repeat !== 'weekdays' ? `<div class="times-row"><span>${esc(t('every'))}</span><input name="every" type="number" min="1" max="52" step="1" value="${esc(x.every || 1)}" aria-label="${esc(t('every'))}"><span>${esc(t(`unit_${x.repeat}`, Number(x.every) || 1))}</span></div>` : ''}
       ${x.repeat === 'weekly' ? `<div class="days mini">${[1, 2, 3, 4, 5, 6, 7].map((d) => `<label class="day-pill"><input type="checkbox" name="repeatDays" value="${d}" ${((x.repeatDays || []).length ? x.repeatDays : [plannedIso(x)]).includes(d) ? 'checked' : ''}><span>${esc(dayShort(d))}</span></label>`).join('')}</div>` : ''}
@@ -3066,7 +3147,7 @@ function openTask(task, draft = null, opts = {}) {
       <label>${esc(t('bestTime'))}<select name="when">${['', 'morning', 'afternoon', 'evening'].map((w) => `<option value="${w}" ${w === (x.when || '') ? 'selected' : ''}>${esc(t(`when_${w || 'any'}`))}</option>`).join('')}</select></label>
       ${routine ? `<label>${esc(x.steps.length > 1 && ai > 0 && anchor ? t('anchorAt', anchor.title || '…') : t('usualTimeOpt'))}<input name="defaultStart" ${TIME24} value="${x.defaultStart != null ? fmtTime(x.defaultStart) : ''}"></label>` : ''}
     </div>
-    ${routine ? `<small class="hint">${esc(t('usualTimeHint'))}</small>` : ''}
+    ${routine ? `${hint('usualTimeHint')}` : ''}
     ${remindField(x)}` : '';
   // Tasks it needs done first (not itself, not meals, not ones that already need it: no loops).
   const needCandidates = live('tasks').filter((y) => y.id !== x.id && !y.meal && !y.check && !y.done && !(y.after || []).includes(x.id) && !(x.after || []).includes(y.id))
@@ -3075,17 +3156,17 @@ function openTask(task, draft = null, opts = {}) {
     <div class="field-label">🔒 ${esc(t('needsFirst'))}</div>
     ${(x.after || []).length ? `<div class="needs">${(x.after || []).map((id, k) => { const y = get('tasks', id); return `<span class="need-chip${y?.done ? ' done' : ''}">${y?.done ? '✓ ' : ''}${esc(y?.title || '?')}<button class="icon" value="rm-after:${k}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></span>`; }).join('')}</div>` : ''}
     <select name="addAfter" data-rerender="1"><option value="">+ ${esc(t('addNeed'))}</option>${needCandidates.map((y) => `<option value="${esc(y.id)}">${y.helper ? '↳ ' : ''}${esc(y.title)}</option>`).join('')}</select>
-    <small class="hint">${esc(t('needsHint'))}</small>
+    ${hint('needsHint')}
     <div class="field-label">🕒 ${esc(t('windowsTitle'))}</div>
     ${windowsEditor('w_', x.windows || [])}
-    <small class="hint">${esc(t('windowsHint'))}</small>`;
+    ${hint('windowsHint')}`;
   const whenSummary = !helper ? [x.planDate ? `${relDay(x.planDate)}${x.planTime != null ? ` ${fmtTime(x.planTime)}` : ''}` : '', x.due ? t('dueOn', relDay(x.due)) : '', x.repeat ? `↻ ${x.repeat === 'times' ? t('timesShort', x.timesN || 3, t(`per_${x.timesPer || 'week'}`)) : repeatText(x)}` : '', routine && x.defaultStart != null ? t('usually', fmtTime(x.defaultStart)) : ''].filter(Boolean).join(' · ') : '';
   const stepsBody = `
-    <p class="hint">${esc(t(x.meal ? 'stepsHintMeal' : 'stepsHint'))}</p>
+    ${hint(x.meal ? 'stepsHintMeal' : 'stepsHint')}
     ${stepCards ? `<ol class="steps-edit">${stepCards}</ol>` : ''}
-    ${x.steps.length > 1 ? `<p class="hint anchor-hint">⚓ ${esc(ai > 0 && anchor ? t('anchorHintGen', anchor.title || '…', x.steps.slice(0, ai).map((y) => y.title).filter(Boolean).join(', ')) : t('anchorHintFirst'))}</p>` : ''}
+    ${x.steps.length > 1 && ai > 0 && anchor ? `<p class="hint anchor-hint">⚓ ${esc(t('anchorHintGen', anchor.title || '…', x.steps.slice(0, ai).map((y) => y.title).filter(Boolean).join(', ')))}</p>` : ''}
     <button class="btn small" value="add-step" formnovalidate>+ ${esc(t('addStep'))}</button>
-    ${x.steps.length > 1 && !x.meal && !helper ? `<label class="check"><input type="checkbox" name="splitSteps" ${x.splitSteps ? 'checked' : ''}> <span>${esc(t('splitSteps'))}<small>${esc(t('splitStepsHint'))}</small></span></label>` : ''}`;
+    ${x.steps.length > 1 && !x.meal && !helper ? `<label class="check"><input type="checkbox" name="splitSteps" ${x.splitSteps ? 'checked' : ''}> <span>${esc(t('splitSteps'))}${small('splitStepsHint')}</span></label>` : ''}`;
   const rulesBody = `
     <p class="hint">${esc(t(helper ? 'rulesHint' : 'rulesHintPrep'))}</p>
     ${taskRules.map(([r, i]) => ruleCard(r, i)).join('')}
@@ -3093,8 +3174,8 @@ function openTask(task, draft = null, opts = {}) {
   const placeBody = `
     <label>${esc(t('place'))}<input name="place" value="${esc(x.place || '')}" placeholder="${esc(t('placePh'))}" autocomplete="off"></label>
     <label>${esc(t('placeLink'))}<input name="link" type="url" inputmode="url" value="${esc(x.link || '')}" placeholder="https://maps.app.goo.gl/…" autocomplete="off"></label>
-    ${x.place || x.link ? `<p class="hint">${placeLink(x)}</p>` : `<p class="hint">${esc(t('placeHint'))}</p>`}
-    ${!helper ? `<div class="field-label">${esc(t('travelTitle'))}</div>
+    ${x.place || x.link ? `<p class="hint">${placeLink(x)}</p>` : `${hint('placeHint')}`}
+    ${!helper && !x.travelRole ? `<div class="field-label">${esc(t('travelTitle'))}</div>
     <div class="travel-opts">
       <label class="check"><input type="checkbox" name="tvThere" ${x.travel.there ? 'checked' : ''}> <span>${esc(t('getThere'))}</span></label>
       <label class="check"><input type="checkbox" name="tvBack" ${x.travel.back ? 'checked' : ''}> <span>${esc(t('comeBack'))}</span></label>
@@ -3102,17 +3183,18 @@ function openTask(task, draft = null, opts = {}) {
     </div>
     ${(src.steps || []).filter((y) => y.travel).map((y) => `<p class="hint">${MODE_ICON[y.mode] || ''} ${esc(y.title)}: ${y.known ? esc(fmtDur(y.minutes)) : '?'} · ${esc(t('fromPlace', y.from || t('home')))}${y.known ? '' : ` · ${esc(t('travelPending'))}`}</p>`).join('')}
     ${!travelCfg().home && !hereNow() ? `<p class="hint warn-text">⚠ ${esc(t('homeUnset'))} <a href="#/settings">${esc(t('tabSettings'))}</a></p>` : ''}
-    <small class="hint">${esc(t('travelHint'))}</small>` : ''}`;
+    ${hint('travelHint')}` : ''}`;
   openModal(`
     <h2>${esc(heading)}</h2>
-    ${x.check === 'ingredients' ? `<p class="hint">${esc(t('checkStepHint'))}</p>` : ''}
+    ${x.check === 'ingredients' ? `${hint('checkStepHint')}` : ''}
+    ${x.travelRole ? `<p class="hint">${esc(t('legTaskHint', t(x.travelRole === 'there' ? 'getThere' : 'comeBack')))}</p>` : ''}
     <label>${esc(t('title'))}<input name="title" required value="${esc(x.title)}" autocomplete="off"></label>
     ${sec('basics', esc(t('secBasics')), [fmtDur(x.steps.length ? stepTotal : x.minutes || 30), helper ? '' : t(`imp_${x.importance}`), catName0].filter(Boolean).join(' · '), basics, true)}
     ${whenBody ? sec('when', `🕒 ${esc(t('secWhen'))}`, [whenSummary, (x.after || []).length ? `🔒 ${(x.after || []).length}` : '', cleanWindows(x.windows).length ? windowsText(cleanWindows(x.windows)) : ''].filter(Boolean).join(' · '), whenBody + needsBody, true) : ''}
     ${helper ? '' : sec('place', `📍 ${esc(t('secPlace'))}`, x.place || (x.link ? t('link') : ''), placeBody, Boolean(x.place || x.link))}
     ${sec('steps', `▤ ${esc(t('steps'))}`, x.steps.length ? `${x.steps.length} · ${fmtDur(stepTotal)}` : '', stepsBody, true)}
     ${x.check ? '' : sec('checklist', `☑ ${esc(t('checklist'))}`, x.checklist.length ? String(x.checklist.length) : '', `<label><textarea name="checklist" rows="3" placeholder="${esc(t('checklistPh'))}" aria-label="${esc(t('checklist'))}">${esc((x.checklist || []).join('\n'))}</textarea>
-      <small>${esc(t('checklistHint'))}</small></label>`, x.checklist.length > 0)}
+      ${small('checklistHint')}</label>`, x.checklist.length > 0)}
     ${sec('rules', `⚙ ${esc(t(x.steps.length ? 'rulesWhole' : 'rules'))}`, taskRules.length ? String(taskRules.length) : '', rulesBody, true)}
     ${sec('notes', esc(t('notes')), x.notes ? x.notes.slice(0, 30) : '', `<label><textarea name="notes" rows="2" aria-label="${esc(t('notes'))}">${esc(x.notes || '')}</textarea></label>`, Boolean(x.notes))}
     <div class="button-row">
@@ -3232,6 +3314,7 @@ function openTask(task, draft = null, opts = {}) {
     if (form.importance) x.importance = Number(form.importance.value) || 3;
     if (form.place) { x.place = form.place.value.trim(); x.link = form.link.value.trim(); }
     if (form.tvThere) x.travel = { there: form.tvThere.checked, back: form.tvBack.checked, mode: form.tvMode.value || 'default' };
+    if (form.buffer) x.buffer = form.buffer.value === '' ? null : Number(form.buffer.value) || 0;
     if (form.addAfter?.value) x.after = [...new Set([...(x.after || []), form.addAfter.value])];
     if (form.querySelector('[value="w_add"]')) x.windows = readWindows(form, 'w_', (x.windows || []).length);
     if (form.splitSteps) x.splitSteps = form.splitSteps.checked;
@@ -3412,7 +3495,7 @@ function openBlock(block, defaults = {}) {
     <h2>${esc(isShop ? `🛒 ${t('groceryTitle')}` : isNew ? t('newBlock') : t('editBlock'))}</h2>
     ${parent ? `<p class="hint">↳ ${esc(t('prepForBlock', parent.title, fmtTime(parent.start)))}</p>` : ''}
     ${status === 'failed' ? `<p class="conn bad">✕ ${esc(t('markedCouldnt'))}${b.missing?.length ? ` ${esc(t('missingWere', b.missing.join(', ')))}` : ''}</p>` : ''}
-    ${isCheckStep(b) && !status ? `<p class="hint">${esc(t('checkStepHint'))}</p>` : ''}
+    ${isCheckStep(b) && !status ? `${hint('checkStepHint')}` : ''}
     ${isShop ? '' : `
       ${b.kind === 'prep' ? '' : `<input type="hidden" name="taskId" value="${esc(b.taskId || '')}">
       <details class="task-pick" ${isNew && !b.taskId ? 'open' : ''}><summary><span class="field-label">${esc(t('linkTask'))}</span> <span class="tp-cur">${esc(task ? task.title : t('noTaskLinked'))}</span></summary>
@@ -3588,11 +3671,11 @@ function wireSteps(b, reopen) {
 function shoppingSection(b = null) {
   if (!ricetteConfigured() && !live('shopping').length) return '';
   const items = (b ? tripItems(b) : shoppingItems()).sort((x, y) => Number(x.checked) - Number(y.checked) || (x.name || '').localeCompare(y.name || ''));
-  if (!items.length) return `<p class="hint">${esc(t('listEmpty'))}</p>`;
+  if (!items.length) return `${hint('listEmpty')}`;
   return `<div class="field-label">${esc(t('shoppingList'))}</div>
     <ul class="list checklist shop">${items.map((it) => `<li class="${it.checked ? 'got' : ''}"><label><input type="checkbox" data-shop="${esc(it.id)}" ${it.checked ? 'checked' : ''}>
       <span class="item-text">${esc(it.name)}<small>${esc(qtyText(it.qty, it.unit))}${it.sources?.length ? ` · ${esc(it.sources.join(', '))}` : ''}</small></span></label></li>`).join('')}</ul>
-    <p class="hint">${esc(t('shopHint'))}</p>`;
+    ${hint('shopHint')}`;
 }
 
 function openTemplatesMenu() {
@@ -3602,7 +3685,7 @@ function openTemplatesMenu() {
     <h2>${esc(t('templates'))}</h2>
     <p class="hint">${esc(t('templatesMenuHint', fmtDay(date)))}</p>
     ${list.length ? `<ul class="list">${list.map((tp) => `<li><span class="item-text pad">${esc(tp.name)}<small>${esc(t('nBlocks', (tp.blocks || []).length))}</small></span>
-      <button class="btn small" value="apply:${esc(tp.id)}">${esc(t('apply'))}</button></li>`).join('')}</ul>` : `<p class="hint">${esc(t('noTemplates'))}</p>`}
+      <button class="btn small" value="apply:${esc(tp.id)}">${esc(t('apply'))}</button></li>`).join('')}</ul>` : `${hint('noTemplates')}`}
     <div class="button-row">
       ${blocksOn(date).length ? `<button class="btn" value="save-day">${esc(t('saveDayAsTemplate'))}</button>` : ''}
       <button class="btn" value="new">+ ${esc(t('newTemplate'))}</button>
@@ -3631,10 +3714,10 @@ function openTemplate(tpl, preset = {}) {
     <h2>${esc(isNew ? t('newTemplate') : t('editTemplate'))}</h2>
     <label>${esc(t('name'))}<input name="name" required value="${esc(x.name)}" autocomplete="off" placeholder="${esc(t('templateNamePh'))}"></label>
     <label>${esc(t('templateBlocks'))}<textarea name="lines" rows="9" spellcheck="false" placeholder="07:00-07:30 ${esc(t('exampleBlock'))} #${esc(nameOf('health'))}">${esc(formatTemplateLines(x.blocks || [], nameOf))}</textarea>
-      <small>${esc(t('templateLinesHint'))}</small></label>
+      ${small('templateLinesHint')}</label>
     <div class="field-label">${esc(t('autoApply'))}</div>
     <div class="days">${weekdayNames().map(([wd, n]) => `<label class="day-pill"><input type="checkbox" name="day" value="${wd}" ${(x.days || []).includes(wd) ? 'checked' : ''}><span>${esc(n)}</span></label>`).join('')}</div>
-    <p class="hint">${esc(t('autoApplyHint'))}</p>
+    ${hint('autoApplyHint')}
     <div class="button-row">
       <button class="btn primary" value="ok">${esc(t('save'))}</button>
       <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
@@ -3797,9 +3880,10 @@ view.addEventListener('change', (e) => {
   }
   if (el.form?.id === 'travel-form') {
     const f = el.form;
-    saveSettings({ travel: { ...travelCfg(), home: f.home.value.trim(), mode: f.mode.value, buffer: Number(f.buffer.value) || 0, back: f.back.checked, startHere: f.startHere.checked, googleKey: f.googleKey.value.trim(), thereDefault: f.thereDefault.value } });
+    for (const kind of LEGS) if (el.name === `leg_${kind}`) setLegTask(kind, f[`leg_${kind}`].value);
+    saveSettings({ travel: { ...travelCfg(), home: f.home.value.trim(), mode: f.mode.value, buffer: Number(f.buffer.value) || 0, startHere: f.startHere.checked, googleKey: f.googleKey.value.trim(), thereDefault: f.thereDefault.value, backDefault: f.backDefault.value } });
     if (el.name === 'home' || el.name === 'mode' || el.name === 'buffer' || el.name === 'googleKey') saveSettings({ travelCache: { ...travelCache(), routes: {} } });
-    for (const x of openTasks().filter((y) => y.place || y.steps?.some((z) => z.travel) || travelCfg().thereDefault === 'always')) applyTravel(x);
+    for (const x of openTasks()) applyTravel(x);
     changed();
     return;
   }
@@ -3813,12 +3897,18 @@ view.addEventListener('change', (e) => {
     const glanceSel = new FormData(el.form).getAll('glance');
     const hr = (a, b, d) => { const x = parseTime(f[a]); const y = parseTime(f[b]); return x != null && y != null && y > x ? [x, y] : d; };
     saveSettings({
-      dayStart, dayEnd: Math.max(dayEnd, dayStart + 1), snap: Number(f.snap), buffer: Number(f.buffer), maxLoad: Number(f.maxLoad), defaultView: f.defaultView, glance: glanceSel, longUnits: el.form.longUnits.checked,
+      dayStart, dayEnd: Math.max(dayEnd, dayStart + 1), snap: Number(f.snap), buffer: Number(f.buffer), taskBuffer: Number(f.taskBuffer) || 0, maxLoad: Number(f.maxLoad), defaultView: f.defaultView, glance: glanceSel, longUnits: el.form.longUnits.checked,
       autoHours: { wd: hr('ahWdF', 'ahWdT', autoHoursFor('2026-11-02')), we: hr('ahWeF', 'ahWeT', autoHoursFor('2026-11-07')) },
     });
     if (el.name === 'defaultView') ui.view = null;
+    if (el.name === 'taskBuffer') { for (const x of openTasks()) applyTravel(x); changed(); return; }
   }
 });
+
+view.addEventListener('toggle', (e) => {
+  const d = e.target.closest?.('details.set-sec');
+  if (d) saveSettings({ setOpen: { ...(state.settings.setOpen || {}), [d.dataset.sec]: d.open } });
+}, true);
 
 view.addEventListener('click', (e) => {
   // In-app links (‹ › and Today on the plan) change the address without the browser's own jump to the top.
@@ -3980,6 +4070,7 @@ view.addEventListener('click', (e) => {
     case 'gh-edit': ui.editGithub = true; ui.connMsg = ''; render(); break;
     case 'gh-cancel': ui.editGithub = false; render(); break;
     case 'gcal-now': gcalNow(); break;
+    case 'leg-edit': { ensureLegTasks(); const x = legTemplate(btn.dataset.kind); if (x) openTask(x); break; }
     case 'gcal-remove': if (confirm(t('gcalRemoveConfirm'))) { removeCalendarData().then((n) => { toast(t('gcalRemoved', n)); changed(); }).catch(() => { toast(t('err_network')); }); } break;
     case 'ric-off': saveSettings({ ricetteRepo: '' }).then(() => { ui.ricMsg = ''; render(); }); break;
     case 'export': exportData(); break;
@@ -4257,7 +4348,7 @@ function addGhosts() {
 }
 function trayInfo(x) {
   const bits = [fmtDur(x.minutes || 30)];
-  for (const y of (x.steps || []).filter((z) => z.travel)) bits.push(`${MODE_ICON[y.mode] || '🚌'} ${y.known ? fmtDur(y.minutes) : '?'}`);
+  for (const y of (x.steps || []).filter((z) => z.travel && z.lookup !== false)) bits.push(`${MODE_ICON[y.mode] || '🚌'} ${y.known ? fmtDur(y.minutes) : '?'}`);
   if (x.repeat === 'times') bits.push(`×${timesLeft(x, today())}`);
   else if (splitsSteps(x)) bits.push(`▤ ${partsLeft(x).length}`);
   if (x.due) bits.push(x.due < today() ? t('late') : relDay(x.due));
