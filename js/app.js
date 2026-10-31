@@ -4,7 +4,7 @@ import {
 import { syncNow, isConfigured, isSyncing, testConnection, watchMonth, ricetteConfigured, runWorkflow, fetchRicettePhoto } from './sync.js';
 import {
   today, addDays, parseDate, isDate, nowMinutes, weekday, dateStr, fmtTime, fmtDur, parseTime, quickAdd,
-  REPEATS, completeTask, reopenTask, groupTasks, sortTasks, layoutBlocks, freeSlot, dayTotals,
+  REPEATS, occurrences, nextOccurrence, completeTask, reopenTask, groupTasks, sortTasks, layoutBlocks, freeSlot, dayTotals,
   parseTemplateLines, IMPORTANCE, importanceOf, formatTemplateLines, templateBlocks, autoTemplatesFor,
 } from './plan.js';
 import {
@@ -13,6 +13,7 @@ import {
 import { makeKitchen } from './kitchen.js';
 import { DEPTS, DEPT_IDS, NONFOOD, deptIcon, deptOf } from './depts.js';
 import { reorderSubset, byOrder, isDragging } from './sortable.js';
+import { MODES as TRAVEL_MODES, MODE_ICON, UNKNOWN_MINUTES, travelMinutes, cachedMinutes, placeNotFound } from './travel.js';
 import { availableModes, currentMode, saveModeTarget, GROUPED_MODES, DRAG_MODES, fold, matchesQ, itemMatches as itemMatchesQ, addedOf, byItemOrder, recipeGroupOf, groupItems } from './shoplist.js';
 import { tagsOf, tagLabel, folderOfRecipe, folderTree, filterRecipes, tagCounts, minutesOf, timeParts, prepMinutes } from './recipes.js';
 import { pantryCoverage } from './recipe-tools.js';
@@ -131,7 +132,7 @@ function nextPlanned(id) {
 // "X times" or step by step still count as to plan while occurrences or steps are left).
 function alreadyPlanned() {
   const ids = plannedTaskIds();
-  return openTasks().filter((x) => ids.has(x.id) && x.repeat !== 'times' && !splitsSteps(x) && !x.repeat);
+  return openTasks().filter((x) => ids.has(x.id) && x.repeat !== 'times' && !splitsSteps(x) && (!x.repeat || x.seriesTime != null));
 }
 // "Already planned": a folded list at the bottom of the planning panels, each one a link to its day.
 function plannedList(list, action, open) {
@@ -155,9 +156,153 @@ function leadOf(task) {
   return prepOf(task).filter((p) => p.when === 'before').reduce((s, p) => s + (p.task.minutes || 10), 0);
 }
 function checklistOf(block) { return (block?.taskId && get('tasks', block.taskId)?.checklist) || []; }
+
+// ---------- travel ----------
+// A task with a place gets travel steps: "Get there" before it (on unless switched off) and
+// "Come back" after it (off unless switched on). They are real steps with fixed ids, so they show
+// on the plan, can be ticked and count in the task's length; the editor keeps them out of the
+// editable list. A task without steps of its own gets a hidden "main" step for its own length.
+const TRV = { there: 'trv_there', back: 'trv_back', main: 'trv_main' };
+const isTravelStep = (y) => Boolean(y?.travel) || Boolean(y?.main);
+const realSteps = (task) => (task?.steps || []).filter((y) => y.title && !isTravelStep(y));
+const travelStep = (task, kind) => (task?.steps || []).find((y) => y.travel === kind) || null;
+// The task's own length, without travel.
+function ownMinutes(task) {
+  const rs = realSteps(task);
+  if (rs.length) return rs.reduce((n, y) => n + (Number(y.minutes) || 10), 0);
+  const m = (task?.steps || []).find((y) => y.main);
+  return Number(m?.minutes) || Number(task?.minutes) || 30;
+}
+function travelCfg() { const s = state.settings.travel || {}; return { home: '', mode: 'transit', back: false, buffer: 5, googleKey: '', startHere: false, ...s }; }
+function travelOf(task) { return { there: true, back: travelCfg().back, mode: 'default', ...(task?.travel || {}) }; }
+const travelMode = (task) => { const m = travelOf(task).mode; return TRAVEL_MODES.includes(m) ? m : travelCfg().mode; };
+const travelCache = () => state.settings.travelCache || {};
+function hereNow(date = today()) {
+  const c = travelCfg(); const h = state.settings.here;
+  return c.startHere && h && today(new Date(h.at)) === date ? `${h.lat},${h.lon}` : '';
+}
+// Where a trip starts: the place of the last planned task before it that day that doesn't come
+// home again; otherwise where you are (today, if you let the app use your location) or home.
+function originFor(task, block = null) {
+  const c = travelCfg();
+  const date = block?.date || null;
+  if (block) {
+    const before = busyOn(date).filter((b) => b.id !== block.id && b.taskId && b.taskId !== task.id && b.start + b.minutes <= block.start + 1)
+      .sort((a, b) => b.start - a.start);
+    for (const b of before) {
+      const tk = get('tasks', b.taskId);
+      if (tk?.place) return travelOf(tk).back ? (hereNow(date) || c.home) : tk.place;
+    }
+  }
+  return (date ? hereNow(date) : '') || c.home;
+}
+function travelDest(task) { return hereNow() || travelCfg().home; }
+// (Re)build a task's steps around its travel, using what's cached; returns the task with
+// `minutes` and `steps` updated, and marks what still needs fetching.
+function withTravel(task, { origin = null, block = null } = {}) {
+  const tv = travelOf(task);
+  const c = travelCfg();
+  const rs = realSteps(task);
+  const own = ownMinutes(task);
+  const mode = travelMode(task);
+  const core = rs.length ? rs : [{ id: TRV.main, title: task.title, minutes: own, main: true }];
+  if (!task.place || (!tv.there && !tv.back)) {
+    const steps = rs.length ? rs : [];
+    return { ...task, steps, minutes: own };
+  }
+  const from = origin ?? originFor(task, block);
+  const mk = (kind, a, b, old) => {
+    const to = kind === 'there' ? task.place : travelDest(task);
+    const m = cachedMinutes(travelCache(), mode, a, b);
+    const known = m != null && m !== undefined;
+    return { id: TRV[kind], title: t(kind === 'there' ? 'getThere' : 'comeBack'), travel: kind, mode, from: a, to,
+      minutes: known ? m + (m ? Number(c.buffer) || 0 : 0) : (old?.known ? old.minutes : UNKNOWN_MINUTES), known, pending: m === undefined };
+  };
+  const steps = [];
+  if (tv.there) steps.push(mk('there', from, task.place, travelStep(task, 'there')));
+  steps.push(...core);
+  if (tv.back) steps.push(mk('back', task.place, travelDest(task), travelStep(task, 'back')));
+  return { ...task, steps, minutes: steps.reduce((n, y) => n + (Number(y.minutes) || 0), 0) };
+}
+// Apply the travel steps to a saved task and move its blocks so the task itself stays at its time
+// (travel grows or shrinks in front of it). Returns the stored task.
+function applyTravel(task, opts = {}) {
+  const block = opts.block || nextBlockOf(task.id);
+  const next = withTravel(task, { ...opts, block });
+  const prev = opts.prev || task; // what the blocks were sized for
+  const same = JSON.stringify(next.steps) === JSON.stringify(task.steps) && next.minutes === task.minutes && prev === task;
+  if (same) return task;
+  const oldThere = travelStep(prev, 'there')?.minutes || 0;
+  const newThere = travelStep(next, 'there')?.minutes || 0;
+  const saved = upsert('tasks', next, { silent: true });
+  for (const b of live('blocks').filter((x) => x.taskId === task.id && !x.stepId && !outcomeOf(x) && x.date >= today() && x.kind !== 'prep')) {
+    const delta = (next.minutes || 0) - (prev.minutes || 0);
+    if (!delta && oldThere === newThere) continue;
+    upsert('blocks', { ...b, start: Math.max(0, b.start - (newThere - oldThere)), minutes: Math.max(5, b.minutes + delta) }, { silent: true });
+  }
+  return saved;
+}
+// Fetch the travel times that are missing, one at a time (the free services ask for that), and
+// apply them. Runs a moment after anything changes; does nothing when all is known.
+let travelTimer = null; let travelBusy = false; let travelAgain = false;
+function scheduleTravelRefresh() { clearTimeout(travelTimer); travelTimer = setTimeout(refreshTravel, 1200); }
+async function refreshTravel() {
+  if (typeof fetch !== 'function') return;
+  if (travelBusy) { travelAgain = true; return; } // a change while looking things up: go again after
+  travelBusy = true;
+  try {
+    const cache = { ...travelCache(), geo: { ...(travelCache().geo || {}) }, routes: { ...(travelCache().routes || {}) } };
+    const ctx = { fetchFn: (u, i) => fetch(u, i), cache, now: Date.now(), googleKey: travelCfg().googleKey || '' };
+    let changed = false; let n = 0;
+    for (const task of openTasks().filter((x) => x.place)) {
+      const block = nextBlockOf(task.id);
+      const planned = withTravel(task, { block });
+      for (const y of planned.steps.filter((z) => z.travel && z.pending)) {
+        if (n >= 12) break; // the rest next time
+        const departAt = block ? parseDate(block.date).getTime() + (block.start + (y.travel === 'back' ? block.minutes : 0)) * 60000 : Date.now() + 3600000;
+        await travelMinutes(y.from, y.to, y.mode, departAt, ctx);
+        changed = true; n++;
+        if (n < 12) await new Promise((r) => setTimeout(r, 1100));
+      }
+    }
+    if (changed) saveSettings({ travelCache: cache });
+    // Apply what's known now (also when origins moved) to every task with a place.
+    let any = false;
+    for (const task of openTasks().filter((x) => x.place)) { const before = task.updatedAt; if (applyTravel(task).updatedAt !== before) any = true; }
+    if (any || changed) { render(); clearTimeout(syncTimer); syncTimer = setTimeout(runSync, 2500); }
+  } finally { travelBusy = false; if (travelAgain) { travelAgain = false; scheduleTravelRefresh(); } }
+}
+
+// ---------- readiness: what the planner still needs to know ----------
+// Each issue is an i18n key; the editor section to open is `secOf`.
+function taskIssues(x) {
+  if (!x || x.done || x.helper || x.routine) return [];
+  const out = [];
+  const rs = realSteps(x);
+  if (!x.lenSet && !rs.length && ownMinutes(x) === 30) out.push('iss_len');
+  if (x.place) {
+    const tv = travelOf(x);
+    if (!travelCfg().home && !hereNow()) out.push('iss_home');
+    else if (placeNotFound(travelCache(), x.place)) out.push('iss_geo');
+    else if ((tv.there || tv.back) && (x.steps || []).some((y) => y.travel && !y.known)) out.push('iss_travel');
+  }
+  if (ownMinutes(x) > planSettings().maxLoad && !splitsSteps(x)) out.push('iss_long');
+  return out;
+}
+const ISSUE_SEC = { iss_len: 'basics', iss_home: 'place', iss_geo: 'place', iss_travel: 'place', iss_long: 'steps' };
+function issueText(x) { return taskIssues(x).map((k) => t(k)).join(' · '); }
+function issueBadge(x) {
+  const iss = taskIssues(x);
+  return iss.length ? `<button type="button" class="iss" data-action="task-fix" data-id="${esc(x.id)}" data-sec="${ISSUE_SEC[iss[0]]}" title="${esc(issueText(x))}" aria-label="${esc(issueText(x))}">⚠</button>` : '';
+}
 function checklistLeft(items, checked = []) { return items.filter((_, i) => !checked[i]).length; }
 
 function setTaskDone(task, done, date = today()) {
+  // A recurring task on the plan: ticking it ticks its next occurrence's block.
+  if (isSeries(task) && task.seriesTime != null) {
+    const b = seriesBlocks(task.id).find((x) => x.occ === task.due) || seriesBlocks(task.id).filter((x) => !outcomeOf(x) && x.occ >= date).sort((p, q) => (p.occ < q.occ ? -1 : 1))[0];
+    if (b) { setOutcome(b, done ? 'done' : null); return; }
+  }
   // "3 times a week": ticking counts one time (it stays open for the next ones).
   if (task.repeat === 'times') {
     const log = [...(task.doneLog || [])];
@@ -178,14 +323,87 @@ function newBlock(fields) {
 // Put a task on a day: at `start`, or in the first free gap (from now, if it's today).
 function planTask(task, date, start = null, extra = {}) {
   const s = planSettings();
-  const minutes = extra.minutes || task.minutes || 30;
+  const { series, ...fields } = extra;
+  const minutes = fields.minutes || task.minutes || 30;
   let at = start;
   if (at == null) {
     const from = (date === today() ? nowMinutes() : s.dayStart) + leadOf(task);
     at = freeSlot(busyOn(date), minutes, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap });
     if (at == null) at = Math.min(Math.ceil(Math.max(nowMinutes(), s.dayStart) / s.snap) * s.snap, 1440 - minutes);
   }
-  return newBlock({ date, start: at, minutes, title: task.title, category: task.category || null, taskId: task.id, ...extra });
+  // Planning a recurring task once plans the whole series: this is its first occurrence, at this time.
+  if (isSeries(task) && !series && !fields.stepId) {
+    const tk = upsert('tasks', { ...task, seriesFrom: date, due: date, seriesTime: at + anchorOffset(null, task), skipped: (task.skipped || []).filter((d) => d < date) }, { silent: true });
+    const b = newBlock({ date, start: at, minutes, title: task.title, category: task.category || null, taskId: task.id, seriesId: task.id, occ: date, auto: true, ...fields });
+    ensureSeries(tk);
+    return b;
+  }
+  return newBlock({ date, start: at, minutes, title: task.title, category: task.category || null, taskId: task.id, ...fields });
+}
+
+// ---------- recurring tasks as a series of blocks ----------
+// Once a recurring task has a time, every occurrence in the coming weeks is a block of its own
+// (`seriesId` = the task, `occ` = the date). Blocks still `auto` follow the series (time, length,
+// title); one you change on its own stops following. Rules live in plan.js (occurrences()).
+const SERIES_DAYS = 56;
+const isSeries = (x) => Boolean(x && REPEATS.includes(x.repeat) && !x.helper && !x.routine);
+const seriesBlocks = (taskId) => live('blocks').filter((b) => b.seriesId === taskId);
+function ensureSeries(task) {
+  if (!isSeries(task) || task.seriesTime == null || task.done) return;
+  const td = today();
+  const want = occurrences(task, td, addDays(td, SERIES_DAYS));
+  const have = new Map(seriesBlocks(task.id).map((b) => [b.occ, b]));
+  const start = Math.max(0, task.seriesTime - anchorOffset(null, task));
+  for (const d of want) {
+    const b = have.get(d);
+    if (!b) { planTask(task, d, start, { seriesId: task.id, occ: d, auto: true, series: true }); continue; }
+    if (b.auto && !outcomeOf(b) && (b.start !== start || b.minutes !== task.minutes || b.title !== task.title || (b.category || null) !== (task.category || null))) {
+      upsert('blocks', { ...b, start, minutes: task.minutes, title: task.title, category: task.category || null }, { silent: true });
+    }
+  }
+  const wantSet = new Set(want);
+  for (const [d, b] of have) if (d >= td && !wantSet.has(d) && b.auto && !outcomeOf(b)) remove('blocks', b.id);
+}
+function ensureAllSeries() { for (const x of live('tasks').filter((y) => isSeries(y) && y.seriesTime != null && !y.done)) ensureSeries(x); }
+// Change a series from one occurrence on: the old series ends the day before, a copy carries the
+// changes from `fromOcc`, and the blocks from that day on move to the copy.
+function splitSeries(prev, changes, fromOcc) {
+  const first = prev.seriesFrom || prev.due;
+  if (!first || fromOcc <= first) return upsert('tasks', { ...prev, ...changes, id: prev.id }, { silent: true });
+  const until = addDays(fromOcc, -1);
+  const old = { ...prev, repeatUntil: until };
+  if (old.due && old.due >= fromOcc) { old.done = true; old.doneAt = Date.now(); } // everything before was done already
+  upsert('tasks', old, { silent: true });
+  const { id, createdAt, lastDone, doneAt, ...rest } = { ...prev, ...changes };
+  void id; void createdAt; void lastDone; void doneAt;
+  const nu = upsert('tasks', { ...rest, id: uid(), createdAt: Date.now(), seriesFrom: fromOcc, due: fromOcc, done: false, skipped: (rest.skipped || []).filter((d) => d >= fromOcc) }, { silent: true });
+  for (const b of seriesBlocks(prev.id).filter((x) => x.occ >= fromOcc)) upsert('blocks', { ...b, taskId: nu.id, seriesId: nu.id }, { silent: true });
+  for (const b of live('blocks').filter((x) => x.taskId === prev.id && x.date >= fromOcc && !x.seriesId)) upsert('blocks', { ...b, taskId: nu.id }, { silent: true });
+  // The new rule may not start on fromOcc itself.
+  if (!occurrences(nu, fromOcc, fromOcc).length) { const nd = nextOccurrence(nu, fromOcc); if (nd) upsert('tasks', { ...get('tasks', nu.id), due: nd }, { silent: true }); }
+  ensureSeries(get('tasks', nu.id));
+  return get('tasks', nu.id);
+}
+// End a series from an occurrence on (that one included).
+function endSeries(task, fromOcc) {
+  for (const b of seriesBlocks(task.id).filter((x) => x.occ >= fromOcc && !outcomeOf(x))) deleteBlock(b);
+  const first = task.seriesFrom || task.due;
+  if (!first || fromOcc <= first) { upsert('tasks', { ...task, done: true, doneAt: Date.now() }, { silent: true }); return; }
+  const until = addDays(fromOcc, -1);
+  upsert('tasks', { ...task, repeatUntil: until, ...(task.due >= fromOcc ? { done: true, doneAt: Date.now() } : {}) }, { silent: true });
+}
+// A small choice: only this occurrence, or this and the following ones.
+function askScope({ title, thisLabel, followingLabel, onThis, onFollowing }) {
+  openModal(`
+    <h2>↻ ${esc(title)}</h2>
+    <div class="add-opts">
+      <button class="add-opt" value="this" formnovalidate><span class="add-ico">1</span><span class="item-text">${esc(thisLabel)}</span></button>
+      <button class="add-opt" value="following" formnovalidate><span class="add-ico">↻</span><span class="item-text">${esc(followingLabel)}</span></button>
+    </div>
+    <div class="button-row"><button class="btn ghost" value="cancel" formnovalidate>${esc(t('cancel'))}</button></div>`, (form, action) => {
+    if (action === 'this') setTimeout(onThis, 0);
+    if (action === 'following') setTimeout(onFollowing, 0);
+  });
 }
 
 const isCheckStep = (b) => get('tasks', b?.taskId)?.check === 'ingredients';
@@ -296,7 +514,9 @@ function anchorIndex(steps, anchorId = null) {
   const i = anchorId ? steps.findIndex((y) => y.id === anchorId) : -1;
   if (i >= 0) return i;
   const last = steps.map((y) => y.from).lastIndexOf('recipes');
-  return last < 0 ? 0 : last + 1;
+  if (last >= 0) return last + 1;
+  const first = steps.findIndex((y) => !y.travel); // the task itself, after "Get there"
+  return first < 0 ? 0 : first;
 }
 // How far into a block its task's time is (the anchor step's start), in minutes. With no steps, 0.
 function anchorOffset(b, task = b?.taskId && get('tasks', b.taskId)) {
@@ -599,6 +819,7 @@ function openAutoPlanner() {
   openModal(`
     <h2>✦ ${esc(t('autoPlanner'))}</h2>
     <p class="hint">${esc(pending ? t('autoSelected', pending) : t('autoAll', trayTasks().length))}</p>
+    ${(() => { const bad = trayTasks().filter((x) => taskIssues(x).length); return bad.length ? `<p class="hint warn-text">⚠ ${esc(t('missingDetails', bad.length))} <button class="linkish" type="button" data-action="task-fix" data-id="${esc(bad[0].id)}" data-sec="${ISSUE_SEC[taskIssues(bad[0])[0]]}">${esc(t('fixFirst', bad[0].title))}</button></p>` : ''; })()}
     <div class="field-label">${esc(t('autoSpan'))}</div>
     <div class="days spans">${AUTO_SPANS.map((k) => `<label class="day-pill"><input type="radio" name="span" value="${k}" ${k === last.span ? 'checked' : ''}><span>${esc(t(`span_${k}`))}</span></label>`).join('')}</div>
     <div class="two">
@@ -660,7 +881,7 @@ function openImport(draft = null) {
     let n = 0;
     for (const q of list) {
       upsert('tasks', {
-        id: uid(), createdAt: Date.now() + n, title: q.title, minutes: q.minutes || 30, priority: q.priority, importance: q.importance || 3,
+        id: uid(), createdAt: Date.now() + n, title: q.title, minutes: q.minutes || 30, lenSet: Boolean(q.minutes), priority: q.priority, importance: q.importance || 3,
         category: findCategory(q.category) || x.category || null, due: x.due || null, repeat: null, notes: '', done: false,
       }, { silent: true });
       n++;
@@ -720,7 +941,7 @@ function openTaskAdd(date) {
     e.preventDefault();
     const q = quickAdd(form.newTask.value);
     if (!q.title) return;
-    const x = upsert('tasks', { id: uid(), createdAt: Date.now(), title: q.title, minutes: q.minutes || 30, priority: q.priority, importance: q.importance || 3, category: findCategory(q.category), due: null, repeat: null, notes: '', done: false }, { silent: true });
+    const x = upsert('tasks', { id: uid(), createdAt: Date.now(), title: q.title, minutes: q.minutes || 30, lenSet: Boolean(q.minutes), priority: q.priority, importance: q.importance || 3, category: findCategory(q.category), due: null, repeat: null, notes: '', done: false }, { silent: true });
     openPlanSaved(x, date);
   });
   wirePicker(modal, (id) => openPlanSaved(get('tasks', id), date));
@@ -982,9 +1203,11 @@ function fixConflict(c) {
 
 let syncTimer = null;
 function changed() {
+  ensureAllSeries();
   render();
   clearTimeout(syncTimer);
   syncTimer = setTimeout(runSync, 2500);
+  scheduleTravelRefresh();
 }
 
 async function runSync() {
@@ -995,8 +1218,10 @@ async function runSync() {
   // Plan changed and Google Calendar is set up: push it there soon (at most every 10 minutes).
   if (planChanged && !state.meta.lastError && get('gcal', 'status') && Date.now() - (ui.lastDispatch || 0) > 600_000) gcalNow(true);
   if (ricetteConfigured()) kitchen.ensureLowItems();
+  ensureAllSeries();
   updateSyncBadge();
   renderIfSafe();
+  scheduleTravelRefresh();
   if (state.meta.dirty) { clearTimeout(syncTimer); syncTimer = setTimeout(runSync, 2500); }
 }
 
@@ -1134,7 +1359,7 @@ function sidePanel(date, v) {
   const chip = (x) => (v === 'day'
     ? `<button class="chip" type="button" data-action="plan-task" data-task="1" data-id="${esc(x.id)}" data-title="${esc(x.title)}" data-minutes="${x.minutes || 30}" style="--c:${esc(catColor(x.category) || 'var(--accent)')}">`
     : `<button class="chip tchip" type="button" data-id="${esc(x.id)}" style="--c:${esc(catColor(x.category) || 'var(--accent)')}">`)
-    + `<span class="chip-dot"></span><span class="chip-title">${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}</span><small>${esc(fmtDur(x.minutes || 30))}</small></button>`;
+    + `<span class="chip-dot"></span><span class="chip-title">${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}</span><small>${esc(fmtDur(x.minutes || 30))}${taskIssues(x).length ? ` <span class="iss-mark" title="${esc(issueText(x))}">⚠</span>` : ''}</small></button>`;
   return `<aside class="to-plan">
     <div class="side-head"><h2>${esc(t('toPlan'))} <small>${list.length}</small></h2>
       <button class="icon" type="button" data-action="side-toggle" aria-label="${esc(t('hideTasks'))}" title="${esc(t('hideTasks'))}">⟨</button></div>
@@ -1412,13 +1637,13 @@ function blockHtml(b, startMin, conflict, compact = false) {
   const stepsHtml = stepsIn ? `<div class="blk-steps">${st.map((y, i) => {
     const hpx = (y.end - y.start) * PPM;
     return `<div class="blk-step${i ? '' : ' first'}${hpx < 16 ? ' tight' : ''}${y.state ? ` ${y.state}` : status === 'done' ? ' done' : ''}" style="top:${(y.start - b.start) * PPM}px;height:${hpx}px">
-      ${hpx >= 11 ? `${stepCheck(b, y)}<span class="st-title">${esc(y.title)}</span><span class="st-time">${fmtTime(y.start)}</span>` : ''}</div>`;
+      ${hpx >= 11 ? `${stepCheck(b, y)}<span class="st-title${y.travel && !y.known ? ' unknown' : ''}">${y.travel ? `${MODE_ICON[y.mode] || '🚌'} ` : ''}${y.travel && !y.known ? '? ' : ''}${esc(y.title)}</span><span class="st-time">${fmtTime(y.start)}</span>` : ''}</div>`;
   }).join('')}</div>` : '';
   return `<div class="block${stepsIn ? ' with-steps' : ''}${status ? ` ${status}` : ''}${status === 'failed' ? ' done' : ''}${short ? ' short' : ''}${conflict ? ' conflict' : ''}${b.kind ? ` k-${b.kind}` : ''}" data-id="${esc(b.id)}" data-start="${b.start}" data-minutes="${b.minutes}"
     style="--c:${esc(color)};top:${(b.start - startMin) * PPM}px;height:${Math.max(b.minutes * PPM, 16)}px;left:${left};width:${width}">
     <input type="checkbox" class="blk-check" data-action="block-done" data-id="${esc(b.id)}" ${status === 'done' ? 'checked' : ''} aria-label="${esc(t('markDone'))}">
     <div class="blk-body">
-      <div class="blk-title">${conflict ? '<span class="warn-ico">⚠</span> ' : ''}${KIND_ICON[b.kind] || ''}${esc(b.title)} ${extra}</div>
+      <div class="blk-title">${conflict ? '<span class="warn-ico">⚠</span> ' : ''}${KIND_ICON[b.kind] || ''}${esc(b.title)}${b.seriesId ? ' <span class="series-ico" title="' + esc(t('recurring')) + '">↻</span>' : ''} ${extra}</div>
       <div class="blk-time">${range(b.start, b.minutes)}</div>
     </div>
     ${stepsHtml}
@@ -2229,26 +2454,28 @@ function taskRow(x, { drag = false } = {}) {
   if (x.due) bits.push(`<span class="${x.due < td && !x.done ? 'late' : ''}">${esc(relDay(x.due))}</span>`);
   if (x.minutes) bits.push(esc(fmtDur(x.minutes)));
   if (x.repeat === 'times') bits.push(`↻ ${esc(t('timesShort', x.timesN || 1, t(`per_${x.timesPer || 'week'}`)))} · ${timesDone(x, td)}/${x.timesN || 1}`);
-  else if (x.repeat) bits.push(`↻ ${esc(t(`rep_${x.repeat}`))}`);
+  else if (x.repeat) bits.push(`↻ ${esc(repeatText(x))}`);
   if (x.fromTitle) bits.push(`↪ ${esc(t('fromTask', x.fromTitle))}`);
   const pre = prereqsOf(x);
   if (pre.length) bits.push(`🔒 ${esc(t('afterTask', pre.map((p) => p.task.title).join(', ')))}`);
   if (x.windows?.length) bits.push(`🕒 ${esc(windowsText(x.windows))}`);
   if (x.when) bits.push(esc(t(`when_${x.when}`)));
   if (x.checklist?.length) bits.push(`☑ ${x.checklist.length}`);
-  if (x.steps?.length) bits.push(`▤ ${x.steps.length}`);
+  if (realSteps(x).length) bits.push(`▤ ${realSteps(x).length}`);
   if (x.place) bits.push(`📍 ${esc(x.place)}`);
+  for (const y of (x.steps || []).filter((z) => z.travel)) bits.push(`${MODE_ICON[y.mode] || '🚌'} ${y.known ? esc(fmtDur(y.minutes)) : '?'}`);
   if (x.prep?.length) bits.push(`↳ ${esc(prepOf(x).map((p) => p.task.title).join(', '))}`);
   const cat = get('categories', x.category);
   if (cat) bits.push(`<span class="cat" style="--c:${esc(cat.color)}">${esc(catName(cat))}</span>`);
   const planned = live('blocks').filter((b) => b.taskId === x.id && !b.done && b.date >= td && b.kind !== 'prep').sort((a, b) => ((a.date + a.start) < (b.date + b.start) ? -1 : 1))[0];
   if (planned && !x.done) bits.push(`<span class="badge">${esc(t('plannedAt', relDay(planned.date), fmtTime(planned.start)))}</span>`);
-  return `<li class="imp-${importanceOf(x)}" ${drag ? `data-sort-key="${esc(x.id)}"` : ''}>
+  return `<li class="imp-${importanceOf(x)}${taskIssues(x).length ? ' has-iss' : ''}" ${drag ? `data-sort-key="${esc(x.id)}"` : ''}>
     ${drag ? grip(`th-${x.id}`, x.title) : ''}
     ${x.helper ? '<span class="helper-dot">↳</span>' : `<input type="checkbox" data-action="task-done" data-id="${esc(x.id)}" ${x.done || (x.repeat === 'times' && timesDone(x, td) >= (x.timesN || 1)) ? 'checked' : ''} aria-label="${esc(t('markDone'))}">`}
     <button class="task-main" type="button" data-action="task-edit" data-id="${esc(x.id)}">
       <span class="item-text">${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}<small>${bits.join(' · ')}</small></span>
     </button>
+    ${issueBadge(x)}
   </li>`;
 }
 
@@ -2298,6 +2525,21 @@ function viewSettings() {
     <div class="days glance">${['today', 'tomorrow', 'soon'].map((k) => `<label class="day-pill"><input type="checkbox" name="tg" value="${k}" ${taskGroupsCfg()[k] ? 'checked' : ''}><span>${esc(k === 'soon' ? t('grp_soon') : t(`grp_${k}`))}</span></label>`).join('')}</div>
     <label>${esc(t('soonDays'))}<select name="soonDays">${[3, 5, 7, 14, 30].map((n) => `<option value="${n}" ${n === Number(taskGroupsCfg().soonDays) ? 'selected' : ''}>${esc(t('nDays', n))}</option>`).join('')}</select></label>
     <p class="hint">${esc(t('taskGroupsHint'))}</p>
+  </form>
+
+  <h2>🚌 ${esc(t('travelSettings'))}</h2>
+  <p class="hint">${esc(t('travelSettingsHint'))}</p>
+  <form class="form" id="travel-form">
+    <label>${esc(t('homeAddress'))}<input name="home" value="${esc(travelCfg().home)}" placeholder="${esc(t('homePh'))}" autocomplete="street-address"></label>
+    <div class="two">
+      <label>${esc(t('travelModeDefault'))}<select name="mode">${TRAVEL_MODES.map((m) => `<option value="${m}" ${m === travelCfg().mode ? 'selected' : ''}>${MODE_ICON[m]} ${esc(t(`tm_${m}`))}</option>`).join('')}</select></label>
+      <label>${esc(t('travelBuffer'))}<select name="buffer">${[0, 5, 10, 15].map((m) => `<option value="${m}" ${m === Number(travelCfg().buffer) ? 'selected' : ''}>${m ? `${m} min` : esc(t('none'))}</option>`).join('')}</select></label>
+    </div>
+    <label class="check"><input type="checkbox" name="back" ${travelCfg().back ? 'checked' : ''}> <span>${esc(t('backDefault'))}<small>${esc(t('backDefaultHint'))}</small></span></label>
+    <label class="check"><input type="checkbox" name="startHere" ${travelCfg().startHere ? 'checked' : ''}> <span>${esc(t('startHere'))}<small>${esc(state.settings.here ? t('hereSetAt', new Date(state.settings.here.at).toLocaleString(getLang())) : t('startHereHint'))}</small></span></label>
+    <div class="button-row"><button class="btn small" type="button" data-action="use-location">📍 ${esc(t('useLocation'))}</button><button class="btn small ghost" type="button" data-action="travel-refresh">↻ ${esc(t('travelRefresh'))}</button></div>
+    <label>${esc(t('googleKey'))}<input name="googleKey" value="${esc(travelCfg().googleKey)}" placeholder="AIza…" autocomplete="off"><small>${esc(t('googleKeyHint'))}</small></label>
+    <p class="hint">${esc(travelCfg().googleKey ? t('travelViaGoogle') : t('travelViaFree'))}</p>
   </form>
 
   <h2>🏪 ${esc(t('shopsTitle'))}</h2>
@@ -2659,11 +2901,24 @@ function rulesForEditor(task) {
   return [...preps, ...(task.rules || []).map((r) => ({ ...r }))];
 }
 
-function openTask(task, draft = null) {
+// The weekday of a task's date (planned, else due, else today), Monday = 1.
+// "Every 2 weeks on Mon, Wed", "Every day", "Weekdays until 20 Dec".
+function repeatText(x) {
+  if (!x.repeat || x.repeat === 'times') return '';
+  const n = Math.max(1, Number(x.every) || 1);
+  let s = x.repeat === 'weekdays' ? t('rep_weekdays') : n === 1 ? t(`rep_${x.repeat}`) : t('everyN', n, t(`unit_${x.repeat}`, n));
+  if (x.repeat === 'weekly' && (x.repeatDays || []).length) s += ` ${t('onDays', x.repeatDays.map(dayShort).join(', '))}`;
+  if (x.repeatUntil) s += ` ${t('untilDay', relDay(x.repeatUntil))}`;
+  return s;
+}
+function plannedIso(x) { const d = x.planDate || x.due || today(); return ((parseDate(d).getDay() + 6) % 7) + 1; }
+function openTask(task, draft = null, opts = {}) {
   const isNew = !task;
   const base = task || { title: '', minutes: 30, importance: 3, category: '', due: '', repeat: '', notes: '', when: '' };
   const src = draft || base;
-  const x = draft?.allRules ? draft : { ...src, importance: importanceOf(src), steps: (src.steps || []).map((y) => ({ ...y })), checklist: [...(src.checklist || [])], allRules: rulesForEditor(src) };
+  const x = draft?.allRules ? draft : { ...src, importance: importanceOf(src), minutes: ownMinutes(src), steps: realSteps(src).map((y) => ({ ...y })), checklist: [...(src.checklist || [])], allRules: rulesForEditor(src), travel: travelOf(src) };
+  if (!x.travel) x.travel = travelOf(src);
+  if (opts.fromOcc) x.fromOcc = opts.fromOcc;
   const helper = Boolean(x.helper);
   const routine = Boolean(x.routine);
   const todo = !helper && !routine;
@@ -2756,6 +3011,15 @@ function openTask(task, draft = null) {
     ${x.repeat === 'times' ? `<div class="times-row"><input name="timesN" type="number" min="1" max="99" step="1" value="${esc(x.timesN || 3)}" aria-label="${esc(t('timesN'))}"><span>${esc(t('timesPer'))}</span>
       <select name="timesPer">${['day', 'week', 'month', 'year'].map((u) => `<option value="${u}" ${u === (x.timesPer || 'week') ? 'selected' : ''}>${esc(t(`per_${u}`))}</option>`).join('')}</select></div>
       <small class="hint">${esc(t('timesHint'))}</small>` : ''}
+    ${REPEATS.includes(x.repeat) ? `<div class="recur-box">
+      ${x.repeat !== 'weekdays' ? `<div class="times-row"><span>${esc(t('every'))}</span><input name="every" type="number" min="1" max="52" step="1" value="${esc(x.every || 1)}" aria-label="${esc(t('every'))}"><span>${esc(t(`unit_${x.repeat}`, Number(x.every) || 1))}</span></div>` : ''}
+      ${x.repeat === 'weekly' ? `<div class="days mini">${[1, 2, 3, 4, 5, 6, 7].map((d) => `<label class="day-pill"><input type="checkbox" name="repeatDays" value="${d}" ${((x.repeatDays || []).length ? x.repeatDays : [plannedIso(x)]).includes(d) ? 'checked' : ''}><span>${esc(dayShort(d))}</span></label>`).join('')}</div>` : ''}
+      <label>${esc(t('repeatUntil'))}<input name="repeatUntil" type="date" value="${esc(x.repeatUntil || '')}"></label>
+      <small class="hint">${esc(x.seriesTime != null ? t('seriesHint', fmtTime(x.seriesTime)) : t('recurHint'))}</small>
+      ${x.fromOcc && (x.seriesFrom || x.due) && x.fromOcc > (x.seriesFrom || x.due) ? `<div class="field-label">${esc(t('applyTo'))}</div>
+      <div class="days"><label class="day-pill"><input type="radio" name="scope" value="following" ${x.scope !== 'all' ? 'checked' : ''}><span>${esc(t('scopeFollowing', relDay(x.fromOcc)))}</span></label>
+      <label class="day-pill"><input type="radio" name="scope" value="all" ${x.scope === 'all' ? 'checked' : ''}><span>${esc(t('scopeAll'))}</span></label></div>` : ''}
+    </div>` : ''}
     <label>${esc(t('bestTime'))}<select name="when">${['', 'morning', 'afternoon', 'evening'].map((w) => `<option value="${w}" ${w === (x.when || '') ? 'selected' : ''}>${esc(t(`when_${w || 'any'}`))}</option>`).join('')}</select></label>
     ${remindField(x)}`
     : routine ? `
@@ -2776,7 +3040,7 @@ function openTask(task, draft = null) {
     <div class="field-label">🕒 ${esc(t('windowsTitle'))}</div>
     ${windowsEditor('w_', x.windows || [])}
     <small class="hint">${esc(t('windowsHint'))}</small>`;
-  const whenSummary = todo ? [x.planDate ? `${relDay(x.planDate)}${x.planTime != null ? ` ${fmtTime(x.planTime)}` : ''}` : '', x.due ? t('dueOn', relDay(x.due)) : '', x.repeat ? `↻ ${x.repeat === 'times' ? t('timesShort', x.timesN || 3, t(`per_${x.timesPer || 'week'}`)) : t(`rep_${x.repeat}`)}` : ''].filter(Boolean).join(' · ')
+  const whenSummary = todo ? [x.planDate ? `${relDay(x.planDate)}${x.planTime != null ? ` ${fmtTime(x.planTime)}` : ''}` : '', x.due ? t('dueOn', relDay(x.due)) : '', x.repeat ? `↻ ${x.repeat === 'times' ? t('timesShort', x.timesN || 3, t(`per_${x.timesPer || 'week'}`)) : repeatText(x)}` : ''].filter(Boolean).join(' · ')
     : routine ? (x.defaultStart != null ? fmtTime(x.defaultStart) : t(`when_${x.when || 'any'}`)) : '';
   const stepsBody = `
     <p class="hint">${esc(t(x.meal ? 'stepsHintMeal' : 'stepsHint'))}</p>
@@ -2791,7 +3055,16 @@ function openTask(task, draft = null) {
   const placeBody = `
     <label>${esc(t('place'))}<input name="place" value="${esc(x.place || '')}" placeholder="${esc(t('placePh'))}" autocomplete="off"></label>
     <label>${esc(t('placeLink'))}<input name="link" type="url" inputmode="url" value="${esc(x.link || '')}" placeholder="https://maps.app.goo.gl/…" autocomplete="off"></label>
-    ${x.place || x.link ? `<p class="hint">${placeLink(x)}</p>` : `<p class="hint">${esc(t('placeHint'))}</p>`}`;
+    ${x.place || x.link ? `<p class="hint">${placeLink(x)}</p>` : `<p class="hint">${esc(t('placeHint'))}</p>`}
+    ${todo || routine ? `<div class="field-label">${esc(t('travelTitle'))}</div>
+    <div class="travel-opts">
+      <label class="check"><input type="checkbox" name="tvThere" ${x.travel.there ? 'checked' : ''}> <span>${esc(t('getThere'))}</span></label>
+      <label class="check"><input type="checkbox" name="tvBack" ${x.travel.back ? 'checked' : ''}> <span>${esc(t('comeBack'))}</span></label>
+      <label>${esc(t('travelMode'))}<select name="tvMode"><option value="default" ${x.travel.mode === 'default' ? 'selected' : ''}>${esc(t('tvDefault', t(`tm_${travelCfg().mode}`)))}</option>${TRAVEL_MODES.map((m) => `<option value="${m}" ${x.travel.mode === m ? 'selected' : ''}>${MODE_ICON[m]} ${esc(t(`tm_${m}`))}</option>`).join('')}</select></label>
+    </div>
+    ${(src.steps || []).filter((y) => y.travel).map((y) => `<p class="hint">${MODE_ICON[y.mode] || ''} ${esc(y.title)}: ${y.known ? esc(fmtDur(y.minutes)) : '?'} · ${esc(t('fromPlace', y.from || t('home')))}${y.known ? '' : ` · ${esc(t('travelPending'))}`}</p>`).join('')}
+    ${!travelCfg().home && !hereNow() ? `<p class="hint warn-text">⚠ ${esc(t('homeUnset'))} <a href="#/settings">${esc(t('tabSettings'))}</a></p>` : ''}
+    <small class="hint">${esc(t('travelHint'))}</small>` : ''}`;
   openModal(`
     <h2>${esc(heading)}</h2>
     ${x.check === 'ingredients' ? `<p class="hint">${esc(t('checkStepHint'))}</p>` : ''}
@@ -2855,9 +3128,30 @@ function openTask(task, draft = null) {
     }
     if (!x.title) { e.preventDefault(); return; }
     const before = task ? Number(task.minutes) : null;
-    const rec = saveTask(x);
+    const prevTask = task && get('tasks', task.id);
+    let rec; let split = false;
+    if (prevTask && isSeries(prevTask) && x.fromOcc && x.scope !== 'all' && x.fromOcc > (prevTask.seriesFrom || prevTask.due)) {
+      split = true;
+      // From this occurrence on: the series splits here.
+      const { fromOcc, scope, planDate, planTime, planBlockId, allRules, ...fields } = x; void fromOcc; void scope; void planDate; void planTime; void planBlockId; void allRules;
+      const tmp = saveTask({ ...x, id: prevTask.id }); // computes rules, steps and travel the usual way…
+      const changes = { ...tmp }; delete changes.id; delete changes.createdAt;
+      upsert('tasks', prevTask, { silent: true }); // …then the old series is put back and split
+      rec = splitSeries(prevTask, changes, x.fromOcc);
+      toast(t('seriesSplit', relDay(x.fromOcc)));
+      void fields;
+    } else {
+      // A changed rule: the series restarts from the (new) due date.
+      if (prevTask && isSeries(prevTask) && (prevTask.repeat !== x.repeat || (prevTask.every || 1) !== (x.every || 1) || JSON.stringify(prevTask.repeatDays || []) !== JSON.stringify(x.repeatDays || []) || prevTask.due !== x.due)) x.seriesFrom = x.due || today();
+      rec = saveTask(x);
+      if (isSeries(rec)) ensureSeries(rec);
+    }
     // The "When" section: plan it, move it, change its length, or take it off the plan.
-    if (todo) {
+    if (todo && !split && isSeries(rec) && rec.seriesTime != null && x.planTime != null && x.planTime !== rec.seriesTime) {
+      // A new time for a recurring task on the plan: the whole series moves (occurrences changed by hand keep theirs).
+      rec = upsert('tasks', { ...rec, seriesTime: x.planTime }, { silent: true });
+      ensureSeries(rec);
+    } else if (todo && !split) {
       const cur = x.planBlockId && get('blocks', x.planBlockId);
       if (x.planDate) {
         const off = anchorOffset(cur || null, rec);
@@ -2899,6 +3193,7 @@ function openTask(task, draft = null) {
     x.notes = form.notes.value.trim();
     if (form.importance) x.importance = Number(form.importance.value) || 3;
     if (form.place) { x.place = form.place.value.trim(); x.link = form.link.value.trim(); }
+    if (form.tvThere) x.travel = { there: form.tvThere.checked, back: form.tvBack.checked, mode: form.tvMode.value || 'default' };
     if (form.addAfter?.value) x.after = [...new Set([...(x.after || []), form.addAfter.value])];
     if (form.querySelector('[value="w_add"]')) x.windows = readWindows(form, 'w_', (x.windows || []).length);
     if (form.splitSteps) x.splitSteps = form.splitSteps.checked;
@@ -2906,6 +3201,10 @@ function openTask(task, draft = null) {
       x.due = form.due.value || null;
       x.repeat = form.repeat.value || null;
       if (x.repeat === 'times' && form.timesN) { x.timesN = Math.max(1, Number(form.timesN.value) || 1); x.timesPer = form.timesPer.value || 'week'; }
+      if (form.every) x.every = Math.max(1, Number(form.every.value) || 1);
+      if (form.querySelector('input[name=repeatDays]')) x.repeatDays = [...form.querySelectorAll('input[name=repeatDays]:checked')].map((el) => Number(el.value));
+      if (form.repeatUntil) x.repeatUntil = form.repeatUntil.value || null;
+      if (form.scope) x.scope = form.querySelector('input[name=scope]:checked')?.value || 'following';
       x.planDate = form.planDate.value || '';
       x.planTime = form.planTime.value ? parseTime(form.planTime.value) : null;
     }
@@ -2980,14 +3279,17 @@ function saveTask(x) {
   let due = x.due || null;
   if (x.repeat && x.repeat !== 'times' && !due) due = today(); // "X times per…" counts per period, without a due date
   if (x.repeat === 'times') due = null;
+  const seriesFrom = REPEATS.includes(x.repeat) ? (x.seriesFrom && x.seriesFrom <= due ? x.seriesFrom : due) : null;
   const { allRules, newTask, planDate, planTime, planBlockId, ...clean } = x;
   void allRules; void newTask; void planDate; void planTime; void planBlockId;
-  const steps = (x.steps || []).filter((y) => y.title);
-  return upsert('tasks', {
-    ...clean, id: x.id || uid(), createdAt: x.createdAt || Date.now(), due, prep, rules, steps, windows: cleanWindows(x.windows), after: (x.after || []).filter((id) => has('tasks', id)),
+  const steps = (x.steps || []).filter((y) => y.title && !isTravelStep(y));
+  const prevTask = x.id ? get('tasks', x.id) : null;
+  const saved = upsert('tasks', {
+    ...clean, id: x.id || uid(), createdAt: x.createdAt || Date.now(), due, seriesFrom, prep, rules, steps, windows: cleanWindows(x.windows), after: (x.after || []).filter((id) => has('tasks', id)),
     minutes: steps.length ? steps.reduce((n, y) => n + (Number(y.minutes) || 0), 0) : x.minutes,
-    priority: 0, done: Boolean(x.done),
+    priority: 0, done: Boolean(x.done), lenSet: true, // you saw the length: it counts as set
   }, { silent: true });
+  return applyTravel(saved, { prev: prevTask || saved });
 }
 
 // A checklist that must be finished before something counts as done.
@@ -3104,7 +3406,7 @@ function openBlock(block, defaults = {}) {
       <button class="btn danger" value="delete" formnovalidate>${esc(t('delete'))}</button>`}
     </div>`, (form, action, e) => {
     if (stepAction(b, action, e, openBlock)) return;
-    if (action === 'edit-task') { setTimeout(() => openTask(get('tasks', task.id)), 0); return; }
+    if (action === 'edit-task') { setTimeout(() => openTask(get('tasks', task.id), null, { fromOcc: b.occ || null }), 0); return; }
     if (action === 'to-task') {
       // A plain block becomes a task (same title, length, category), so it can get steps and rules.
       const tk = upsert('tasks', { id: uid(), createdAt: Date.now(), title: b.title, minutes: b.minutes, category: b.category || null, importance: 3, due: null, repeat: null, notes: b.notes || '', done: false, checklist: [], rules: [], steps: [] }, { silent: true });
@@ -3113,7 +3415,17 @@ function openBlock(block, defaults = {}) {
       setTimeout(() => openTask(tk, { ...tk, importance: 3, steps: [{ id: uid().slice(0, 6), title: '', minutes: 10 }], checklist: [], allRules: [] }), 0);
       return;
     }
-    if (action === 'delete') { deleteBlock(b); changed(); return; }
+    if (action === 'delete') {
+      if (b.seriesId && task) {
+        setTimeout(() => askScope({
+          title: t('deleteWhich'), thisLabel: t('onlyThisOcc', relDay(b.occ)), followingLabel: t('thisAndFollowing'),
+          onThis: () => { deleteBlock(b); upsert('tasks', { ...get('tasks', task.id), skipped: [...new Set([...(task.skipped || []), b.occ])] }, { silent: true }); changed(); },
+          onFollowing: () => { endSeries(get('tasks', task.id), b.occ); changed(); },
+        }), 0);
+        return;
+      }
+      deleteBlock(b); changed(); return;
+    }
     if (action === 'fail') { setOutcome(get('blocks', b.id), 'failed'); changed(); return; }
     if (action === 'reset') { setOutcome(get('blocks', b.id), null); changed(); return; }
     if (action === 'dup') {
@@ -3138,12 +3450,36 @@ function openBlock(block, defaults = {}) {
       Object.assign(rec, { title, category });
       if (form.taskId) rec.taskId = picked ? picked.id : null;
     }
+    const finish = (r) => {
+      const saved = upsert('blocks', r, { silent: true });
+      followParent(saved);
+      if (r.date !== currentDate()) location.hash = `#/plan/${r.date}`;
+      changed();
+      warnConflicts(get('blocks', saved.id));
+    };
+    const seriesChange = b.seriesId && task && !isNew && (rec.start !== b.start || rec.minutes !== b.minutes || rec.title !== b.title || (rec.category || null) !== (b.category || null));
+    if (seriesChange) {
+      e.preventDefault();
+      const occ = b.occ;
+      setTimeout(() => askScope({
+        title: t('changeWhich'), thisLabel: t('onlyThisOcc', relDay(occ)), followingLabel: t('thisAndFollowing'),
+        onThis: () => finish({ ...rec, auto: false }),
+        onFollowing: () => {
+          const tk = get('tasks', task.id);
+          const own = realSteps(tk).length ? ownMinutes(tk) : Math.max(5, rec.minutes - (tk.minutes - ownMinutes(tk)));
+          const main = (tk.steps || []).map((y) => (y.main ? { ...y, minutes: own } : y));
+          const upd = upsert('tasks', { ...tk, title: rec.title, category: rec.category || null, seriesTime: rec.start + off2, steps: main, minutes: realSteps(tk).length ? tk.minutes : main.reduce((n, y) => n + (Number(y.minutes) || 0), 0) || own }, { silent: true });
+          // Earlier occurrences keep their time; this one and the later ones follow the series.
+          for (const sb of seriesBlocks(tk.id).filter((y) => y.occ < occ && y.auto)) upsert('blocks', { ...sb, auto: false }, { silent: true });
+          for (const sb of seriesBlocks(tk.id).filter((y) => y.occ >= occ && !outcomeOf(y))) upsert('blocks', { ...sb, auto: true }, { silent: true });
+          ensureSeries(get('tasks', upd.id));
+          finish({ ...get('blocks', rec.id), date: rec.date, notes: rec.notes, allowOverlap: rec.allowOverlap, auto: rec.date === b.date });
+        },
+      }), 0);
+      return;
+    }
     if (rec.date !== b.date || rec.start !== b.start) rec.auto = false;
-    const saved = upsert('blocks', rec, { silent: true });
-    followParent(saved);
-    if (rec.date !== currentDate()) location.hash = `#/plan/${rec.date}`;
-    changed();
-    warnConflicts(get('blocks', saved.id));
+    finish(rec);
   });
   wireSteps(b, openBlock);
   const form = modal.querySelector('form');
@@ -3355,7 +3691,7 @@ view.addEventListener('submit', (e) => {
     if (!q.title) return;
     const onDay = form.id === 'side-add' && currentView() === 'day' ? currentDate() : null;
     upsert('tasks', {
-      id: uid(), createdAt: Date.now(), title: q.title, minutes: q.minutes || 30, priority: q.priority, importance: q.importance || 3,
+      id: uid(), createdAt: Date.now(), title: q.title, minutes: q.minutes || 30, lenSet: Boolean(q.minutes), priority: q.priority, importance: q.importance || 3,
       category: findCategory(q.category), due: onDay, repeat: null, notes: '', done: false,
     }, { silent: true });
     form.title.value = '';
@@ -3421,6 +3757,14 @@ view.addEventListener('change', (e) => {
     applyLang(el.value);
     renderShell();
     render();
+  }
+  if (el.form?.id === 'travel-form') {
+    const f = el.form;
+    saveSettings({ travel: { ...travelCfg(), home: f.home.value.trim(), mode: f.mode.value, buffer: Number(f.buffer.value) || 0, back: f.back.checked, startHere: f.startHere.checked, googleKey: f.googleKey.value.trim() } });
+    if (el.name === 'home' || el.name === 'mode' || el.name === 'buffer' || el.name === 'googleKey') saveSettings({ travelCache: { ...travelCache(), routes: {} } });
+    for (const x of openTasks().filter((y) => y.place)) applyTravel(x);
+    changed();
+    return;
   }
   if (el.form?.id === 'tasklist-form') {
     const fd = new FormData(el.form); const on = fd.getAll('tg');
@@ -3539,6 +3883,16 @@ view.addEventListener('click', (e) => {
       break;
     }
     case 'task-edit': openTask(get('tasks', id)); break;
+    case 'task-fix': { const x = get('tasks', id); if (!x) break; const sec = btn.dataset.sec; if (sec) saveSettings({ edSec: { ...(state.settings.edSec || {}), [sec]: true } }); openTask(x); break; }
+    case 'use-location': {
+      if (!navigator.geolocation) { toast(t('noGeo')); break; }
+      navigator.geolocation.getCurrentPosition((pos) => {
+        saveSettings({ here: { lat: Math.round(pos.coords.latitude * 1e5) / 1e5, lon: Math.round(pos.coords.longitude * 1e5) / 1e5, at: Date.now() }, travel: { ...travelCfg(), startHere: true } });
+        toast(t('locationSet')); changed();
+      }, () => toast(t('noGeo')), { timeout: 10000, maximumAge: 300000 });
+      break;
+    }
+    case 'travel-refresh': saveSettings({ travelCache: { ...travelCache(), routes: {} } }); scheduleTravelRefresh(); toast(t('travelRefreshing')); break;
     case 'list-mode': setListMode(id); changed(); break;
     case 'plan-trips': {
       const { blocks, missing } = planGroceryTrips();
@@ -3590,10 +3944,11 @@ view.addEventListener('click', (e) => {
 });
 
 modal.addEventListener('click', (e) => {
-  const a = e.target.closest('[data-action=open-task]');
+  const a = e.target.closest('[data-action=open-task], [data-action=task-fix]');
   if (!a) return;
   e.preventDefault();
   const task = get('tasks', a.dataset.id);
+  if (a.dataset.sec) saveSettings({ edSec: { ...(state.settings.edSec || {}), [a.dataset.sec]: true } });
   modal.close();
   setTimeout(() => openTask(task), 0);
 });
@@ -3857,6 +4212,7 @@ function addGhosts() {
 }
 function trayInfo(x) {
   const bits = [fmtDur(x.minutes || 30)];
+  for (const y of (x.steps || []).filter((z) => z.travel)) bits.push(`${MODE_ICON[y.mode] || '🚌'} ${y.known ? fmtDur(y.minutes) : '?'}`);
   if (x.repeat === 'times') bits.push(`×${timesLeft(x, today())}`);
   else if (splitsSteps(x)) bits.push(`▤ ${partsLeft(x).length}`);
   if (x.due) bits.push(x.due < today() ? t('late') : relDay(x.due));
@@ -3876,7 +4232,7 @@ function trayHtml() {
   const planned = alreadyPlanned().filter((x) => !q || matchesQ(taskHay(x), q));
   const row = (x) => `<button type="button" class="tchip trow${a.sel.has(x.id) ? ' on' : ''}" data-id="${esc(x.id)}" style="--c:${esc(catColor(x.category) || 'var(--accent)')}" aria-pressed="${a.sel.has(x.id)}">
       <span class="trow-tick">${a.sel.has(x.id) ? '✓' : ''}</span>
-      <span class="trow-text"><span class="chip-title">${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}</span><small>${esc(trayInfo(x))}</small></span>
+      <span class="trow-text"><span class="chip-title">${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}${taskIssues(x).length ? ` <span class="iss-mark" title="${esc(issueText(x))}">⚠</span>` : ''}</span><small>${esc(trayInfo(x))}</small></span>
       <span class="trow-grip" aria-hidden="true">⠿</span></button>`;
   // Grouped by when it's due (like the Tasks tab) when sorted smartly or by due date; otherwise one list.
   let body;

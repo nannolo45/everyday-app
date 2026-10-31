@@ -73,36 +73,63 @@ export function quickAdd(text) {
 
 export const REPEATS = ['daily', 'weekdays', 'weekly', 'monthly'];
 
-function nextAfter(repeat, s) {
-  switch (repeat) {
-    case 'daily': return addDays(s, 1);
-    case 'weekdays': {
-      let d = addDays(s, 1);
-      while ([0, 6].includes(weekday(d))) d = addDays(d, 1);
-      return d;
+// ---------- recurrence ----------
+// A recurring task has `repeat` (daily | weekdays | weekly | monthly), `every` (1 = each, 2 = every
+// other…), for weekly `repeatDays` (ISO weekdays, Monday = 1; empty = the start date's weekday), an
+// optional `repeatUntil` (last date) and `skipped` dates. `seriesFrom` is the first occurrence (the
+// due date when the rule was set); `due` is the next one still to do.
+export const isoDay = (s) => ((weekday(s) + 6) % 7) + 1;
+const weekStartOf = (s) => addDays(s, -(isoDay(s) - 1));
+const monthsBetween = (a, b) => { const x = parseDate(a); const y = parseDate(b); return (y.getFullYear() - x.getFullYear()) * 12 + (y.getMonth() - x.getMonth()); };
+const sameDayOfMonth = (anchor, s) => { const d = parseDate(anchor).getDate(); const m = parseDate(s); const last = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate(); return m.getDate() === Math.min(d, last); };
+
+// Is `s` an occurrence of the task's rule? (Ignores `skipped` and `repeatUntil`.)
+export function isOccurrence(task, s) {
+  const anchor = task.seriesFrom || task.due;
+  if (!task.repeat || !anchor || s < anchor) return false;
+  const n = Math.max(1, Number(task.every) || 1);
+  const days = Math.round((parseDate(s) - parseDate(anchor)) / 864e5);
+  switch (task.repeat) {
+    case 'daily': return days % n === 0;
+    case 'weekdays': return ![0, 6].includes(weekday(s));
+    case 'weekly': {
+      const set = (task.repeatDays || []).length ? task.repeatDays : [isoDay(anchor)];
+      if (!set.includes(isoDay(s))) return false;
+      const weeks = Math.round((parseDate(weekStartOf(s)) - parseDate(weekStartOf(anchor))) / (7 * 864e5));
+      return weeks % n === 0;
     }
-    case 'weekly': return addDays(s, 7);
-    case 'monthly': {
-      const d = parseDate(s); const day = d.getDate();
-      const n = new Date(d.getFullYear(), d.getMonth() + 1, 1);
-      const last = new Date(n.getFullYear(), n.getMonth() + 1, 0).getDate();
-      n.setDate(Math.min(day, last));
-      return dateStr(n);
-    }
-    default: return null;
+    case 'monthly': { const m = monthsBetween(anchor, s); return m % n === 0 && sameDayOfMonth(anchor, s); }
+    default: return false;
   }
 }
-
+// The occurrences between two dates (inclusive), honouring `skipped` and `repeatUntil`.
+export function occurrences(task, from, to) {
+  const out = [];
+  if (!task.repeat || !REPEATS.includes(task.repeat)) return out;
+  const anchor = task.seriesFrom || task.due;
+  if (!anchor) return out;
+  const start = from > anchor ? from : anchor;
+  const end = task.repeatUntil && task.repeatUntil < to ? task.repeatUntil : to;
+  const skip = new Set(task.skipped || []);
+  for (let d = start; d <= end; d = addDays(d, 1)) if (isOccurrence(task, d) && !skip.has(d)) out.push(d);
+  return out;
+}
+// The next occurrence strictly after `after` (within two years), or null.
+export function nextOccurrence(task, after) {
+  const [d] = occurrences(task, addDays(after, 1), addDays(after, 731));
+  return d || null;
+}
 // Completing a recurring task moves it to its next date after today.
-export function nextDue(repeat, due, todayStr) {
-  let d = due || todayStr;
-  do { d = nextAfter(repeat, d); } while (d && d <= todayStr);
-  return d;
+export function nextDue(repeat, due, todayStr, task = null) {
+  const tk = task || { repeat, due, seriesFrom: due };
+  const from = due && due > todayStr ? due : todayStr;
+  return nextOccurrence({ ...tk, repeat: tk.repeat || repeat, due: tk.due || due }, from);
 }
 
 export function completeTask(task, todayStr, now = Date.now()) {
   if (task.repeat && REPEATS.includes(task.repeat)) {
-    return { ...task, done: false, lastDone: todayStr, due: nextDue(task.repeat, task.due, todayStr) };
+    const due = nextDue(task.repeat, task.due, todayStr, task);
+    return due ? { ...task, done: false, lastDone: todayStr, due } : { ...task, done: true, doneAt: now, lastDone: todayStr }; // the series is over
   }
   return { ...task, done: true, doneAt: now };
 }

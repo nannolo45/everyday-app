@@ -888,3 +888,18 @@ main:has(.plan-layout.side-off) { max-width: 1200px; }
 .tray-why .why-line { color: var(--muted); font-size: .76rem; }
 .tray-why .tp-dot { margin-top: 6px; }
 .tray-why[open] { max-height: 30vh; overflow-y: auto; }
+
+/* Travel steps and the planner's readiness warnings */
+.st-title.unknown { color: var(--warn); font-weight: 600; }
+.iss { border: 0; background: none; color: var(--warn); font-size: 1.05rem; cursor: pointer; padding: 6px; flex: none; }
+.iss-mark { color: var(--warn); font-weight: 700; }
+.warn-text { color: var(--warn); }
+.travel-opts { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; margin: 4px 0; }
+.travel-opts label.check { margin: 0; }
+.travel-opts label:not(.check) { margin: 0; display: inline-flex; align-items: center; gap: 8px; font-weight: 500; color: var(--muted); }
+.travel-opts select { width: auto; margin: 0; }
+/* Recurring tasks */
+.recur-box { display: grid; gap: 8px; padding: 8px 10px; margin: 4px 0 8px; border-radius: 12px; background: var(--surface); }
+.recur-box .times-row input[type=number] { width: 4.5em; }
+.recur-box label { margin: 0; }
+.series-ico { color: var(--muted); font-size: .85em; }
