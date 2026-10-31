@@ -1,0 +1,208 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Everyday · Guide</title><style>
+:root{color-scheme:light dark;--bg:#fff;--ink:#1c2222;--muted:#6c7676;--line:#e3e8e8;--acc:#2f8f86;--card:#f4f7f7}
+@media(prefers-color-scheme:dark){:root{--bg:#161b1b;--ink:#eef2f2;--muted:#98a3a3;--line:#2a3333;--acc:#6fbdb4;--card:#1f2626}}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:720px;margin:0 auto;padding:16px 18px 60px}
+h1{font-family:Georgia,serif;font-size:1.9rem;margin:.4em 0}h2{font-family:Georgia,serif;margin-top:2em;border-top:1px solid var(--line);padding-top:1em}
+h3{margin-top:1.6em}a{color:var(--acc)}code{background:var(--card);padding:1px 5px;border-radius:5px;font-size:.92em}
+img{display:block;max-width:300px;width:100%;margin:14px auto;border:1px solid var(--line);border-radius:18px;box-shadow:0 6px 20px rgba(0,0,0,.18)}
+table{border-collapse:collapse;width:100%;font-size:.95em}th,td{text-align:left;vertical-align:top;padding:8px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-weight:600}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:.95em}.top a{text-decoration:none}
+nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 0}nav.toc a{display:block;padding:3px 0;text-decoration:none}
+</style></head>
+<body><main><div class="top"><a href="./">← Back to the app</a><a href="guide-it.html">Italiano</a></div><h1 id="everyday-user-guide">Everyday: user guide</h1><nav class="toc"><a href="#what-everyday-is">What Everyday is</a><a href="#first-setup">First setup</a><a href="#the-four-tabs">The four tabs</a><a href="#tasks">Tasks</a><a href="#planning">Planning</a><a href="#travel">Travel</a><a href="#meals-shopping-list-and-grocery-runs">Meals, shopping list and grocery runs</a><a href="#google-calendar">Google Calendar</a><a href="#a-typical-week">A typical week</a><a href="#tips-and-troubleshooting">Tips and troubleshooting</a></nav>
+<p>Everything you need to set Everyday up and plan your days with it.</p>
+<h2 id="what-everyday-is">What Everyday is</h2>
+<p>Everyday is a planner for your days. You write down what you have to do, and it helps you decide <em>when</em> to do it. Every task takes some time, and once you put it on a day it becomes a block on that day's timeline, next to your calendar appointments. The app can suggest a plan for a day, a week or a month, keep Google Calendar in step, add the time it takes to get to a place, and plan meals and grocery runs together with the Ricette recipe app.</p>
+<p>It works in the browser on a phone or a computer and can be installed like a normal app. Your data stays yours: it lives on your devices and in a private space on GitHub that only you can see. There is no account with us, no AI and nothing to pay.</p>
+<p>What it is not: it is not a calendar (your appointments come from Google Calendar), not a notes app and not a tool for a team. One person, one set of data.</p>
+<h2 id="first-setup">First setup</h2>
+<p>You need about fifteen minutes and a GitHub account (free). Everything happens in <strong>Settings</strong>, the last tab. Each part of Settings can be folded, so you only see what you are working on.</p>
+<p><img alt="Settings, with every section folded" src="guide/en/05-settings-folded.png" /></p>
+<h3 id="1-install-the-app">1. Install the app</h3>
+<p>Open the app's address in Chrome on your phone, or in any browser on a computer. On Android choose <em>Install app</em> (or <em>Add to Home screen</em>) from the browser menu; on a computer click the small install icon in the address bar. The app works without a connection too; new versions arrive on their own, and a bar offers to reload. The bottom of Settings shows which version you have.</p>
+<h3 id="2-connect-your-own-space-on-github">2. Connect your own space on GitHub</h3>
+<p>This is where your data is stored and how your devices stay in sync.</p>
+<ol>
+<li>On GitHub, create a <strong>private, empty</strong> repository (a "repository" is just a folder on GitHub), for example <code>everyday-data</code>. Don't copy anyone else's.</li>
+<li>Create a <strong>personal access token</strong> (GitHub → Settings → Developer settings → Fine-grained tokens) that is allowed to read and write the <em>Contents</em> of that repository. A token is like a password made for apps.</li>
+<li>In Settings → <em>GitHub sync</em>, type your GitHub user name, the repository name and the token, then tap <em>Save and test</em>. The badge at the top of the app says <em>Synced</em> when it works.</li>
+</ol>
+<p><img alt="Entering user, repository and token" src="guide/en/01-sync-form.png" /></p>
+<p><img alt="Connected: the repository and the time of the last sync" src="guide/en/02-sync-connected.png" /></p>
+<p>The token stays on the device. Do step 3 on every phone or computer you use: they all share the same data, within a minute of any change.</p>
+<h3 id="3-optional-ricette-recipes-and-pantry">3. Optional: Ricette (recipes and pantry)</h3>
+<p>If you also use the Ricette app, type the name of its data repository in Settings → <em>Ricette</em> (the same token must be allowed to use it). Everyday then knows your recipes and your pantry, shares the shopping list with Ricette and can plan meals from recipes.</p>
+<h3 id="4-optional-google-calendar">4. Optional: Google Calendar</h3>
+<p>This link runs on GitHub, not on your phone, so it needs a one-time setup on Google's side. Settings → <em>Google Calendar</em> lists the steps; in short, you create a small Google Cloud project, allow it to use your calendar, and store three "secrets" in your repository. Once done, your appointments appear in the app and your plan appears in Google Calendar, with reminders.</p>
+<p><img alt="The Google Calendar section after the first sync" src="guide/en/04-settings-gcal.png" /></p>
+<h3 id="5-travel">5. Travel</h3>
+<p>In Settings → <em>Travel</em>, type your home address and how you usually get around (walking, bike, public transport, car). That's all the app needs to add travel time to tasks that have a place. A Google Maps key is optional; without one the app uses free map services.</p>
+<p><img alt="Travel settings: home, usual transport, and the journey legs" src="guide/en/03-settings-travel.png" /></p>
+<h3 id="6-a-second-person">6. A second person</h3>
+<p>Each person needs their own repository, their own token and (if they want it) their own calendar setup. On their device, open the same app address and type <em>their</em> repository in Settings. If the device held someone else's data before, the app asks whether to <strong>start empty</strong> — choose that. <em>Empty this device</em>, in the same section, does the same at any later time.</p>
+<h2 id="the-four-tabs">The four tabs</h2>
+<table>
+<thead>
+<tr>
+<th>Tab</th>
+<th>What it is for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Plan</strong></td>
+<td>Your days as a timeline (Day, Week, Month or List): blocks of time, calendar events, the tasks still to plan, and the buttons that plan for you. Tapping the app's name brings you back here.</td>
+</tr>
+<tr>
+<td><strong>Tasks</strong></td>
+<td>Everything to do: <em>To plan</em>, <em>Planned</em>, <em>Done</em>, and the <em>Saved</em> list of things that come back (gym, cleaning, meals). Search, filters, sorting, import from pasted text.</td>
+</tr>
+<tr>
+<td><strong>Shopping</strong></td>
+<td>The shopping list (shared with Ricette when connected), grouped by department, recipe or shop.</td>
+</tr>
+<tr>
+<td><strong>Settings</strong></td>
+<td>Language, planner hours, travel, shops, categories, sync, Ricette, Google Calendar, backup, version.</td>
+</tr>
+</tbody>
+</table>
+<p>The badge at the top right shows whether your data is in sync: <em>Synced</em>, <em>Syncing</em>, <em>Offline</em>, or <em>Only on this device</em> when you haven't connected yet.</p>
+<h2 id="tasks">Tasks</h2>
+<h3 id="adding-a-task">Adding a task</h3>
+<p>Type in the field at the top of the Tasks tab and press Enter. A few shortcuts save you from opening the task: <code>Dentist 1h</code> sets how long it takes, <code>!1</code> to <code>!5</code> how important it is (1 = very), <code>#work</code> the category. <em>Import</em> takes a whole list you paste in, one task per line.</p>
+<p><img alt="The Tasks tab: add field, search, filters and the tasks to plan" src="guide/en/06-tasks.png" /></p>
+<p>Tap a task to open it. The task is split into parts you can fold; anything you don't touch keeps a sensible value.</p>
+<p><img alt="A task opened: length, buffer, importance, category" src="guide/en/07-editor.png" /></p>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>What you set there</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Length and importance</td>
+<td>How long it takes (30 minutes until you say otherwise), a <strong>buffer</strong> after it (a few spare minutes added to the block), how important it is, the category, and the <em>Saved task</em> switch.</td>
+</tr>
+<tr>
+<td>When</td>
+<td>A day and a time, a due date, repetition, the part of the day you prefer, things that must come first, time windows (e.g. office hours), the reminder.</td>
+</tr>
+<tr>
+<td>Place</td>
+<td>An address or a link. With a place, the app adds <em>Get there</em> (and, if you like, <em>Come back</em>) with the real travel time.</td>
+</tr>
+<tr>
+<td>Steps</td>
+<td>Parts of the task, each with its own length; on the plan every step gets its own time. Tap ⚓ on the step the task's time refers to (e.g. <em>Workout</em> at 19:00, so <em>Get there</em> goes before).</td>
+</tr>
+<tr>
+<td>Checklist</td>
+<td>Things to tick while doing it.</td>
+</tr>
+<tr>
+<td>Rules</td>
+<td>What should happen before or after, depending on how it goes (something to prepare before, a follow-up if it fails, a grocery run before a meal…).</td>
+</tr>
+<tr>
+<td>Notes</td>
+<td>Free text.</td>
+</tr>
+</tbody>
+</table>
+<p><img alt="The Place part: address, Get there, Come back, how you travel" src="guide/en/08-editor-place.png" /></p>
+<h3 id="saved-tasks">Saved tasks</h3>
+<p>Things that come back without a fixed rhythm — gym, cleaning, meals — live under <em>Saved</em>. They are normal tasks; the only difference is that they stay in that list and you put them on a day when you want them, from <em>+ Add → Saved</em> on the plan. Tick <em>Saved task</em> inside a task to move it there and back.</p>
+<h3 id="recurring-tasks">Recurring tasks</h3>
+<p>In the <em>When</em> part choose <em>every day</em>, <em>weekdays</em>, <em>weekly</em> (pick the days) or <em>monthly</em>, with <em>every N</em> and an end date if you like. Give the task a day and a time and every occurrence of the coming weeks goes on the plan by itself (marked ↻). Change one occurrence from its block, or the whole series from the task; when you change or delete from a block the app asks <em>only this one</em> or <em>this and the following</em>.</p>
+<h3 id="finding-things">Finding things</h3>
+<p>The search field looks through titles, notes, places, steps and checklists. <strong>Filters</strong>: <em>To fix</em> shows the tasks the planner still needs a detail for (a length, a place, your home address…), <em>Recurring</em>, <em>With a place</em>, or one category. <strong>Compact</strong> shows one line per task when the list gets long. You can also sort: smart, your own order (drag ⠿), due date, importance, length, category, date added.</p>
+<h2 id="planning">Planning</h2>
+<h3 id="the-views">The views</h3>
+<p><strong>Day</strong> is a timeline from the start to the end of your day (you choose the hours in Settings → Planner): blocks for your tasks, calendar events in their colour, a red line for <em>now</em>. <strong>Week</strong> shows seven columns, <strong>Month</strong> a grid, <strong>List</strong> the coming days one after the other. Every day has a small <em>busy bar</em>: how full it is compared with the daily limit you set. ‹ › move in time, <em>Today</em> brings you back.</p>
+<p><img alt="The Day view: a calendar event and a task with its Get there step" src="guide/en/09-plan-day.png" /></p>
+<p><img alt="The Week view" src="guide/en/12-week.png" /></p>
+<p>On a computer a <strong>tasks column</strong> sits beside the plan with what is still to plan (hide it with the <em>Tasks</em> switch; on a phone it is hidden by default). Tap a task there to put it in the next free slot, or drag it onto the timeline, a week day or a month cell.</p>
+<h3 id="putting-a-task-on-a-day-by-hand">Putting a task on a day by hand</h3>
+<ul>
+<li>Tap an empty spot on the Day timeline: a new block at that time.</li>
+<li><em>+ Add</em> → a Task (new or from the list), a Saved one, a Meal, a Block, or a Template (a reusable day layout).</li>
+<li>Drag a block to move it; drag its bottom edge to make it longer or shorter. Tap a block to tick it, see its steps and checklist, or change it.</li>
+</ul>
+<p><img alt="A block opened: time, length, its steps" src="guide/en/13-block-travel.png" /></p>
+<h3 id="letting-the-app-plan">Letting the app plan</h3>
+<p><strong>✦ Suggest a plan</strong> takes the tasks still to plan and spreads them over the period you choose (today, 3 days, a week, two weeks, a month…), inside your planning hours. It respects due dates, importance, your own order, time windows, things that must come first and the daily limit. You get a set of <em>previews</em> you can look at in every view (each says why it landed there); <em>Add</em> makes them real, or remove the ones you don't want first. Tasks that are already planned are kept apart, so you don't plan them twice.</p>
+<p><img alt="Suggest a plan: choose the period" src="guide/en/10-suggest-dialog.png" /></p>
+<p><img alt="Previews on the day, with Add" src="guide/en/11-suggest-previews.png" /></p>
+<p><strong>⇢ Assign</strong> opens the <strong>tray</strong>: the same tasks as a list you can search, sort and filter, to drag one by one onto days or times.</p>
+<p><strong>⏱ I have time</strong> (shown on today) answers "I have 40 minutes now, what fits?": it proposes tasks that fit in the gap until the next block.</p>
+<p>If a block overlaps a calendar event, or comes before something it depends on, a warning appears with a <em>Fix</em> button. A task with a ⚠ is missing a detail the planner wants (length, place, home address, a travel time not found yet): <em>To fix</em> in the filters lists them.</p>
+<h2 id="travel">Travel</h2>
+<p>Give a task a place and the app adds <strong>Get there</strong> before it, with the travel time from your home (or from the place of the previous task that day, if you don't go home in between) and the transport you chose. <strong>Come back</strong> after it is optional. Both are steps of the task: you see them on the block, you can tick them, and the block grows around the task so the task itself stays at its time.</p>
+<p>In Settings → Travel → <em>Journey legs</em> you decide when each one is added: <em>only when the task has a place</em>, <em>for every task</em> (a task without a place then shows a "?" of 30 minutes as a reminder to account for the trip) or <em>never</em> (you switch it on per task). Each task can still say otherwise in its <em>Place</em> part, and pick its own transport.</p>
+<p><strong>The legs are saved tasks.</strong> <em>Before the task (getting there)</em> and <em>After the task (coming back)</em> each point to a saved task — <em>Get there</em> and <em>Come back</em> at first. You find them under <em>Saved</em> and can edit them from Settings: rename them, or give them steps — for example <em>Pack the bag</em> (5 min) and <em>Travel</em>. The step marked ⚓ (or the first one) receives the travel time from the map; the others keep their own length. You can also pick any other saved task for either leg.</p>
+<p>Travel times come from free map services. With a Google Maps key in Settings, Google is used instead and public transport works everywhere. A "?" on a task means the time isn't known yet: the planner counts 30 minutes until it is, and ⚠ tells you when an address wasn't found. <em>Start from where I am today</em> uses your phone's location for the first trip of the day.</p>
+<h2 id="meals-shopping-list-and-grocery-runs">Meals, shopping list and grocery runs</h2>
+<p>With Ricette connected, <em>+ Add → Meal</em> puts a meal on a day and lets you pick recipes for it; the preparation step takes its length from the recipes. When the time comes (or when you tick the <em>check</em> step) the app looks at the pantry: what's missing goes on the <strong>shopping list</strong>, and a <strong>grocery run</strong> is planned before the meal.</p>
+<p><img alt="The shopping list, grouped by department" src="guide/en/14-shopping.png" /></p>
+<p>The Shopping tab is the same list as in Ricette, both ways: add, change, tick or delete here and it shows there within a minute. Group it by department, recipe or shop, sort it A–Z or by when things were added, search it. Tap an item to change its quantity, note or the shops that have it.</p>
+<p><strong>Shops</strong> (Settings → Shops) have opening hours and, if you like, an address. Say which shops carry an item and the grocery runs are planned when those shops are open, as one run or one per shop. A grocery run is a block like any other; ticking items as you buy them marks them bought in Ricette, and they go into the pantry when you put the shopping away there.</p>
+<h2 id="google-calendar">Google Calendar</h2>
+<p>Once set up, the link works both ways:</p>
+<ul>
+<li><strong>Your calendars → Everyday.</strong> Appointments from the calendars you import appear on the plan in their colour, as busy time the planner works around. You can't change them here; a link opens them in Google Calendar.</li>
+<li><strong>Everyday → Google Calendar.</strong> Everything you plan is written to a calendar called <em>Everyday</em>, with a reminder (the default from Settings → Google Calendar, or the task's own). Move or delete an Everyday event in Google Calendar and your plan follows.</li>
+</ul>
+<p>The link refreshes every hour and a moment after you change your plan; <em>Sync with Google now</em> refreshes it by hand. The section in Settings shows when it last ran and how many appointments came in. <em>Remove calendar data</em> deletes the imported appointments from your repository — useful if a repository was copied from someone else's and shows their calendar.</p>
+<h2 id="a-typical-week">A typical week</h2>
+<p><strong>Sunday evening, ten minutes.</strong> Open Tasks and empty your head: type everything that is on your mind, with a length when you know it (<code>Call the bank 20m</code>, <code>Tax return 2h !2</code>). Give a place to the things that happen somewhere (<code>Dentist</code>, place: the practice's address). Put the week's meals on their days (<em>+ Add → Meal</em>) and pick the recipes. Then Plan → Week → <strong>✦ Suggest a plan</strong> for the week: look at the previews, drag the one or two you want elsewhere, <em>Add</em>. Your appointments were already there, so nothing lands on top of them; the grocery run was placed before the first meal that needs it.</p>
+<p><strong>Every morning.</strong> Open the app: today's timeline shows the plan with the <em>now</em> line, and Google Calendar reminds you before each block. A ⚠ on a task means a detail is missing — fix it or ignore it. If the day looks too full, drag something to tomorrow; if an appointment moved, the warning tells you and <em>Fix</em> moves the block.</p>
+<p><strong>During the day.</strong> Tick blocks as you finish them (for long ones, tick the steps). A meeting ended early? <strong>⏱ I have time</strong> finds something that fits in the gap. Something new came up? Type it and tap it: it goes in the next free slot. Buy groceries from the Shopping tab, ticking items as they go into the basket.</p>
+<p><strong>Evening.</strong> What you didn't do stays open: the next <em>Suggest a plan</em> picks it up again. Overdue tasks are grouped at the top of <em>To plan</em>, so they don't get lost.</p>
+<p><strong>Once in a while.</strong> Recurring things (gym Monday and Wednesday at 19:00, weekly cleaning) are set once and appear on their own; the <em>Saved</em> list holds what comes back without a rhythm. Settings → Planner is where you adjust the day's hours, the daily limit and the default buffer after tasks when the plans feel too tight or too loose.</p>
+<h2 id="tips-and-troubleshooting">Tips and troubleshooting</h2>
+<table>
+<thead>
+<tr>
+<th>Situation</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The badge says <em>Offline</em> or shows an error</td>
+<td>Check the connection, then Settings → GitHub sync → <em>Sync now</em>. A token that expired or lost access shows an error there; make a new one.</td>
+</tr>
+<tr>
+<td>Two devices show different things</td>
+<td>Wait a minute with the app open on both; every change syncs within a minute. Changes made at the same time are merged: the newest wins.</td>
+</tr>
+<tr>
+<td>The app looks old</td>
+<td>New versions arrive on their own; a bar offers to reload when one arrives while the app is open. The bottom of Settings shows the version.</td>
+</tr>
+<tr>
+<td>Someone else's data shows on a device</td>
+<td>Settings → GitHub sync → <em>Empty this device</em>, after checking that the repository there is the right one. If the repository itself was copied from someone else's, delete its files on GitHub first (for the calendar: Settings → Google Calendar → <em>Remove calendar data</em>).</td>
+</tr>
+<tr>
+<td>A task shows ⚠</td>
+<td>Open it: it opens on the missing detail (a length, a place, the home address in Settings, or a travel time still being looked up).</td>
+</tr>
+<tr>
+<td>Travel times are missing or wrong</td>
+<td>Settings → Travel: check the home address, the transport and <em>Look up times again</em>. Addresses need a street, number and city to be found.</td>
+</tr>
+<tr>
+<td>The plan is always too full</td>
+<td>Settings → Planner: lower <em>Plan at most</em>, narrow the suggestion hours, add a default buffer after tasks.</td>
+</tr>
+<tr>
+<td>I want my data</td>
+<td>Settings → <em>Download backup</em> gives one file with everything; your repository on GitHub holds the same files.</td>
+</tr>
+</tbody>
+</table></main></body></html>
