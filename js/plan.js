@@ -55,17 +55,82 @@ export function importanceOf(task) {
 
 // Quick add: "Call the dentist 15m !1 #health" -> title, minutes, importance, category name.
 // !1 = very important … !5 = not important (!1–!3 as before; the number is the rank).
-export function quickAdd(text) {
-  const out = { title: '', minutes: null, priority: 0, importance: null, category: null };
-  const words = [];
-  for (const w of String(text || '').trim().split(/\s+/)) {
-    let m;
-    if (out.minutes == null && /^\d/.test(w) && /[hm]|min/i.test(w) && parseDuration(w) != null) out.minutes = parseDuration(w);
+// Weekday words in the three languages (index = JS weekday, 0 = Sunday).
+const DAY_WORDS = [
+  // (No two-letter German forms that are also Italian words: "di", "do", "so", "mi", "sa".)
+  ['sun', 'sunday', 'dom', 'domenica', 'sonntag'], ['mon', 'monday', 'lun', 'lunedi', 'lunedì', 'mo', 'montag'], ['tue', 'tuesday', 'mar', 'martedi', 'martedì', 'dienstag'],
+  ['wed', 'wednesday', 'mer', 'mercoledi', 'mercoledì', 'mittwoch'], ['thu', 'thursday', 'gio', 'giovedi', 'giovedì', 'donnerstag'],
+  ['fri', 'friday', 'ven', 'venerdi', 'venerdì', 'fr', 'freitag'], ['sat', 'saturday', 'sab', 'sabato', 'samstag'],
+];
+const dayIndex = (w) => DAY_WORDS.findIndex((ws) => ws.includes(w.toLowerCase()));
+const REL_DAYS = { today: 0, oggi: 0, heute: 0, tomorrow: 1, domani: 1, morgen: 1 };
+function nextWeekday(from, wd) { let d = from; for (let i = 0; i < 7; i++) { d = addDays(d, 1); if (weekday(d) === wd) return d; } return from; }
+// Month words (index + 1 = month), with the usual short forms, in the three languages.
+const MONTH_WORDS = [
+  ['jan', 'january', 'gen', 'gennaio', 'januar'], ['feb', 'february', 'febbraio', 'februar'], ['mar', 'march', 'marzo', 'mär', 'märz'],
+  ['apr', 'april', 'aprile'], ['may', 'mag', 'maggio', 'mai'], ['jun', 'june', 'giu', 'giugno', 'juni'],
+  ['jul', 'july', 'lug', 'luglio', 'juli'], ['aug', 'august', 'ago', 'agosto'], ['sep', 'sept', 'september', 'set', 'settembre'],
+  ['oct', 'october', 'ott', 'ottobre', 'okt', 'oktober'], ['nov', 'november', 'novembre'], ['dec', 'december', 'dic', 'dicembre', 'dez', 'dezember'],
+];
+const monthIndex = (w) => MONTH_WORDS.findIndex((ws) => ws.includes(String(w || '').toLowerCase().replace(/\.$/, '')));
+// A calendar date: "20 mag", "20 maggio 2027", "20/5", "20/05/2027", "2027-05-20". Without a year: the
+// next time that day comes round.
+function explicitDate(w1, w2, w3, todayStr) {
+  const mk = (y, m, d) => {
+    if (!(m >= 1 && m <= 12 && d >= 1 && d <= 31)) return null;
+    const s = `${y}-${pad(m)}-${pad(d)}`;
+    return dateStr(parseDate(s)) === s ? s : null; // no 31 April
+  };
+  const yearOf = (y) => (y == null ? null : y < 100 ? 2000 + y : y);
+  const roll = (m, d) => { const y = Number(todayStr.slice(0, 4)); const s = mk(y, m, d); return s && s >= todayStr ? s : mk(y + 1, m, d); };
+  let m;
+  if ((m = w1.match(/^(\d{4})-(\d{2})-(\d{2})$/))) return { date: mk(Number(m[1]), Number(m[2]), Number(m[3])), used: 1 };
+  if ((m = w1.match(/^(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?$/)) && !(m[3] == null && w1.includes('.'))) {
+    const y = yearOf(m[3] != null ? Number(m[3]) : null);
+    return { date: y ? mk(y, Number(m[2]), Number(m[1])) : roll(Number(m[2]), Number(m[1])), used: 1 };
+  }
+  if (/^\d{1,2}$/.test(w1) && w2 && monthIndex(w2) >= 0) {
+    const y = w3 && /^\d{4}$/.test(w3) ? Number(w3) : null;
+    return { date: y ? mk(y, monthIndex(w2) + 1, Number(w1)) : roll(monthIndex(w2) + 1, Number(w1)), used: y ? 3 : 2 };
+  }
+  return null;
+}
+
+// "Dentist 1h !2 #health @Via Roma 12 fri" → title, length, importance, category, place, due.
+// Also "entro ven" / "by fri" (due), "ogni lun" / "every mon" (weekly), "domani" / "tomorrow",
+// a date ("20 mag", "20/5/2027") and a time ("21:00", "alle 21", "at 9").
+export function quickAdd(text, todayStr = today()) {
+  const out = { title: '', minutes: null, priority: 0, importance: null, category: null, place: null, due: null, repeat: null, repeatDays: null, time: null };
+  let str = String(text || '').trim();
+  const at = str.match(/(?:^|\s)@(.+?)(?=\s(?:[!#]\S|\d+\s?(?:h|m|min)\b)|$)/i);
+  let tail = [];
+  if (at) {
+    const pw = at[1].trim().split(/\s+/);
+    // A day word at the end ("@Via Roma 12 fri", "@Posta entro ven") belongs to the task, not the place.
+    while (pw.length > 1 && (dayIndex(pw[pw.length - 1]) >= 0 || REL_DAYS[pw[pw.length - 1].toLowerCase()] != null || ['entro', 'by', 'bis', 'ogni', 'every', 'jeden'].includes(pw[pw.length - 1].toLowerCase()) || /^\d{1,2}:\d{2}$/.test(pw[pw.length - 1]))) tail.unshift(pw.pop());
+    out.place = pw.join(' ').replace(/,$/, '');
+    str = str.replace(at[0], ' ');
+  }
+  const words = [...str.split(/\s+/).filter(Boolean), ...tail];
+  const kept = [];
+  const TIME_PREP = ['alle', 'at', 'um', 'ore'];
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]; let m;
+    const lw = w.toLowerCase();
+    const ed = out.due ? null : explicitDate(w, words[i + 1] || '', words[i + 2] || '', todayStr);
+    if (ed?.date && (kept.length || ed.used > 1 || /\D/.test(w))) { out.due = ed.date; i += ed.used - 1; }
+    else if (out.time == null && (m = w.match(/^(\d{1,2}):(\d{2})$/)) && Number(m[1]) < 24 && Number(m[2]) < 60) out.time = Number(m[1]) * 60 + Number(m[2]);
+    else if (out.time == null && TIME_PREP.includes(lw) && words[i + 1] && (m = words[i + 1].match(/^(\d{1,2})(?:[:.](\d{2}))?$/)) && Number(m[1]) < 24) { out.time = Number(m[1]) * 60 + Number(m[2] || 0); i++; }
+    else if (out.minutes == null && /^\d/.test(w) && /[hm]|min/i.test(w) && parseDuration(w) != null) out.minutes = parseDuration(w);
     else if (!out.importance && (m = w.match(/^!([1-5])$/))) { out.importance = 6 - Number(m[1]); out.priority = Number(m[1]) <= 3 ? Number(m[1]) : 0; }
     else if (!out.category && (m = w.match(/^#(\S+)$/))) out.category = m[1];
-    else words.push(w);
+    else if (!out.repeat && ['ogni', 'every', 'jeden'].includes(lw) && words[i + 1] && dayIndex(words[i + 1]) >= 0) { const wd = dayIndex(words[i + 1]); out.repeat = 'weekly'; out.repeatDays = [((wd + 6) % 7) + 1]; out.due = out.due || (weekday(todayStr) === wd ? todayStr : nextWeekday(todayStr, wd)); i++; }
+    else if (!out.due && ['entro', 'by', 'bis'].includes(lw) && words[i + 1] && (dayIndex(words[i + 1]) >= 0 || REL_DAYS[words[i + 1].toLowerCase()] != null)) { const n = words[i + 1].toLowerCase(); out.due = REL_DAYS[n] != null ? addDays(todayStr, REL_DAYS[n]) : nextWeekday(todayStr, dayIndex(n)); i++; }
+    else if (!out.due && REL_DAYS[lw] != null) out.due = addDays(todayStr, REL_DAYS[lw]);
+    else if (!out.due && dayIndex(lw) >= 0 && kept.length) out.due = nextWeekday(todayStr, dayIndex(lw));
+    else kept.push(w);
   }
-  out.title = words.join(' ');
+  out.title = kept.join(' ');
   return out;
 }
 

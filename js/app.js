@@ -24,7 +24,7 @@ import { setupTrayDrag } from './tray.js';
 import { assignItems, planTrips, openOn, shopsFor } from './shops.js';
 
 // Shown under Settings; keep in step with VERSION in sw.js (a unit test checks).
-export const APP_VERSION = 'v28';
+export const APP_VERSION = 'v30';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 // Hints that were emptied in i18n (the guide explains instead) render nothing.
@@ -71,12 +71,22 @@ function toast(msg, ms = 3200) {
 }
 
 function route() {
-  const h = location.hash.replace(/^#\/?/, '') || 'plan';
+  const h = location.hash.replace(/^#\/?/, '') || 'today';
   const [name, id] = h.split('/');
   return { name, id: id && decodeURIComponent(id) };
 }
 
-const TAB_OF = { plan: 'plan', tasks: 'tasks', shop: 'shop', settings: 'settings' };
+// Left to right, the way a week gets planned: today → events → tasks around them → the plan.
+// Shopping is a part of the Tasks tab (#/shop still opens it directly); Settings opens from the gear.
+const TAB_OF = { today: 'today', events: 'events', plan: 'plan', tasks: 'tasks', shop: 'tasks', settings: 'settings' };
+const TABS = ['today', 'events', 'tasks', 'plan'];
+// Rules, templates and preparations are power features: shown only when switched on under
+// Settings → Advanced, or when the data already uses them.
+function advancedOn() {
+  const v = state.settings.advancedFeatures;
+  if (v != null) return Boolean(v);
+  return live('templates').length > 0 || live('tasks').some((x) => (x.helper && !x.check) || (x.rules || []).some((r) => r.then !== 'groceries'));
+}
 
 function planSettings() {
   const s = state.settings;
@@ -91,6 +101,14 @@ function planSettings() {
 function categories() { return live('categories').sort((a, b) => (a.order ?? 99) - (b.order ?? 99) || catName(a).localeCompare(catName(b))); }
 function catName(c) { return c ? (c.name || t(`cat_${c.key}`)) : ''; }
 function catColor(id) { return get('categories', id)?.color || ''; }
+// A task from what quick add parsed ("Dentist 1h !2 #health @Via Roma 12 fri").
+function quickFields(q) {
+  return {
+    title: q.title, minutes: q.minutes || 30, lenSet: Boolean(q.minutes), priority: q.priority, importance: q.importance || 3,
+    category: findCategory(q.category), due: q.due || null, repeat: q.repeat || null, repeatDays: q.repeatDays || undefined, seriesFrom: q.repeat ? q.due : undefined,
+    place: q.place || '', notes: '', done: false,
+  };
+}
 function findCategory(word) {
   if (!word) return null;
   const w = word.toLowerCase();
@@ -116,16 +134,149 @@ function catOptions(selected) {
 // ---------- tasks, preparations, checklists ----------
 
 function blocksOn(date) { return live('blocks').filter((b) => b.date === date); }
-// Google Calendar events that day (read-only; see data-repo/scripts/gcal-sync.mjs).
-function eventsOn(date) { return state.settings.showEvents === false ? [] : live('events').filter((e) => e.date === date); }
+// Google Calendar events that day (read-only; see data-repo/scripts/gcal-sync.mjs), plus your own
+// all-day events (events with a time are blocks of their event task, see ---------- events).
+function eventsOn(date) { return [...(state.settings.showEvents === false ? [] : live('events').filter((e) => e.date === date)), ...ownAllDayOn(date)]; }
 function timedEventsOn(date) { return eventsOn(date).filter((e) => !e.allDay).map((e) => ({ ...e, isEvent: true, fixed: true })); }
 // Everything that takes up time: your blocks plus busy calendar events.
 function busyOn(date) { return [...blocksOn(date), ...timedEventsOn(date).filter((e) => e.busy !== false)]; }
 const itemById = (id) => get('blocks', id) || get('events', id);
 function scheduledOn(taskId, date) { return blocksOn(date).some((b) => b.taskId === taskId); }
-// To-dos are tasks that aren't preparation steps or meal types (those are set up in Settings).
-const isTodo = (x) => !x.helper && !x.routine;
+// To-dos are tasks that aren't preparation steps, meal types (set up in Settings) or events.
+const isTodo = (x) => !x.helper && !x.routine && !x.event;
 function openTasks() { return live('tasks').filter((x) => !x.done && isTodo(x)); }
+// To-dos and events: everything that gets travel legs.
+function travelTasks() { return live('tasks').filter((x) => !x.done && (isTodo(x) || x.event)); }
+
+// ---------- events ----------
+// An event is a task with `event: true` and a fixed date: it is never moved by the planner or the
+// morning re-flow. With a time it has exactly one block (or a series of them when it repeats); without
+// one it is all-day (`allDay`, no block). `due` is its date. Tasks to do around it carry `eventId` and
+// `eventOffset` {days, when: 'before' | 'after'}; their due date follows the event (syncEventTasks).
+const isEventTask = (x) => Boolean(x?.event);
+function ownEvents() { return live('tasks').filter((x) => x.event); }
+function ownAllDayOn(date) {
+  return ownEvents().filter((x) => x.allDay && x.due === date)
+    .map((x) => ({ id: x.id, title: x.title, date, allDay: true, color: catColor(x.category) || 'var(--accent)', own: true, calendar: t('tabEvents'), location: x.place || '' }));
+}
+// An event by id: one of yours (a task) or an imported one.
+const eventOf = (id) => { const x = get('tasks', id); return x?.event ? x : get('events', id); };
+// The event's date: for your own, the day of its next block (it may have been dragged), else `due`.
+function eventDate(ev) {
+  if (!ev) return null;
+  if (!ev.event) return ev.date || null; // imported
+  const b = ev.allDay ? null : nextBlockOf(ev.id);
+  return b?.date || ev.due || null;
+}
+function eventStart(ev) {
+  if (!ev || ev.allDay) return null;
+  if (!ev.event) return ev.start ?? null;
+  const b = nextBlockOf(ev.id);
+  return b ? b.start + anchorOffset(b) : (ev.eventTime ?? null);
+}
+// The tasks attached to an event (open first), and how ready it is.
+function eventTasksOf(id) { return live('tasks').filter((x) => x.eventId === id && !x.helper).sort((a, b) => Number(a.done) - Number(b.done) || (a.due || '').localeCompare(b.due || '')); }
+function eventReadiness(id) {
+  const list = eventTasksOf(id);
+  const open = list.filter((x) => !x.done);
+  const planned = plannedTaskIds();
+  return { total: list.length, open: open.length, unplanned: open.filter((x) => !planned.has(x.id)).length, late: open.filter((x) => x.due && x.due < today()).length };
+}
+function readinessText(id) {
+  const r = eventReadiness(id);
+  if (!r.total) return '';
+  if (!r.open) return `✓ ${t('allReady')}`;
+  return [t('nToDo', r.open), r.unplanned ? t('nToPlan', r.unplanned) : '', r.late ? t('nLate', r.late) : ''].filter(Boolean).join(' · ');
+}
+const offsetDue = (date, off) => addDays(date, (off?.when === 'after' ? 1 : -1) * Math.max(0, Number(off?.days) || 0));
+function offsetText(off) {
+  const d = Math.max(0, Number(off?.days) || 0);
+  if (!d) return t('sameDayAsEvent');
+  const n = d % 7 === 0 ? d / 7 : d;
+  const unit = d % 7 === 0 ? t(n === 1 ? 'week1' : 'weeksN', n) : t(n === 1 ? 'day1' : 'daysN', n);
+  return t(off?.when === 'after' ? 'afterEvent' : 'beforeEvent', unit);
+}
+// Keep dates in step: an event's `due` follows its block; an attached task's due follows the event.
+function syncEventTasks() {
+  let any = false;
+  for (const ev of ownEvents().filter((x) => !x.allDay && !x.repeat)) {
+    const b = nextBlockOf(ev.id);
+    if (b && b.date !== ev.due) { upsert('tasks', { ...ev, due: b.date }, { silent: true }); any = true; }
+  }
+  for (const x of live('tasks').filter((y) => y.eventId && !y.done)) {
+    const ev = eventOf(x.eventId);
+    if (!ev) { upsert('tasks', { ...x, eventId: null, eventOffset: null }, { silent: true }); any = true; continue; }
+    const d = eventDate(ev);
+    if (!d) continue;
+    const due = offsetDue(d, x.eventOffset);
+    if (x.due !== due) { upsert('tasks', { ...x, due }, { silent: true }); any = true; }
+  }
+  return any;
+}
+// An event from quick add ("Concerto 20 mag 21:00 @Arena"): saved, and on the plan when it has a time.
+function saveEvent(d) {
+  const { planDate, planTime, ...fields } = d;
+  const rec = saveTask({ ...fields, event: true, due: planDate, allDay: planTime == null, eventTime: planTime ?? null, importance: 3, checklist: fields.checklist || [], steps: fields.steps || [], allRules: [] });
+  if (planTime != null) planTask(rec, planDate, Math.max(0, planTime - anchorOffset(null, rec)));
+  return get('tasks', rec.id);
+}
+// "+ To do before / after": a task attached to an event, due so many days or weeks around it.
+function openEventTaskAdd(ev, { back = false } = {}) {
+  const d = eventDate(ev);
+  openModal(`
+    <h2>✓ ${esc(t('addEventTask'))}</h2>
+    <p class="hint">📅 ${esc(ev.title)}${d ? ` · ${esc(relDay(d))}` : ''}</p>
+    <label>${esc(t('title'))}<input name="title" required autocomplete="off" placeholder="${esc(t('eventTaskPh'))}"></label>
+    <div class="offset-row">
+      <input name="evDays" type="number" min="0" max="365" step="1" value="1" aria-label="${esc(t('offsetDays'))}">
+      <select name="evUnit"><option value="days">${esc(t('daysUnit'))}</option><option value="weeks">${esc(t('weeksUnit'))}</option></select>
+      <select name="evWhen"><option value="before">${esc(t('beforeIt'))}</option><option value="after">${esc(t('afterIt'))}</option></select>
+    </div>
+    ${small('eventTaskOffsetHint')}
+    <div class="button-row">
+      <button class="btn primary" value="ok">${esc(t('add'))}</button>
+      <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
+    </div>`, (form, action) => {
+    if (action === 'ok') {
+      const q = quickAdd(form.title.value);
+      if (!q.title) return;
+      const off = { days: Math.max(0, Number(form.evDays.value) || 0) * (form.evUnit.value === 'weeks' ? 7 : 1), when: form.evWhen.value };
+      const base = quickFields(q);
+      applyTravel(upsert('tasks', { id: uid(), createdAt: Date.now(), ...base, category: base.category || (ev.event ? ev.category : null) || null, eventId: ev.id, eventOffset: off, due: d ? offsetDue(d, off) : null }, { silent: true }));
+      toast(t('eventTaskAdded', ev.title));
+      changed();
+    }
+    if (back) setTimeout(() => (ev.event ? openTask(get('tasks', ev.id)) : openEvent(get('events', ev.id))), 0);
+  });
+}
+// Plan the event's open, unplanned tasks over the days up to their due dates (after-the-event ones from
+// the event on), the way the planner would.
+function planEventTasks(ev) {
+  const td = today();
+  const open = eventTasksOf(ev.id).filter((x) => !x.done && !plannedTaskIds().has(x.id));
+  if (!open.length) { toast(t('allPlanned')); return 0; }
+  const last = open.reduce((m, x) => (x.due && x.due > m ? x.due : m), td);
+  const n = Math.min(90, Math.max(1, Math.round((parseDate(last) - parseDate(td)) / 864e5) + 1));
+  const days = Array.from({ length: n }, (_, i) => addDays(td, i));
+  let made = 0;
+  for (const p of planPlacements(open.map((x) => x.id), days)) {
+    const task = get('tasks', p.taskId); if (!task) continue;
+    planTask(task, p.date, p.start, { minutes: p.minutes }); made++;
+  }
+  toast(made ? t('plannedN', made) : t('noRoom'));
+  changed();
+  return made;
+}
+// Older plain blocks (no task) become events, so everything you put on the plan has a home.
+function migrateBlocksToEvents() {
+  // (Blocks laid down by a day template stay plain: they are the template's, not events.)
+  const plain = live('blocks').filter((b) => !b.taskId && !b.kind && !b.stepId && !b.parentId && !b.templateId && !outcomeOf(b) && b.date >= today());
+  for (const b of plain) {
+    const tk = upsert('tasks', { id: uid(), createdAt: Date.now(), event: true, title: b.title || t('tabEvents'), minutes: b.minutes, category: b.category || null, due: b.date, eventTime: b.start, notes: b.notes || '', done: false, checklist: [], rules: [], steps: [] }, { silent: true });
+    upsert('blocks', { ...b, taskId: tk.id }, { silent: true });
+  }
+  return plain.length > 0;
+}
 
 // Tasks with a block today or later that isn't finished yet.
 // The next open block of a task (today on), or null.
@@ -311,7 +462,7 @@ async function refreshTravel() {
     const cache = { ...travelCache(), geo: { ...(travelCache().geo || {}) }, routes: { ...(travelCache().routes || {}) } };
     const ctx = { fetchFn: (u, i) => fetch(u, i), cache, now: Date.now(), googleKey: travelCfg().googleKey || '' };
     let changed = false; let n = 0;
-    for (const task of openTasks().filter((x) => x.place)) {
+    for (const task of travelTasks().filter((x) => x.place)) {
       const block = nextBlockOf(task.id);
       const planned = withTravel(task, { block });
       for (const y of planned.steps.filter((z) => z.travel && z.pending)) {
@@ -325,7 +476,7 @@ async function refreshTravel() {
     if (changed) saveSettings({ travelCache: cache });
     // Apply what's known now (also when origins moved) to every task with a place.
     let any = false;
-    for (const task of openTasks().filter(travelAffected)) { const before = task.updatedAt; if (applyTravel(task).updatedAt !== before) any = true; }
+    for (const task of travelTasks().filter(travelAffected)) { const before = task.updatedAt; if (applyTravel(task).updatedAt !== before) any = true; }
     if (any || changed) { render(); clearTimeout(syncTimer); syncTimer = setTimeout(runSync, 2500); }
   } finally { travelBusy = false; if (travelAgain) { travelAgain = false; scheduleTravelRefresh(); } }
 }
@@ -422,7 +573,7 @@ function ensureSeries(task) {
   const wantSet = new Set(want);
   for (const [d, b] of have) if (d >= td && !wantSet.has(d) && b.auto && !outcomeOf(b)) remove('blocks', b.id);
 }
-function ensureAllSeries() { for (const x of live('tasks').filter((y) => isSeries(y) && y.seriesTime != null && !y.done)) ensureSeries(x); }
+function ensureAllSeries() { for (const x of live('tasks').filter((y) => isSeries(y) && y.seriesTime != null && !y.done)) ensureSeries(x); syncEventTasks(); }
 // Change a series from one occurrence on: the old series ends the day before, a copy carries the
 // changes from `fromOcc`, and the blocks from that day on move to the copy.
 function splitSeries(prev, changes, fromOcc) {
@@ -610,6 +761,19 @@ function stepTimes(b) {
     cum += lens[i];
     return { ...x, len: lens[i], start, end: b.start + Math.round(cum * k), state: b.stepState?.[x.id] || null };
   });
+}
+// A block that starts with a "Get there" leg has two times worth reading: when to leave (the block's
+// start) and when the task itself starts (after the leg). Null when there is no leg.
+function legTimes(b) {
+  const going = stepTimes(b).filter((y) => y.travel === 'there');
+  if (!going.length) return null;
+  const start = going[going.length - 1].end;
+  return { leave: b.start, start, trip: start - b.start, step: going[going.length - 1] };
+}
+// The time line of a block: "leave 11:00 · 11:20–12:20" with a leg, "11:00–12:00" without.
+function blockTimeText(b) {
+  const lg = legTimes(b);
+  return lg && lg.trip > 0 ? `${t('leaveAt', fmtTime(lg.leave))} · ${range(lg.start, b.start + b.minutes - lg.start)}` : range(b.start, b.minutes);
 }
 function setStepOutcome(block, sid, outcome, { parent = true } = {}) {
   const prev = block.stepState?.[sid] || null;
@@ -870,25 +1034,49 @@ function savedStart(x, date) {
 // period you choose, as previews in the tray.
 const AUTO_SPANS = ['1', '2', '3', '7', '14', 'month', 'n'];
 function openAutoPlanner() {
+  // The guided flow: pick the span, fill the few details the planner is missing (inline, no editor),
+  // then the previews appear on the plan and the drawer asks to add them.
   const td = today();
   const last = state.settings.autoSpan || { span: '7', n: 5 };
   const from0 = currentDate() > td ? currentDate() : td;
-  const pending = ui.assign?.sel?.size || 0;
+  const all = trayTasks();
+  const sel = ui.assign?.sel?.size ? all.filter((x) => ui.assign.sel.has(x.id)) : all;
+  const bad = sel.filter((x) => taskIssues(x).length).slice(0, 6);
+  const noHome = bad.some((x) => taskIssues(x).includes('iss_home'));
+  const LENS = [15, 30, 45, 60, 90, 120];
+  const fix = (x) => {
+    const iss = taskIssues(x);
+    const rows = [];
+    if (iss.includes('iss_len')) rows.push(`<div class="fix-row"><span>${esc(t('duration'))}</span><div class="pills">${LENS.map((m) => `<label class="day-pill"><input type="radio" name="len_${esc(x.id)}" value="${m}" ${m === 30 ? 'checked' : ''}><span>${esc(fmtDur(m))}</span></label>`).join('')}</div></div>`);
+    if (iss.includes('iss_place') || iss.includes('iss_geo')) rows.push(`<div class="fix-row"><span>${esc(t('place'))}</span><input name="place_${esc(x.id)}" value="${esc(x.place || '')}" placeholder="${esc(t('placePh'))}" autocomplete="off"></div>${iss.includes('iss_geo') ? `<small class="hint warn-text">${esc(t('iss_geo'))}</small>` : ''}`);
+    if (iss.includes('iss_long')) rows.push(`<div class="fix-row"><span>${esc(t('tooLongShort'))}</span><div class="pills"><label class="day-pill"><input type="radio" name="long_${esc(x.id)}" value="split" checked><span>${esc(t('splitIt'))}</span></label><label class="day-pill"><input type="radio" name="long_${esc(x.id)}" value="keep"><span>${esc(t('keepWhole'))}</span></label></div></div>`);
+    if (iss.includes('iss_travel')) rows.push(`<small class="hint">${esc(t('iss_travel'))} · ${esc(t('travelCounted'))}</small>`);
+    return rows.length ? `<div class="fix-card"><div class="fix-head"><b>${esc(x.title)}</b><small>${esc([x.due ? relDay(x.due) : '', x.minutes && x.lenSet ? fmtDur(x.minutes) : ''].filter(Boolean).join(' · '))}</small></div>${rows.join('')}</div>` : '';
+  };
+  const cards = bad.map(fix).filter(Boolean);
   openModal(`
-    <h2>✦ ${esc(t('autoPlanner'))}</h2>
-    <p class="hint">${esc(pending ? t('autoSelected', pending) : t('autoAll', trayTasks().length))}</p>
-    ${(() => { const bad = trayTasks().filter((x) => taskIssues(x).length); return bad.length ? `<p class="hint warn-text">⚠ ${esc(t('missingDetails', bad.length))} <button class="linkish" type="button" data-action="task-fix" data-id="${esc(bad[0].id)}" data-sec="${ISSUE_SEC[taskIssues(bad[0])[0]]}">${esc(t('fixFirst', bad[0].title))}</button></p>` : ''; })()}
-    <div class="field-label">${esc(t('autoSpan'))}</div>
+    <h2>✦ ${esc(t('planBtn'))}</h2>
+    <p class="hint">${esc(t('planFlowIntro', sel.length, cards.length))}</p>
     <div class="days spans">${AUTO_SPANS.map((k) => `<label class="day-pill"><input type="radio" name="span" value="${k}" ${k === last.span ? 'checked' : ''}><span>${esc(t(`span_${k}`))}</span></label>`).join('')}</div>
     <div class="two">
       <label>${esc(t('fromDay'))}<input type="date" name="from" value="${esc(from0)}" min="${esc(td)}"></label>
       <label>${esc(t('spanN'))}<input type="number" name="n" min="1" max="90" value="${esc(last.n || 5)}"></label>
     </div>
-    <small class="hint">${esc(t('autoHoursNow', fmtTime(autoHoursFor('2026-11-02')[0]), fmtTime(autoHoursFor('2026-11-02')[1]), fmtTime(autoHoursFor('2026-11-07')[0]), fmtTime(autoHoursFor('2026-11-07')[1])))}${state.settings.freeWeekends ? ` · ${esc(t('freeWeekends'))}` : ''}</small>
+    ${cards.length ? `<div class="field-label">${esc(t('fixFirstTitle'))}</div>${noHome ? `<label>${esc(t('homeAddress'))}<input name="home" value="${esc(travelCfg().home)}" placeholder="${esc(t('homePh'))}" autocomplete="street-address"></label>` : ''}${cards.join('')}<small class="hint">${esc(t('fixSkipHint'))}</small>` : ''}
     <div class="button-row">
-      <button class="btn primary" value="ok">✦ ${esc(t('autoGo'))}</button>
+      <button class="btn primary" value="ok">${esc(cards.length ? t('showPreview') : t('autoGo'))}</button>
       <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
     </div>`, (form) => {
+    // Apply the inline fixes.
+    for (const x of bad) {
+      const len = form[`len_${x.id}`]; const pl = form[`place_${x.id}`]; const lg = form[`long_${x.id}`];
+      const patch = {};
+      if (len) { const v = Number(form.querySelector(`input[name="len_${x.id}"]:checked`)?.value); if (v) { patch.minutes = v; patch.lenSet = true; } }
+      if (pl && pl.value.trim() !== (x.place || '')) patch.place = pl.value.trim();
+      if (lg) patch.splitSteps = form.querySelector(`input[name="long_${x.id}"]:checked`)?.value === 'split' && (x.steps || []).filter((y) => y.title && !isTravelStep(y)).length > 1;
+      if (Object.keys(patch).length) applyTravel(upsert('tasks', { ...x, ...patch }, { silent: true }), { prev: x });
+    }
+    if (form.home && form.home.value.trim() !== travelCfg().home) { saveSettings({ travel: { ...travelCfg(), home: form.home.value.trim() } }); for (const x of travelTasks()) applyTravel(x); }
     const span = form.querySelector('input[name=span]:checked')?.value || '7';
     const n = Math.max(1, Math.min(90, Number(form.n.value) || 5));
     saveSettings({ autoSpan: { span, n } });
@@ -903,10 +1091,11 @@ function openAutoPlanner() {
     if (!ui.assign) ui.assign = { sel: new Set(), ghosts: [], range: null, opts: false, open: false, q: '' };
     const ids = ui.assign.sel.size ? trayTasks().filter((x) => ui.assign.sel.has(x.id)).map((x) => x.id) : trayTasks().map((x) => x.id);
     if (!ids.length) { toast(t('trayEmpty')); render(); return; }
+    if (route().name !== 'plan') { location.hash = span === '1' ? `#/plan/${from}` : '#/plan'; ui.view = span === '1' ? 'day' : span === 'month' ? 'month' : 'week'; }
     ui.assign.open = false; // the previews matter now; the list can be opened again
     placeGhosts(ids, days);
+    scheduleTravelRefresh();
   });
-  // "This many days" is used when you pick it, or type a number.
   modal.querySelector('input[name=n]').addEventListener('input', () => { const r = modal.querySelector('input[name=span][value=n]'); if (r) r.checked = true; });
 }
 
@@ -999,7 +1188,7 @@ function openTaskAdd(date) {
     e.preventDefault();
     const q = quickAdd(form.newTask.value);
     if (!q.title) return;
-    const x = upsert('tasks', { id: uid(), createdAt: Date.now(), title: q.title, minutes: q.minutes || 30, lenSet: Boolean(q.minutes), priority: q.priority, importance: q.importance || 3, category: findCategory(q.category), due: null, repeat: null, notes: '', done: false }, { silent: true });
+    const x = applyTravel(upsert('tasks', { id: uid(), createdAt: Date.now(), ...quickFields(q), due: q.due || null }, { silent: true }));
     openPlanSaved(x, date);
   });
   wirePicker(modal, (id) => openPlanSaved(get('tasks', id), date));
@@ -1013,10 +1202,10 @@ function openAddMenu() {
     <h2>${esc(t('addMenuTitle', relDay(date)))}</h2>
     <div class="add-opts">
       ${opt('task', '✓', t('addTaskOpt'), t('addTaskHint'))}
+      ${opt('event', '📅', t('eventOpt'), t('addEventHint'))}
       ${opt('saved', '★', t('fromSaved'), t('addSavedHint'))}
       ${opt('meal', '🍽', t('meal'), t('addMealHint'))}
-      ${opt('block', '▭', t('block'), t('addBlockHint'))}
-      ${opt('templates', '▦', t('templates'), t('addTplHint'))}
+      ${advancedOn() ? opt('templates', '▦', t('templates'), t('addTplHint')) : ''}
     </div>
     <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('cancel'))}</button></div>`, (form, action) => {
     setTimeout(() => {
@@ -1024,10 +1213,10 @@ function openAddMenu() {
       if (action === 'task') openTaskAdd(date);
       if (action === 'meal') { ui.mealDate = date; openMeal(null); }
       if (action === 'templates') openTemplatesMenu();
-      if (action === 'block') {
+      if (action === 'event') {
         const s = planSettings();
         const from = date === today() ? nowMinutes() : 9 * 60;
-        openBlock(null, { date, start: freeSlot(busyOn(date), 30, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap }) ?? from });
+        openTask(null, null, { event: true, date, start: freeSlot(busyOn(date), 60, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap }) ?? from });
       }
     }, 0);
   });
@@ -1276,6 +1465,7 @@ async function runSync() {
   // Plan changed and Google Calendar is set up: push it there soon (at most every 10 minutes).
   if (planChanged && !state.meta.lastError && get('gcal', 'status') && Date.now() - (ui.lastDispatch || 0) > 600_000) gcalNow(true);
   if (ricetteConfigured()) kitchen.ensureLowItems();
+  migrateBlocksToEvents();
   ensureAllSeries();
   updateSyncBadge();
   renderIfSafe();
@@ -1337,8 +1527,8 @@ function weekdayNames() {
 
 // ---------- views of the plan: list, day, week, month ----------
 
-const VIEWS = ['list', 'day', 'week', 'month'];
-function currentView() { return ui.view || state.settings.defaultView || 'day'; }
+const VIEWS = ['day', 'week', 'month'];
+function currentView() { const v = ui.view || state.settings.defaultView || 'day'; return VIEWS.includes(v) ? v : 'day'; }
 function weekStart(date) { return addDays(date, -((weekday(date) + 6) % 7)); } // Monday
 
 // Keep linked blocks up to date and run what's due, for the days on screen.
@@ -1351,6 +1541,202 @@ function prepareDays(days) {
   if (days.includes(today())) { autoChecks(today()); checkMissed(today()); }
 }
 
+// ---------- Today: the home tab ----------
+// "What do I do now?" first: the next move with its leave and start times. Then the day, what is
+// pressing, and the week at a glance.
+function todayItems(date) {
+  return [...blocksOn(date).filter((b) => b.kind !== 'prep' || !b.parentId), ...timedEventsOn(date)].sort((a, b) => a.start - b.start);
+}
+function pressingTasks() {
+  const td = today(); const soon = addDays(td, 3);
+  const planned = plannedTaskIds();
+  return openTasks().filter((x) => !planned.has(x.id) && !x.travelRole && (
+    (x.due && x.due < td) || (x.due && x.due <= soon) || taskIssues(x).length))
+    .sort((a, b) => {
+      const ka = a.due && a.due < td ? 0 : a.due ? 1 : 2; const kb = b.due && b.due < td ? 0 : b.due ? 1 : 2;
+      return ka - kb || (a.due || '').localeCompare(b.due || '') || importanceOf(b) - importanceOf(a);
+    }).slice(0, 6);
+}
+// ---------- Events: the second tab ----------
+// Things with a fixed date — yours and the ones imported from Google Calendar — nearest first, with
+// how ready each one is (the tasks attached to it). Past events fold away at the bottom.
+function eventItems() {
+  const own = ownEvents().map((x) => ({ id: x.id, own: true, title: x.title, date: eventDate(x), start: eventStart(x), minutes: ownMinutes(x), allDay: Boolean(x.allDay), place: x.place || '', category: x.category, repeat: x.repeat, done: Boolean(x.done), task: x }));
+  // A recurring event shows once per coming occurrence.
+  const occ = [];
+  for (const e of own) {
+    if (!e.task.repeat || e.allDay) { occ.push(e); continue; }
+    const blocks = seriesBlocks(e.id).filter((b) => b.date >= today()).sort((a, b) => (a.date < b.date ? -1 : 1)).slice(0, 8);
+    if (!blocks.length) occ.push(e);
+    for (const b of blocks) occ.push({ ...e, date: b.date, start: b.start + anchorOffset(b), blockId: b.id, done: Boolean(outcomeOf(b)) });
+  }
+  const imported = state.settings.showEvents === false ? [] : live('events').map((e) => ({ id: e.id, own: false, title: e.title, date: e.date, start: e.allDay ? null : e.start, minutes: e.minutes || 0, allDay: Boolean(e.allDay), place: e.location || '', color: e.color, calendar: e.calendar, event: e }));
+  return [...occ, ...imported].filter((e) => e.date).sort((a, b) => (a.date === b.date ? (a.start ?? -1) - (b.start ?? -1) : a.date < b.date ? -1 : 1));
+}
+function viewEvents() {
+  const td = today();
+  const q = (ui.eventQ || '').trim();
+  const hit = (e) => !q || matchesQ(fold([e.title, e.place, e.calendar || ''].join(' ')), q);
+  const all = eventItems().filter(hit);
+  const upcoming = all.filter((e) => e.date >= td);
+  const past = all.filter((e) => e.date < td).reverse().slice(0, 30);
+  const monthOf = (d) => fmtDay(d, { month: 'long', year: parseDate(d).getFullYear() !== parseDate(td).getFullYear() ? 'numeric' : undefined });
+  const row = (e) => {
+    const ready = readinessText(e.id);
+    const r = ready ? eventReadiness(e.id) : null;
+    const when = e.allDay ? t('allDay') : e.start != null ? (e.minutes ? range(e.start, e.minutes) : fmtTime(e.start)) : t('timeTbd');
+    const bits = [fmtDay(e.date, { weekday: 'short' }), when, e.place ? `📍 ${e.place}` : '', e.own && e.repeat ? `↻ ${repeatText(e.task)}` : '', !e.own ? e.calendar : ''].filter(Boolean);
+    const color = e.own ? catColor(e.category) || 'var(--accent)' : e.color || '#6b7280';
+    return `<li class="ev-row${e.own ? '' : ' imported'}${e.date === td ? ' is-today' : ''}${e.done ? ' done' : ''}" style="--c:${esc(color)}">
+      <button class="ev-main" type="button" data-action="event-open" data-id="${esc(e.id)}">
+        <span class="ev-date"><b>${parseDate(e.date).getDate()}</b><small>${esc(fmtDay(e.date, { month: 'short' }))}</small></span>
+        <span class="item-text">${esc(e.title)}<small>${esc(bits.join(' · '))}</small>${ready ? `<small class="ev-ready${r && !r.open ? ' ok' : r && r.late ? ' late' : ''}">${esc(ready)}</small>` : ''}</span>
+      </button>
+    </li>`;
+  };
+  const groups = [];
+  for (const e of upcoming) {
+    const k = e.date.slice(0, 7);
+    if (!groups.length || groups[groups.length - 1][0] !== k) groups.push([k, monthOf(e.date), []]);
+    groups[groups.length - 1][2].push(e);
+  }
+  return `
+  <form id="event-add" class="row">
+    <input id="event-input" name="title" autocomplete="off" placeholder="${esc(t('addEventPh'))}">
+    <button class="btn primary">${esc(t('add'))}</button>
+  </form>
+  ${hint('eventQuickHint')}
+  <div class="task-tools">${searchBox({ id: 'event-q', value: ui.eventQ || '', ph: t('searchEvents') })}</div>
+  ${upcoming.length ? groups.map(([k, label, list]) => `<section class="ev-month"><h2 class="part-h">${esc(label)} <small>${list.length}</small></h2><ul class="list events">${list.map(row).join('')}</ul></section>`).join('')
+    : `<p class="empty">${esc(q ? t('noMatch') : t('noEvents'))}</p>`}
+  ${past.length ? `<details class="ev-past"><summary>${esc(t('pastEvents'))} <small>${past.length}</small></summary><ul class="list events">${past.map(row).join('')}</ul></details>` : ''}`;
+}
+
+function viewToday() {
+  const td = today(); const now = nowMinutes();
+  prepareDays([td]);
+  morningReflow();
+  const items = todayItems(td);
+  const totals = dayTotals(blocksOn(td));
+  const open = items.filter((b) => !b.isEvent && !outcomeOf(b));
+  const upcoming = items.filter((b) => b.isEvent || !outcomeOf(b)); // blocks and appointments alike, in time order
+  const current = upcoming.find((b) => b.start <= now && b.start + b.minutes > now);
+  const next = upcoming.find((b) => b.start > now);
+  // The card: your own block that is running, or one you must leave for within 15 minutes (even during
+  // an appointment); else whatever is on now, else the next thing of the day.
+  const curBlock = open.find((b) => b.start <= now && b.start + b.minutes > now);
+  const nextBlock = open.find((b) => b.start > now);
+  const card = curBlock || (nextBlock && nextBlock.start - now <= 15 ? nextBlock : null) || current || next;
+  const lg = card && !card.isEvent ? legTimes(card) : null;
+  const task = card && !card.isEvent && card.taskId ? get('tasks', card.taskId) : null;
+  const until = next ? next.start - now : null;
+  const place = task?.place || '';
+  let nowCard = '';
+  if (card) {
+    const started = card.start <= now;
+    const inMin = card.start - now;
+    const status = started ? t('untilTime', fmtTime(card.start + card.minutes)) : inMin <= 0 ? t('nowLabel') : lg && lg.trip > 0 ? t('leaveIn', fmtDur(inMin)) : t('startsIn', fmtDur(inMin));
+    const legDone = lg && card.stepState?.[lg.step.id] === 'done';
+    const main = card.isEvent ? '' : `<div class="now-actions">
+        ${lg && lg.trip > 0 && !legDone && now < lg.start ? `<button class="btn primary" type="button" data-action="now-left" data-id="${esc(card.id)}" data-step="${esc(lg.step.id)}">${esc(t('leftNow'))}</button>` : `<button class="btn primary" type="button" data-action="now-done" data-id="${esc(card.id)}">${esc(t('markDone'))}</button>`}
+        <button class="btn" type="button" data-action="now-move" data-id="${esc(card.id)}">${esc(t('move'))}</button>
+        ${place ? `<a class="btn icon-btn" href="${esc(mapsHref(task))}" target="_blank" rel="noopener" aria-label="${esc(t('openMaps'))}">📍</a>` : ''}
+      </div>`;
+    nowCard = `<section class="now-card${started ? ' live' : ''}" aria-label="${esc(t('nextMove'))}">
+      <div class="now-head"><span>${esc(started ? t('inProgress') : t('nextMove'))}</span><b class="${inMin <= 15 && !started ? 'soon' : ''}">${esc(status)}</b></div>
+      <div class="now-main">
+        ${lg && lg.trip > 0 ? `<div class="now-time"><b class="leave">${fmtTime(lg.leave)}</b><small>${esc(t('leaveWord'))}</small></div><span class="now-arrow" aria-hidden="true">→</span><div class="now-time"><b>${fmtTime(lg.start)}</b><small>${esc(t('startWord'))}</small></div>` : `<div class="now-time"><b>${fmtTime(card.start)}</b><small>${esc(t('startWord'))}</small></div>`}
+        <div class="now-text"><div class="now-title">${task?.event ? '📅 ' : ''}${esc(card.title)}</div><small>${esc([place, lg && lg.trip > 0 ? `${MODE_ICON[lg.step.mode] || '🚌'} ${fmtDur(lg.trip)}` : '', t('untilTime', fmtTime(card.start + card.minutes)), task?.event ? readinessText(task.id) : ''].filter(Boolean).join(' · '))}</small></div>
+      </div>
+      ${main}
+    </section>`;
+  } else nowCard = `<section class="now-card empty"><div class="now-head"><span>${esc(t('nextMove'))}</span></div><p>${esc(open.length || items.length ? t('dayDone') : t('nothingToday'))}</p><div class="now-actions"><a class="btn" href="#/plan">${esc(t('openPlanner'))}</a></div></section>`;
+  const row = (b) => {
+    const st = outcomeOf(b); const lgb = b.isEvent ? null : legTimes(b);
+    const cls = b === card ? ' current' : st ? ` ${st}` : b.start + b.minutes <= now ? ' past' : '';
+    const evb = !b.isEvent && b.taskId && get('tasks', b.taskId)?.event;
+    const inner = `<span class="td-time${lgb && lgb.trip > 0 ? ' leave' : ''}">${fmtTime(b.start)}</span><span class="td-title">${evb ? '📅 ' : ''}${esc(b.title)}${lgb && lgb.trip > 0 ? ` <small>· ${esc(t('startWord'))} ${fmtTime(lgb.start)}</small>` : ''}${b.seriesId ? ' <span class="series-ico">↻</span>' : ''}</span><small class="td-meta">${esc(b.isEvent ? b.calendar || t('calendar') : st === 'done' ? t('doneLabel') : st === 'failed' ? t('couldnt') : fmtDur(b.minutes))}</small>`;
+    return b.isEvent ? `<button class="td-row event${cls}" type="button" data-action="event" data-id="${esc(b.id)}" style="--c:${esc(b.color || '#6b7280')}">${inner}</button>`
+      : `<button class="td-row${cls}" type="button" data-action="open-block" data-id="${esc(b.id)}" style="--c:${esc(catColor(b.category) || 'var(--accent)')}">${inner}</button>`;
+  };
+  const gap = next ? Math.floor((next.start - Math.max(now, current ? current.start + current.minutes : now)) / 5) * 5 : (now < planSettings().dayEnd ? planSettings().dayEnd - now : 0);
+  const spareLine = `<button class="td-spare" type="button" data-action="spare">⏱ ${esc(!current && gap >= 15 ? (next ? t('freeUntil', fmtDur(Math.min(gap, 240)), fmtTime(next.start)) : t('freeNow', fmtDur(Math.min(gap, 240)))) : t('haveTime'))}</button>`;
+  const pressing = pressingTasks();
+  const pr = (x) => {
+    const late = x.due && x.due < td; const iss = taskIssues(x);
+    const why = late ? t('dueLate', relDay(x.due)) : x.due ? t('dueOn', relDay(x.due)) : issueText(x);
+    return `<div class="pr-row"><span class="pr-dot ${late ? 'late' : x.due ? 'soon' : 'fix'}"></span><button class="pr-text" type="button" data-action="edit-task" data-id="${esc(x.id)}"><span>${esc(x.title)}</span><small>${esc([why, fmtDur(x.minutes || 30)].join(' · '))}</small></button>
+      ${iss.length && !late ? `<button class="btn small" type="button" data-action="task-fix" data-id="${esc(x.id)}" data-sec="${ISSUE_SEC[iss[0]]}">${esc(t('fix'))}</button>` : `<button class="btn small primary-ghost" type="button" data-action="plan-task" data-id="${esc(x.id)}" data-date="${td}">${esc(t('today'))}</button>`}</div>`;
+  };
+  const ws = weekStart(td);
+  const week = Array.from({ length: 7 }, (_, i) => addDays(ws, i));
+  return `
+  <div class="today">
+    <div class="today-head"><h1>${esc(fmtDay(td))}</h1><small>${esc(totals.planned ? t('plannedSum', fmtDur(totals.planned)) : t('nothingPlanned'))}${items.filter((b) => b.isEvent).length ? ` · ${esc(t('nEvents', items.filter((b) => b.isEvent).length))}` : ''}</small></div>
+    ${eventsOn(td).filter((e) => e.allDay).length ? `<div class="today-allday">${eventsOn(td).filter((e) => e.allDay).map((e) => `<button class="allday-chip" type="button" data-action="event" data-id="${esc(e.id)}" style="--c:${esc(e.color)}">📅 ${esc(e.title)}</button>`).join('')}</div>` : ''}
+    ${ui.reflow ? `<div class="reflow"><span>${esc(t('reflowMoved', ui.reflow.moved))}</span><button class="linkish" type="button" data-action="reflow-undo">${esc(t('undo'))}</button><button class="icon" type="button" data-action="reflow-ok" aria-label="${esc(t('close'))}">✕</button></div>` : ''}
+    ${nowCard}
+    <section class="today-list" aria-label="${esc(t('today'))}">
+      ${items.length ? items.map(row).join('') : `<p class="empty">${esc(t('emptyDay'))}</p>`}
+      ${spareLine}
+    </section>
+    ${pressing.length ? `<section class="pressing" aria-label="${esc(t('pressing'))}">
+      <div class="sec-head"><h2>${esc(t('pressing'))}</h2><a href="#/tasks">${esc(t('allTasks'))} ›</a></div>
+      ${pressing.map(pr).join('')}
+    </section>` : ''}
+    <section class="week-strip" aria-label="${esc(t('thisWeek'))}">
+      ${week.map((d) => `<a href="#/plan/${d}" class="${d === td ? 'today' : ''}"><span>${esc(fmtDay(d, { weekday: 'short' }))}</span>${loadBar(d, { text: false })}</a>`).join('')}
+    </section>
+  </div>`;
+}
+// Once a day, the first time Today opens: what was left undone on earlier days goes back on the
+// plan over the coming week, and a line says so, with Undo. Series occurrences are left alone.
+let reflowing = false;
+function morningReflow() {
+  const td = today();
+  if (reflowing || state.settings.lastReflow === td) return;
+  reflowing = true;
+  try {
+    const left = live('blocks').filter((b) => b.date < td && b.taskId && !outcomeOf(b) && !b.seriesId && b.kind !== 'prep' && !b.stepId
+      && get('tasks', b.taskId) && !get('tasks', b.taskId).done && isTodo(get('tasks', b.taskId)));
+    saveSettings({ lastReflow: td });
+    if (!left.length) return;
+    const removed = left.map((b) => ({ ...b }));
+    for (const b of left) remove('blocks', b.id);
+    const ids = [...new Set(left.map((b) => b.taskId))];
+    const days = Array.from({ length: 7 }, (_, i) => addDays(td, i));
+    const added = [];
+    for (const p of planPlacements(ids, days)) {
+      const task = get('tasks', p.taskId); if (!task) continue;
+      const b = planTask(task, p.date, p.start, { minutes: p.minutes });
+      added.push(b.id);
+    }
+    ui.reflow = { moved: ids.length, removed, added };
+    setTimeout(changed, 0);
+  } finally { reflowing = false; }
+}
+function undoReflow() {
+  const r = ui.reflow; if (!r) return;
+  for (const id of r.added) remove('blocks', id);
+  for (const b of r.removed) upsert('blocks', b, { silent: true });
+  ui.reflow = null;
+  toast(t('undone'));
+  changed();
+}
+// Where the planner would put these tasks over these days (no previews involved).
+function planPlacements(ids, dates) {
+  const s = planSettings(); const td = today(); const now = nowMinutes();
+  const tasks = ids.map((id) => get('tasks', id)).filter(Boolean);
+  const { items } = planningItems(tasks, dates);
+  const leadOfItem = (it) => (it.stepId && !(it.prep || []).length ? 0 : leadOf(get('tasks', it.taskId)));
+  const dayInfo = (d) => ({ date: d, blocks: busyOn(d).filter((b) => !b.allowOverlap), from: Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((now + 5) / 5) * 5 : 0), to: autoHoursFor(d)[1] });
+  return spreadTasks({ tasks: items, days: dates.map(dayInfo), settings: s, leadOf: leadOfItem }).placed;
+}
+function mapsHref(task) {
+  if (!task) return '#';
+  if (task.link) return task.link;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(task.place || '')}`;
+}
 function viewPlan(date) {
   const v = currentView();
   const td = today();
@@ -1369,14 +1755,13 @@ function viewPlan(date) {
     prev = addDays(date, -7); next = addDays(date, 7);
     sub = v === 'week' ? t('weekN', isoWeek(from)) : t('nextDays');
   }
-  const showToday = v === 'day' || v === 'list' ? date !== td : v === 'week' ? weekStart(date) !== weekStart(td) : date.slice(0, 7) !== td.slice(0, 7);
-  // Top: how you look at the plan (view, steps). Then the date. Then two kinds of actions:
-  // planning what's still open (Auto-planner, Assign), and adding something by hand (+ Add).
+  const showToday = v === 'day' ? date !== td : v === 'week' ? weekStart(date) !== weekStart(td) : date.slice(0, 7) !== td.slice(0, 7);
+  // One drawer of tasks to plan sits under every view; "Plan" runs the guided flow.
+  if (!ui.assign) ui.assign = { sel: new Set(), ghosts: [], range: null, opts: false, open: false, q: '' };
   const head = `
   <div class="plan-top">
-    <button class="steps-switch side-switch" type="button" role="switch" data-action="side-toggle" aria-checked="${sideShown()}" aria-pressed="${sideShown()}" title="${esc(t(sideShown() ? 'hideTasks' : 'showTasks'))}"><span class="sw" aria-hidden="true"></span>${esc(t('tasksCol'))}</button>
     <div class="view-switch" role="tablist">${VIEWS.map((k) => `<button type="button" role="tab" class="${k === v ? 'on' : ''}" data-action="view" data-id="${k}" aria-selected="${k === v}">${esc(t(`v_${k}`))}</button>`).join('')}</div>
-    ${v === 'day' || v === 'list' ? `<button class="steps-switch" type="button" role="switch" data-action="toggle-steps" aria-checked="${showSteps()}" aria-pressed="${showSteps()}" title="${esc(t(showSteps() ? 'hideSteps' : 'showSteps'))}"><span class="sw" aria-hidden="true"></span>${esc(t('steps'))}</button>` : ''}
+    ${v === 'day' ? `<button class="steps-switch" type="button" role="switch" data-action="toggle-steps" aria-checked="${showSteps()}" aria-pressed="${showSteps()}" title="${esc(t(showSteps() ? 'hideSteps' : 'showSteps'))}"><span class="sw" aria-hidden="true"></span>${esc(t('steps'))}</button>` : ''}
   </div>
   <div class="day-head">
     <a class="round" href="#/plan/${prev}" aria-label="${esc(t('previous'))}">‹</a>
@@ -1389,45 +1774,11 @@ function viewPlan(date) {
   </div>
   <div class="day-actions">
     ${showToday ? `<a class="btn small" href="#/plan/${td}">${esc(t('today'))}</a>` : ''}
-    <div class="act-group" role="group" aria-label="${esc(t('planningTools'))}">
-      <button class="btn small primary" type="button" data-action="auto">✦ ${esc(t('suggestPlan'))}</button>
-      <button class="btn small${ui.assign ? ' on' : ''}" type="button" data-action="assign" aria-pressed="${Boolean(ui.assign)}">⇢ ${esc(t('assign'))}</button>
-    </div>
-    ${showToday ? '' : `<button class="btn small" type="button" data-action="spare">⏱ ${esc(t('haveTime'))}</button>`}
+    <button class="btn small primary" type="button" data-action="auto">✦ ${esc(t('planBtn'))}</button>
     <button class="btn small" type="button" data-action="add-menu">＋ ${esc(t('addMenu'))}</button>
   </div>`;
-  const tray = ui.assign ? trayHtml() : '';
-  const main = v === 'list' ? viewList(date) : v === 'week' ? viewWeek(date) : v === 'month' ? viewMonth(date) : viewDay(date);
-  // The tasks still to plan sit in a column beside every view (hide it with the "Tasks" switch).
-  return `${head}<div class="plan-layout${sideShown() ? '' : ' side-off'}">${sideShown() ? sidePanel(date, v) : ''}<section class="plan-main">${main}</section></div>${tray}`;
-}
-
-// The column of tasks to plan, beside every view. Shown by default on wide screens, hidden on phones
-// until you switch it on (kept per device).
-function sideShown() { const h = state.settings.sideHidden; return h === undefined ? window.innerWidth >= 900 : !h; }
-function sidePanel(date, v) {
-  const td = today();
-  const plannedIds = new Set(alreadyPlanned().map((x) => x.id));
-  const previewed = new Set((ui.assign?.ghosts || []).map((g) => g.taskId)); // waiting for "Add" in the tray
-  const list = openTasks().filter((x) => passesFilter(x) && !plannedIds.has(x.id) && !previewed.has(x.id) && !(v === 'day' && scheduledOn(x.id, date)));
-  const g = dateBuckets(list, (x) => x.due, td);
-  const label = (k) => (k === 'soon' ? t('grp_soonN', Number(taskGroupsCfg().soonDays) || 7) : k === 'nodate' ? t('grp_anytime') : t(`grp_${k}`));
-  // Day view: tap = next free time that day, drag onto the timeline. Other views: drag onto a day
-  // (or a time in Week), tap to choose when.
-  const chip = (x) => (v === 'day'
-    ? `<button class="chip" type="button" data-action="plan-task" data-task="1" data-id="${esc(x.id)}" data-title="${esc(x.title)}" data-minutes="${x.minutes || 30}" style="--c:${esc(catColor(x.category) || 'var(--accent)')}">`
-    : `<button class="chip tchip" type="button" data-id="${esc(x.id)}" style="--c:${esc(catColor(x.category) || 'var(--accent)')}">`)
-    + `<span class="chip-dot"></span><span class="chip-title">${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}</span><small>${esc(fmtDur(x.minutes || 30))}${taskIssues(x).length ? ` <span class="iss-mark" title="${esc(issueText(x))}">⚠</span>` : ''}</small></button>`;
-  return `<aside class="to-plan">
-    <div class="side-head"><h2>${esc(t('toPlan'))} <small>${list.length}</small></h2>
-      <span><button class="icon${filterActive() || ui.sideFilters ? ' on' : ''}" type="button" data-action="side-filters" aria-label="${esc(t('filters'))}" title="${esc(t('filters'))}" aria-pressed="${Boolean(ui.sideFilters)}">⚲</button>
-      <button class="icon" type="button" data-action="side-toggle" aria-label="${esc(t('hideTasks'))}" title="${esc(t('hideTasks'))}">⟨</button></span></div>
-    ${ui.sideFilters || filterActive() ? filterBar() : ''}
-    <form id="side-add" class="row tight"><input id="side-add-input" name="title" autocomplete="off" placeholder="${esc(v === 'day' ? t('sideAddPh') : t('sideAddPhAny'))}"><button class="btn small">+</button></form>
-    ${list.length ? ['overdue', ...DATE_GROUPS, 'nodate'].filter((k) => g[k].length).map((k) => `<div class="sub">${esc(label(k))} <small>${g[k].length}</small></div><div class="chips">${sortTasks(g[k], td).map(chip).join('')}</div>`).join('')
-      + `<p class="hint">${esc(t(v === 'day' ? 'chipHint' : 'chipHintAny'))}</p>` : `${hint('nothingToPlan')}`}
-    ${plannedList(alreadyPlanned(), 'side-planned', ui.sidePlanned)}
-  </aside>`;
+  const main = v === 'week' ? viewWeek(date) : v === 'month' ? viewMonth(date) : viewDay(date);
+  return `${head}<section class="plan-main">${main}</section>${trayHtml()}`;
 }
 
 function isoWeek(date) {
@@ -1446,6 +1797,10 @@ function timelineRange(items) {
   return { startMin, endMin, hours };
 }
 
+function stepCheck(b, y) {
+  const st = y.state || (outcomeOf(b) === 'done' ? 'done' : null);
+  return `<input type="checkbox" data-action="step-done" data-block="${esc(b.id)}" data-step="${esc(y.id)}" ${st === 'done' ? 'checked' : ''} aria-label="${esc(y.title)}">`;
+}
 function conflictBanner(date) {
   const td = today();
   const conflicts = conflictsOn(date);
@@ -1497,7 +1852,7 @@ function viewWeek(date) {
   return `
   <div class="week">
     <div class="week-head"><div class="wk-gutter"></div>
-      ${days.map((d) => `<button type="button" class="wk-day${d === td ? ' today' : ''}${inRange(d) ? ' in-range' : ''}" data-action="${ui.assign ? 'assign-range' : 'view-day'}" data-id="${d}" data-drop="${d}"><span>${esc(wd(d))}</span><b>${parseDate(d).getDate()}</b>${loadBar(d)}</button>`).join('')}
+      ${days.map((d) => `<button type="button" class="wk-day${d === td ? ' today' : ''}${inRange(d) ? ' in-range' : ''}" data-action="${selecting() ? 'assign-range' : 'view-day'}" data-id="${d}" data-drop="${d}"><span>${esc(wd(d))}</span><b>${parseDate(d).getDate()}</b>${loadBar(d)}</button>`).join('')}
     </div>
     ${allDay.some((x) => x.length) ? `<div class="week-allday"><div class="wk-gutter"></div>${allDay.map((list) => `<div>${list.map((e) => `<button class="allday-chip" type="button" data-action="event" data-id="${esc(e.id)}" style="--c:${esc(e.color)}">${esc(e.title)}</button>`).join('')}</div>`).join('')}</div>` : ''}
     <div class="week-body">
@@ -1534,7 +1889,7 @@ function viewMonth(date) {
     const items = [...eventsOn(d).filter((e) => e.allDay), ...[...blocksOn(d), ...timedEventsOn(d)].sort((a, b) => a.start - b.start)];
     const conflict = conflictsOn(d).length > 0;
     const gh = ghostsOn(d);
-    return `<button type="button" class="m-cell${d.slice(0, 7) !== month ? ' other' : ''}${d === td ? ' today' : ''}${inRange(d) ? ' in-range' : ''}" data-action="${ui.assign ? 'assign-range' : 'view-day'}" data-id="${d}" data-drop="${d}">
+    return `<button type="button" class="m-cell${d.slice(0, 7) !== month ? ' other' : ''}${d === td ? ' today' : ''}${inRange(d) ? ' in-range' : ''}" data-action="${selecting() ? 'assign-range' : 'view-day'}" data-id="${d}" data-drop="${d}">
         <span class="m-num">${parseDate(d).getDate()}${conflict ? ' <span class="warn-ico">⚠</span>' : ''}</span>
         ${loadBar(d, { text: false })}
         ${gh.map((g) => `<span class="m-item ghost" title="${esc(ghostTip(g))}">${esc(ghostTitle(g))}</span>`).join('')}
@@ -1560,27 +1915,6 @@ const GLANCE = ['time', 'duration', 'category', 'due', 'priority', 'checklist', 
 const GLANCE_DEFAULT = ['time', 'duration', 'category', 'due', 'checklist', 'recipes', 'location'];
 function glance() { return new Set(state.settings.glance || GLANCE_DEFAULT); }
 
-function viewList(date) {
-  const td = today();
-  const days = Array.from({ length: 7 }, (_, i) => addDays(date, i));
-  prepareDays(days.filter((d) => d >= td).length ? days : [date]);
-  const planned = plannedTaskIds();
-  return `<div class="agenda">${days.map((d) => {
-    const items = [...eventsOn(d).filter((e) => e.allDay).map((e) => ({ ...e, isEvent: true })), ...[...blocksOn(d), ...timedEventsOn(d)].sort((a, b) => a.start - b.start || a.minutes - b.minutes)];
-    const dueTasks = sortTasks(openTasks().filter((x) => !planned.has(x.id) && x.due && (x.due === d || (d === td && x.due < td))), td);
-    const totals = dayTotals(blocksOn(d));
-    const inConflict = new Set(conflictsOn(d).flatMap((c) => c.ids));
-    const gh = ghostsOn(d);
-    return `<section class="ag-day${d === td ? ' today' : ''}${inRange(d) ? ' in-range' : ''}" data-drop="${d}">
-      <h2><button type="button" class="linkish plain" data-action="${ui.assign ? 'assign-range' : 'view-day'}" data-id="${d}">${esc(d === td || d === addDays(td, 1) ? relDay(d) : fmtDay(d, { weekday: 'long' }))}</button>
-        <small>${esc(fmtDay(d, { day: 'numeric', month: 'long' }))}${totals.planned ? ` · ${esc(t('plannedSum', fmtDur(totals.planned)))}` : ''}</small>${loadBar(d)}</h2>
-      ${inConflict.size ? conflictBanner(d) : ''}
-      ${gh.length ? `<ul class="ag-list ghosts">${gh.map((g) => `<li class="ag-row ghost"><button type="button" class="ag-main" data-action="ghost-rm" data-i="${g.i}" title="${esc(ghostTip(g))}"><span class="ag-time">${esc(range(g.start, g.minutes))}</span><span class="ag-text"><span class="ag-title">${esc(ghostTitle(g))}</span><small>${esc(ghostWhy(g) ? `✦ ${ghostWhy(g)}` : t('ghostTap'))}</small></span><span class="ghost-x">✕</span></button></li>`).join('')}</ul>` : ''}
-      ${items.length || dueTasks.length ? `<ul class="ag-list">${items.map((x) => agendaRow(x, inConflict.has(x.id))).join('')}${dueTasks.map((x) => dueRow(x, d)).join('')}</ul>`
-    : gh.length ? '' : `<p class="hint ag-empty">${esc(t('nothingPlanned'))}</p>`}
-    </section>`;
-  }).join('')}</div>`;
-}
 
 function glanceBits(x) {
   const g = glance();
@@ -1610,74 +1944,6 @@ function glanceBits(x) {
 
 const KIND_ICON = { prep: '↳ ', meal: '🍽 ', groceries: '🛒 ', followup: '↪ ' };
 
-function agendaRow(x, conflict) {
-  const g = glance();
-  const open = ui.expanded.has(x.id);
-  const time = x.allDay ? t('allDay') : range(x.start, x.minutes);
-  const status = outcomeOf(x);
-  return `<li class="ag-row${status ? ` ${status}` : ''}${conflict ? ' conflict' : ''}${x.isEvent ? ' event' : ''}${open ? ' open' : ''}" style="--c:${esc(x.isEvent ? x.color : catColor(x.category) || 'var(--accent)')}">
-    ${x.isEvent ? '<span class="ag-check"></span>' : `<input type="checkbox" class="ag-check" data-action="block-done" data-id="${esc(x.id)}" ${status === 'done' ? 'checked' : ''} aria-label="${esc(t('markDone'))}">`}
-    <button type="button" class="ag-main" data-action="${x.isEvent ? 'event' : 'ag-toggle'}" data-id="${esc(x.id)}">
-      ${g.has('time') ? `<span class="ag-time">${esc(time)}</span>` : ''}
-      <span class="ag-text"><span class="ag-title">${conflict ? '<span class="warn-ico">⚠</span> ' : ''}${KIND_ICON[x.kind] || ''}${esc(x.title)}</span>
-      <small>${glanceBits(x).join(' · ')}</small></span>
-    </button>
-    ${!x.isEvent && showSteps() ? agendaSteps(x) : ''}
-    ${open && !x.isEvent ? agendaDetails(x) : ''}
-  </li>`;
-}
-
-function stepCheck(b, y) {
-  const st = y.state || (outcomeOf(b) === 'done' ? 'done' : null);
-  return `<input type="checkbox" data-action="step-done" data-block="${esc(b.id)}" data-step="${esc(y.id)}" ${st === 'done' ? 'checked' : ''} aria-label="${esc(y.title)}">`;
-}
-function agendaSteps(b) {
-  const st = stepTimes(b);
-  if (!st.length) return '';
-  return `<ol class="ag-steps">${st.map((y) => `<li class="${y.state || (outcomeOf(b) === 'done' ? 'done' : '')}">
-    ${stepCheck(b, y)}<span class="ag-time">${fmtTime(y.start)}</span><span class="st-title">${esc(y.title)}</span>
-    ${y.state === 'failed' ? `<small class="late">${esc(t('couldnt'))}</small>` : ''}</li>`).join('')}</ol>`;
-}
-
-function agendaDetails(b) {
-  const items = checklistOf(b);
-  const task = b.taskId && get('tasks', b.taskId);
-  const parent = b.parentId && get('blocks', b.parentId);
-  const recs = b.kind === 'meal' ? mealRecipes(b).map((x) => recipeOf(x.recipeId)).filter(Boolean) : [];
-  return `<div class="ag-details">
-    ${parent ? `<p class="hint">↳ ${esc(t('prepForBlock', parent.title, fmtTime(parent.start)))}</p>` : ''}
-    ${b.missing?.length ? `<p class="hint">🛒 ${esc(t('missingWere', b.missing.join(', ')))}</p>` : ''}
-    ${recs.length ? `<ul class="ag-recipes">${recs.map((r) => `<li>${(r.photos && r.photos[0]) || r.image ? photoTag((r.photos && r.photos[0]) || r.image) : ''}<span>${esc(r.title)}</span></li>`).join('')}</ul>` : ''}
-    ${items.length ? `<ul class="list checklist">${items.map((it, i) => `<li><label><input type="checkbox" data-ci="${i}" data-block="${esc(b.id)}" ${(b.checked || [])[i] ? 'checked' : ''}><span class="item-text">${esc(it)}</span></label></li>`).join('')}</ul>` : ''}
-    ${task?.place || task?.link ? `<p class="hint">${placeLink(task)}</p>` : ''}
-    ${b.notes ? `<p class="notes">${esc(b.notes)}</p>` : ''}
-    ${task && isTodo(task) && task.notes ? `<p class="notes">${esc(task.notes)}</p>` : ''}
-    <div class="button-row">
-      <button class="btn small" type="button" data-action="block-edit" data-id="${esc(b.id)}">${esc(t('edit'))}</button>
-      ${outcomeOf(b) ? `<button class="btn small ghost" type="button" data-action="block-reset" data-id="${esc(b.id)}">${esc(t('reset'))}</button>`
-    : `<button class="btn small ghost" type="button" data-action="block-fail" data-id="${esc(b.id)}">${esc(t('couldntDo'))}</button>`}
-    </div>
-  </div>`;
-}
-
-// A task due that day that isn't planned yet.
-function dueRow(x, date) {
-  const td = today();
-  const g = glance();
-  const bits = [];
-  if (g.has('duration')) bits.push(esc(fmtDur(x.minutes || 30)));
-  const cat = get('categories', x.category);
-  if (g.has('category') && cat) bits.push(`<span class="cat" style="--c:${esc(cat.color)}">${esc(catName(cat))}</span>`);
-  if (g.has('priority') && impBadge(x)) bits.push(impBadge(x));
-  return `<li class="ag-row due" style="--c:${esc(catColor(x.category) || 'var(--accent)')}">
-    <input type="checkbox" class="ag-check" data-action="task-done" data-id="${esc(x.id)}" aria-label="${esc(t('markDone'))}">
-    <button type="button" class="ag-main" data-action="task-edit" data-id="${esc(x.id)}">
-      ${g.has('time') ? `<span class="ag-time ${x.due < td ? 'late' : ''}">${esc(x.due < td ? t('overdue') : t('dueLabel'))}</span>` : ''}
-      <span class="ag-text"><span class="ag-title">${esc(x.title)}</span><small>${bits.join(' · ')}</small></span>
-    </button>
-    <button class="btn small" type="button" data-action="plan-task" data-id="${esc(x.id)}" data-date="${date < td ? td : date}">${esc(t('planIt'))}</button>
-  </li>`;
-}
 
 function blockHtml(b, startMin, conflict, compact = false) {
   const color = catColor(b.category) || 'var(--accent)';
@@ -1699,12 +1965,13 @@ function blockHtml(b, startMin, conflict, compact = false) {
     return `<div class="blk-step${i ? '' : ' first'}${hpx < 16 ? ' tight' : ''}${y.state ? ` ${y.state}` : status === 'done' ? ' done' : ''}" style="top:${(y.start - b.start) * PPM}px;height:${hpx}px">
       ${hpx >= 11 ? `${stepCheck(b, y)}<span class="st-title${y.travel && !y.known ? ' unknown' : ''}">${y.travel ? `${MODE_ICON[y.mode] || '🚌'} ` : ''}${y.travel && !y.known ? '? ' : ''}${esc(y.title)}</span><span class="st-time">${fmtTime(y.start)}</span>` : ''}</div>`;
   }).join('')}</div>` : '';
-  return `<div class="block${stepsIn ? ' with-steps' : ''}${status ? ` ${status}` : ''}${status === 'failed' ? ' done' : ''}${short ? ' short' : ''}${conflict ? ' conflict' : ''}${b.kind ? ` k-${b.kind}` : ''}" data-id="${esc(b.id)}" data-start="${b.start}" data-minutes="${b.minutes}"
+  const isEv = Boolean(b.taskId && get('tasks', b.taskId)?.event);
+  return `<div class="block${stepsIn ? ' with-steps' : ''}${status ? ` ${status}` : ''}${status === 'failed' ? ' done' : ''}${short ? ' short' : ''}${conflict ? ' conflict' : ''}${b.kind ? ` k-${b.kind}` : ''}${isEv ? ' own-event' : ''}" data-id="${esc(b.id)}" data-start="${b.start}" data-minutes="${b.minutes}"
     style="--c:${esc(color)};top:${(b.start - startMin) * PPM}px;height:${Math.max(b.minutes * PPM, 16)}px;left:${left};width:${width}">
     <input type="checkbox" class="blk-check" data-action="block-done" data-id="${esc(b.id)}" ${status === 'done' ? 'checked' : ''} aria-label="${esc(t('markDone'))}">
     <div class="blk-body">
-      <div class="blk-title">${conflict ? '<span class="warn-ico">⚠</span> ' : ''}${KIND_ICON[b.kind] || ''}${esc(b.title)}${b.seriesId ? ' <span class="series-ico" title="' + esc(t('recurring')) + '">↻</span>' : ''} ${extra}</div>
-      <div class="blk-time">${range(b.start, b.minutes)}</div>
+      <div class="blk-title">${conflict ? '<span class="warn-ico">⚠</span> ' : ''}${KIND_ICON[b.kind] || ''}${isEv ? '📅 ' : ''}${esc(b.title)}${b.seriesId ? ' <span class="series-ico" title="' + esc(t('recurring')) + '">↻</span>' : ''} ${extra}</div>
+      <div class="blk-time">${esc(blockTimeText(b))}</div>
     </div>
     ${stepsHtml}
     <div class="resize" aria-hidden="true"></div>
@@ -1720,16 +1987,28 @@ function eventHtml(e, startMin, conflict) {
     <div class="blk-time">${range(e.start, e.minutes)} · ${esc(e.calendar)}</div></div></div>`;
 }
 
+// An imported (Google Calendar) event: read-only, but tasks can be attached to it like to your own.
 function openEvent(e) {
+  const list = eventTasksOf(e.id);
   openModal(`
     <h2>${esc(e.title)}</h2>
     <p class="hint"><span class="cat" style="--c:${esc(e.color)}">${esc(e.calendar)}</span> · ${esc(fmtDay(e.date))}${e.allDay ? '' : ` · ${range(e.start, e.minutes)}`}</p>
     ${e.location ? `<p>📍 ${esc(e.location)}</p>` : ''}
     ${hint('eventReadOnly')}
+    <div class="field-label">✓ ${esc(t('secEventTasks'))}${list.length ? ` <small>${esc(readinessText(e.id))}</small>` : ''}</div>
+    ${list.length ? `<ul class="list ev-tasks">${list.map((y) => { const nb = nextPlanned(y.id); return `<li class="${y.done ? 'done' : ''}"><button class="task-main" value="ev-task:${esc(y.id)}" formnovalidate><span class="item-text">${y.done ? '✓ ' : ''}${esc(y.title)}<small>${esc([offsetText(y.eventOffset), y.due ? relDay(y.due) : ''].filter(Boolean).join(' · '))}</small><small class="${y.done ? '' : nb ? 'ok' : 'warn'}">${esc(y.done ? t('doneLabel') : nb ? t('plannedAt', relDay(nb.date), fmtTime(nb.start)) : t('toPlanLabel'))}</small></span></button></li>`; }).join('')}</ul>` : ''}
+    <div class="button-row left">
+      <button class="btn small" value="add-task" formnovalidate>+ ${esc(t('addEventTask'))}</button>
+      ${list.some((y) => !y.done && !nextPlanned(y.id)) ? `<button class="btn small primary-ghost" value="plan-tasks" formnovalidate>✦ ${esc(t('planThese'))}</button>` : ''}
+    </div>
     <div class="button-row">
       ${e.link ? `<a class="btn" href="${esc(e.link)}" target="_blank" rel="noopener">${esc(t('openInGoogle'))}</a>` : ''}
       <button class="btn" value="cancel">${esc(t('close'))}</button>
-    </div>`, () => {});
+    </div>`, (form, action) => {
+    if (action === 'add-task') setTimeout(() => openEventTaskAdd(e, { back: true }), 0);
+    if (action === 'plan-tasks') { planEventTasks(e); setTimeout(() => openEvent(get('events', e.id)), 0); }
+    if (action.startsWith('ev-task:')) setTimeout(() => openTask(get('tasks', action.slice(8))), 0);
+  });
 }
 
 
@@ -2226,7 +2505,6 @@ function viewShop() {
     : `<ul class="list shop" ${canDrag ? 'data-sortable="items" data-group="all"' : ''}>${(groups[0]?.[2] || []).map((i) => shopRow(i, { drag: canDrag, added: dated })).join('')}</ul>`;
   const food = done.filter(isFood).length;
   return `
-  <h1>${esc(t('tabShop'))}</h1>
   <p class="hint">${esc(ricetteConfigured() ? t('shopFromRicette') : t('shopOwn'))}</p>
   ${ricetteConfigured()
     ? `<p class="sync-line"><span class="ok-dot"></span>${esc(state.meta.ricetteSynced ? t('ricetteSyncedAt', new Date(state.meta.ricetteSynced).toLocaleTimeString(getLang(), { hour: '2-digit', minute: '2-digit', hour12: false })) : t('ricetteNotYet'))} <button class="linkish" type="button" data-action="sync-now">↻ ${esc(t('syncNow'))}</button></p>`
@@ -2425,15 +2703,17 @@ function folded(key) { return (state.settings.folded ?? ['grp_done']).includes(k
 function foldBtn(key, label, n, { open = !folded(key) } = {}) {
   return `<button class="fold" type="button" data-action="fold" data-id="${esc(key)}" aria-expanded="${open}"><span class="fold-ico">▸</span> ${esc(label)} <small>${n}</small></button>`;
 }
-function viewTasks() {
+function viewTasks(force = null) {
   const td = today();
   const all = live('tasks');
-  const tab = ui.tasksTab || 'todo';
+  const tab = force || ui.tasksTab || state.settings.tasksTab || 'todo'; // the part you used last is remembered
   const q = (ui.taskQ || '').trim();
   const hit = (x) => (!q || matchesQ(taskHay(x), q)) && passesFilter(x);
   const isFolded = (key) => !q && folded(key); // while searching, every group shows its matches
   const search = searchBox({ id: 'task-q', value: ui.taskQ || '' });
-  const switcher = `<div class="seg" role="tablist">${['todo', 'saved'].map((k) => `<button type="button" role="tab" class="${k === tab ? 'on' : ''}" aria-selected="${k === tab}" data-action="tasks-tab" data-id="${k}">${esc(t(`tasksTab_${k}`))}</button>`).join('')}</div>`;
+  const nShop = live(SH()).filter((i) => !i.checked).length;
+  const switcher = `<div class="seg" role="tablist">${['todo', 'saved', 'shop'].map((k) => `<button type="button" role="tab" class="${k === tab ? 'on' : ''}" aria-selected="${k === tab}" data-action="tasks-tab" data-id="${k}">${esc(t(`tasksTab_${k}`))}${k === 'shop' && nShop ? ` <small>${nShop > 99 ? '99+' : nShop}</small>` : ''}</button>`).join('')}</div>`;
+  if (tab === 'shop') return `${switcher}${viewShop()}`;
   if (tab === 'saved') {
     const helpers = all.filter((x) => x.helper && hit(x)).sort((a, b) => a.title.localeCompare(b.title));
     const tpls = templates().filter((tp) => !q || matchesQ(fold(tp.name), q));
@@ -2450,7 +2730,7 @@ function viewTasks() {
       <ul class="list saved">${list.map((tp) => `<li><button class="task-main" type="button" data-action="task-edit" data-id="${esc(tp.id)}"><span class="item-text">${tp.meal ? '🍽 ' : ''}${impBadge(tp) ? `${impBadge(tp)} ` : ''}${esc(tp.title)}<small>${esc(savedInfo(tp))}</small></span></button></li>`).join('')}</ul>`).join('')}
       <button class="btn small" type="button" data-action="saved-new">+ ${esc(t('newSaved'))}</button>`}
     </section>
-    <section class="fold-sec">
+    ${advancedOn() ? `<section class="fold-sec">
       ${foldBtn('templates', t('templates'), tpls.length, { open: !isFolded('templates') })}
       ${isFolded('templates') ? '' : `${hint('templatesHint')}
       <ul class="list">${tpls.map((tp) => `<li><button class="task-main" type="button" data-action="tpl-edit" data-id="${esc(tp.id)}"><span class="item-text">${esc(tp.name)}<small>${esc(t('nBlocks', (tp.blocks || []).length))}${tp.days?.length ? ` · ${esc(t('autoOn', daysLabel(tp.days)))}` : ''}</small></span></button></li>`).join('') || `<li class="pad"><span class="hint">${esc(t('noTemplates'))}</span></li>`}</ul>
@@ -2459,7 +2739,7 @@ function viewTasks() {
     <section class="fold-sec">
       ${foldBtn('preps', t('preparations'), helpers.length, { open: !isFolded('preps') })}
       ${isFolded('preps') ? '' : `${hint('prepsHint')}${helpers.length ? `<ul class="list preps">${helpers.map(prepRow).join('')}</ul>` : `${hint('noPreps')}`}`}
-    </section>`;
+    </section>` : ''}`;
   }
   const g = groupTasks(all.filter((x) => isTodo(x) && hit(x)), td);
   const mode = state.settings.taskSort || 'smart';
@@ -2540,6 +2820,7 @@ function taskRow(x, { drag = false } = {}) {
   if (x.repeat === 'times') bits.push(`↻ ${esc(t('timesShort', x.timesN || 1, t(`per_${x.timesPer || 'week'}`)))} · ${timesDone(x, td)}/${x.timesN || 1}`);
   else if (x.repeat) bits.push(`↻ ${esc(repeatText(x))}`);
   if (x.fromTitle) bits.push(`↪ ${esc(t('fromTask', x.fromTitle))}`);
+  if (x.eventId && eventOf(x.eventId)) bits.push(`📅 ${esc(eventOf(x.eventId).title)} · ${esc(offsetText(x.eventOffset))}`);
   const pre = prereqsOf(x);
   if (pre.length) bits.push(`🔒 ${esc(t('afterTask', pre.map((p) => p.task.title).join(', ')))}`);
   if (x.windows?.length) bits.push(`🕒 ${esc(windowsText(x.windows))}`);
@@ -2568,114 +2849,54 @@ function taskRow(x, { drag = false } = {}) {
 
 // Saved tasks that can serve as "Get there" / "Come back" (no meals).
 function savedForLegs() { return live('tasks').filter((x) => x.routine && !x.meal && !x.done).sort((a, b) => a.title.localeCompare(b.title)); }
-// Every section after the language picker folds; open states live on the device (`settings.setOpen`).
-const SET_SECS = ['planner', 'tasklist', 'travel', 'shops', 'categories', 'sync', 'ricette', 'gcal'];
-function foldSettings(html) {
-  const open = state.settings.setOpen || {};
-  const parts = html.split(/(?=<h2>)/);
-  const tail = '<div class="button-row subtle">';
-  let out = parts[0]; let i = 0;
-  for (let p of parts.slice(1)) {
-    let after = '';
-    const cut = p.indexOf(tail); if (cut >= 0) { after = p.slice(cut); p = p.slice(0, cut); }
-    const key = SET_SECS[i++] || `s${i}`;
-    const dflt = true;
-    const isOpen = open[key] ?? dflt;
-    const h2End = p.indexOf('</h2>') + 5;
-    out += `<details class="set-sec" data-sec="${key}" ${isOpen ? 'open' : ''}><summary>${p.slice(0, h2End)}</summary><div class="set-body">${p.slice(h2End)}</div></details>${after}`;
-  }
-  return out;
-}
 function viewSettings() {
   const s = state.settings;
   const msg = ui.connMsg;
   if (ensureLegTasks()) setTimeout(changed, 0);
-  return foldSettings(settingsHtml(s, msg));
+  return settingsHtml(s, msg);
 }
 function settingsHtml(s, msg) {
   const hourOpts = (sel, from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i).map((h) => `<option value="${h}" ${h === Number(sel) ? 'selected' : ''}>${fmtTime(h * 60)}</option>`).join('');
   const opts = (vals, sel, label) => vals.map((v) => `<option value="${v}" ${v === Number(sel) ? 'selected' : ''}>${esc(label(v))}</option>`).join('');
-  return `
-  <h1>${esc(t('tabSettings'))}</h1>
-  <form class="form" id="lang-form">
-    <label>${esc(t('language'))}
-      <select name="lang">${Object.entries(LANGS).map(([k, v]) => `<option value="${k}" ${k === getLang() ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>
-    </label>
-  </form>
-
-  <h2>${esc(t('plannerSettings'))}</h2>
+  const card = (title, body, cls = '') => `<section class="set-card ${cls}"><h2>${title}</h2>${body}</section>`;
+  // Three cards: my day, travel, connections. The rest folds under "Advanced".
+  const dayCard = `
   <form class="form" id="planner-form">
     <div class="two">
       <label>${esc(t('dayStart'))}<select name="dayStart">${hourOpts(s.dayStart, 0, 12)}</select></label>
       <label>${esc(t('dayEnd'))}<select name="dayEnd">${hourOpts(s.dayEnd, 13, 24)}</select></label>
     </div>
-    <div class="two">
-      <label>${esc(t('snap'))}<select name="snap">${opts([5, 10, 15, 30], s.snap, (m) => `${m} min`)}</select></label>
-      <label>${esc(t('buffer'))}<select name="buffer">${opts([0, 5, 10, 15], s.buffer ?? 5, (m) => (m ? `${m} min` : t('none')))}</select></label>
-    </div>
-    <label>${esc(t('taskBuffer'))}<select name="taskBuffer">${opts([0, 5, 10, 15, 30], s.taskBuffer ?? 0, (m) => (m ? `${m} min` : t('none')))}</select></label>
-    <label>${esc(t('defaultView'))}<select name="defaultView">${VIEWS.map((v) => `<option value="${v}" ${v === (s.defaultView || 'day') ? 'selected' : ''}>${esc(t(`v_${v}`))}</option>`).join('')}</select></label>
-    <div class="field-label">${esc(t('glanceTitle'))}</div>
-    <div class="days glance">${GLANCE.map((k) => `<label class="day-pill"><input type="checkbox" name="glance" value="${k}" ${glance().has(k) ? 'checked' : ''}><span>${esc(t(`gl_${k}`))}</span></label>`).join('')}</div>
-    ${hint('glanceHint')}
     <div class="field-label">✦ ${esc(t('autoHours'))}</div>
     <div class="auto-hours">
       <span>${esc(t('weekdays'))}</span><input name="ahWdF" ${TIME24} value="${fmtTime(autoHoursFor('2026-11-02')[0])}" aria-label="${esc(t('weekdays'))} ${esc(t('from'))}"> – <input name="ahWdT" ${TIME24} value="${fmtTime(autoHoursFor('2026-11-02')[1])}" aria-label="${esc(t('weekdays'))} ${esc(t('to'))}">
       <span>${esc(t('weekend'))}</span><input name="ahWeF" ${TIME24} value="${fmtTime(autoHoursFor('2026-11-07')[0])}" aria-label="${esc(t('weekend'))} ${esc(t('from'))}"> – <input name="ahWeT" ${TIME24} value="${fmtTime(autoHoursFor('2026-11-07')[1])}" aria-label="${esc(t('weekend'))} ${esc(t('to'))}">
     </div>
-    ${hint('autoHoursHint')}
-    <label class="check"><input type="checkbox" name="longUnits" ${s.longUnits ? 'checked' : ''}> <span>${esc(t('longUnits'))}${small('longUnitsHint')}</span></label>
-    <label>${esc(t('maxLoad'))}<select name="maxLoad">${opts([4, 5, 6, 7, 8, 9, 10, 11, 12, 14], s.maxLoad ?? 8, (h) => `${h} h`)}</select>
-      ${small('maxLoadHint')}</label>
-  </form>
-
-  <h2>✓ ${esc(t('taskListSettings'))}</h2>
-  <form class="form" id="tasklist-form">
-    <div class="field-label">${esc(t('taskGroupsLabel'))}</div>
-    <div class="days glance">${['today', 'tomorrow', 'soon'].map((k) => `<label class="day-pill"><input type="checkbox" name="tg" value="${k}" ${taskGroupsCfg()[k] ? 'checked' : ''}><span>${esc(k === 'soon' ? t('grp_soon') : t(`grp_${k}`))}</span></label>`).join('')}</div>
-    <label>${esc(t('soonDays'))}<select name="soonDays">${[3, 5, 7, 14, 30].map((n) => `<option value="${n}" ${n === Number(taskGroupsCfg().soonDays) ? 'selected' : ''}>${esc(t('nDays', n))}</option>`).join('')}</select></label>
-    ${hint('taskGroupsHint')}
-  </form>
-
-  <h2>🚌 ${esc(t('travelSettings'))}</h2>
-  ${hint('travelSettingsHint')}
+    <div class="two">
+      <label>${esc(t('maxLoad'))}<select name="maxLoad">${opts([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14], s.maxLoad ?? 8, (h) => `${h} h`)}</select></label>
+      <label>${esc(t('breathing'))}<select name="taskBuffer">${opts([0, 5, 10, 15, 30], s.taskBuffer ?? 0, (m) => (m ? `${m} min` : t('none')))}</select></label>
+    </div>
+    <label class="check"><input type="checkbox" name="freeWeekends" ${s.freeWeekends ? 'checked' : ''}> <span>${esc(t('freeWeekends'))}</span></label>
+    <label>${esc(t('defaultView'))}<select name="defaultView">${VIEWS.map((v) => `<option value="${v}" ${v === currentViewDefault() ? 'selected' : ''}>${esc(t(`v_${v}`))}</option>`).join('')}</select></label>
+  </form>`;
+  const travelCard = `
   <form class="form" id="travel-form">
     <label>${esc(t('homeAddress'))}<input name="home" value="${esc(travelCfg().home)}" placeholder="${esc(t('homePh'))}" autocomplete="street-address"></label>
     <div class="two">
       <label>${esc(t('travelModeDefault'))}<select name="mode">${TRAVEL_MODES.map((m) => `<option value="${m}" ${m === travelCfg().mode ? 'selected' : ''}>${MODE_ICON[m]} ${esc(t(`tm_${m}`))}</option>`).join('')}</select></label>
-      <label>${esc(t('travelBuffer'))}<select name="buffer">${[0, 5, 10, 15].map((m) => `<option value="${m}" ${m === Number(travelCfg().buffer) ? 'selected' : ''}>${m ? `${m} min` : esc(t('none'))}</option>`).join('')}</select></label>
+      <label class="check tall"><input type="checkbox" name="startHere" ${travelCfg().startHere ? 'checked' : ''}> <span>${esc(t('startHere'))}${state.settings.here ? `<small>${esc(t('hereSetAt', new Date(state.settings.here.at).toLocaleString(getLang())))}</small>` : ''}</span></label>
     </div>
     <div class="field-label">🧭 ${esc(t('legsTitle'))}</div>
-    ${hint('legsHint')}
-    ${LEGS.map((kind) => { const sel = kind === 'there' ? 'thereDefault' : 'backDefault'; const tpl = legTemplate(kind); return `
-    <fieldset class="leg-box">
-      <legend>${esc(t(kind === 'there' ? 'legBefore' : 'legAfter'))}</legend>
-      <div class="leg-fields">
-        <label>${esc(t('legTask'))}<select name="leg_${kind}">${savedForLegs().map((x) => `<option value="${esc(x.id)}" ${x.travelRole === kind ? 'selected' : ''}>${esc(x.title)}</option>`).join('')}</select></label>
-        <label>${esc(t('legWhen'))}<select name="${sel}">${['place', 'always', 'off'].map((k) => `<option value="${k}" ${k === travelCfg()[sel] ? 'selected' : ''}>${esc(t(`legWhen_${k}`))}</option>`).join('')}</select></label>
-      </div>
-      <button class="btn small ghost" type="button" data-action="leg-edit" data-kind="${kind}">✎ ${esc(t('legEdit', tpl?.title || t(kind === 'there' ? 'getThere' : 'comeBack')))}</button>
-    </fieldset>`; }).join('')}
-    <label class="check"><input type="checkbox" name="startHere" ${travelCfg().startHere ? 'checked' : ''}> <span>${esc(t('startHere'))}<small>${esc(state.settings.here ? t('hereSetAt', new Date(state.settings.here.at).toLocaleString(getLang())) : t('startHereHint'))}</small></span></label>
+    ${LEGS.map((kind) => { const sel = kind === 'there' ? 'thereDefault' : 'backDefault'; return `
+    <div class="leg-line">
+      <span class="leg-name">${esc(t(kind === 'there' ? 'legBefore' : 'legAfter'))}</span>
+      <select name="leg_${kind}" aria-label="${esc(t('legTask'))}">${savedForLegs().map((x) => `<option value="${esc(x.id)}" ${x.travelRole === kind ? 'selected' : ''}>${esc(x.title)}</option>`).join('')}</select>
+      <select name="${sel}" aria-label="${esc(t('legWhen'))}">${['place', 'always', 'off'].map((k) => `<option value="${k}" ${k === travelCfg()[sel] ? 'selected' : ''}>${esc(t(`legWhen_${k}`))}</option>`).join('')}</select>
+      <button class="icon" type="button" data-action="leg-edit" data-kind="${kind}" aria-label="${esc(t('legEdit', legTemplate(kind)?.title || ''))}" title="${esc(t('legEdit', legTemplate(kind)?.title || ''))}">✎</button>
+    </div>`; }).join('')}
     <div class="button-row"><button class="btn small" type="button" data-action="use-location">📍 ${esc(t('useLocation'))}</button><button class="btn small ghost" type="button" data-action="travel-refresh">↻ ${esc(t('travelRefresh'))}</button></div>
-    <label>${esc(t('googleKey'))}<input name="googleKey" value="${esc(travelCfg().googleKey)}" placeholder="AIza…" autocomplete="off">${small('googleKeyHint')}</label>
     <p class="hint">${esc(travelCfg().googleKey ? t('travelViaGoogle') : t('travelViaFree'))}</p>
-  </form>
-
-  <h2>🏪 ${esc(t('shopsTitle'))}</h2>
-  ${hint('shopsHint')}
-  ${shopsList().length ? `<ul class="list">${shopsList().map((sh) => `<li><button class="task-main" type="button" data-action="shop-rec" data-id="${esc(sh.id)}"><span class="item-text">${esc(sh.name)}<small>${esc([fmtDur(sh.minutes || 30), sh.hours?.length ? windowsText(sh.hours) : t('alwaysOpen'), sh.place || ''].filter(Boolean).join(' · '))}</small></span></button></li>`).join('')}</ul>` : ''}
-  <button class="btn small" type="button" data-action="shop-new">+ ${esc(t('newShop'))}</button>
-  <label class="form trip-mode">${esc(t('tripModeLabel'))}<select id="trip-mode">${['perShop', 'oneTrip'].map((m) => `<option value="${m}" ${m === tripMode() ? 'selected' : ''}>${esc(t(`trip_${m}`))}</option>`).join('')}</select></label>
-
-  <h2>${esc(t('categories'))}</h2>
-  <ul class="list">
-    ${categories().map((c) => `<li><button class="task-main" type="button" data-action="cat-edit" data-id="${esc(c.id)}"><span class="item-text"><span class="cat" style="--c:${esc(c.color)}">${esc(catName(c))}</span></span></button></li>`).join('')}
-  </ul>
-  <button class="btn small" type="button" data-action="cat-new">+ ${esc(t('newCategory'))}</button>
-
-  <h2>${esc(t('sync'))}</h2>
-  ${ghConnected() && !ui.editGithub ? `
+  </form>`;
+  const github = ghConnected() && !ui.editGithub ? `
   <div class="conn-card">
     <div class="conn-main"><span class="ok-dot"></span><div><b>${esc(s.owner)}/${esc(s.repo)}</b>
       <small>${esc(t('branch'))}: ${esc(s.branch || 'main')} · ${esc(t('lastSync'))}: ${state.meta.lastSync ? esc(new Date(state.meta.lastSync).toLocaleString(getLang())) : esc(t('never'))}</small></div></div>
@@ -2683,10 +2904,8 @@ function settingsHtml(s, msg) {
     <div class="button-row">
       <button class="btn small" type="button" data-action="sync-now">${esc(t('syncNow'))}</button>
       <button class="btn small ghost" type="button" data-action="gh-edit">${esc(t('changeConn'))}</button>
-      <button class="btn small ghost" type="button" data-action="wipe-local">${esc(t('wipeLocal'))}</button>
     </div>
   </div>` : `
-  ${hint('syncHint')}
   <form class="form" id="gh-form">
     <div class="two">
       <label>${esc(t('owner'))}<input name="owner" value="${esc(s.owner)}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
@@ -2699,33 +2918,71 @@ function settingsHtml(s, msg) {
       <button class="btn primary">${esc(t('saveTest'))}</button>
       ${ui.editGithub ? `<button class="btn" type="button" data-action="gh-cancel">${esc(t('cancel'))}</button>` : ''}
     </div>
-  </form>`}
-
-  <h2>${esc(t('ricette'))}</h2>
-  ${ricetteConfigured() ? `
+  </form>`;
+  const ricette = ricetteConfigured() ? `
   <div class="conn-card">
     <div class="conn-main"><span class="ok-dot"></span><div><b>${esc(s.owner)}/${esc(s.ricetteRepo)}</b>
       <small>${esc(t('ricetteStatus', live('r_recipes').length, live('r_pantry').length, live('r_shopping').filter((x) => !x.checked).length))}</small></div></div>
     ${ui.ricMsg && ui.ricMsg !== 'connected' ? `<p class="conn bad">${esc(t(ui.ricMsg))}</p>` : ''}
     <div class="button-row"><button class="btn small ghost" type="button" data-action="ric-off">${esc(t('disconnect'))}</button></div>
   </div>` : `
-  ${hint('ricetteHint')}
   <form class="form" id="ric-form">
     <label>${esc(t('ricetteRepo'))}<input name="ricetteRepo" value="${esc(s.ricetteRepo || 'ricette-data')}" autocomplete="off" autocapitalize="off" spellcheck="false" ${isConfigured() ? '' : 'disabled'}>
       <small>${esc(isConfigured() ? t('ricetteRepoHint') : t('ricetteNeedsSync'))}</small></label>
     ${ui.ricMsg ? `<p class="conn ${ui.ricMsg === 'connected' ? 'good' : 'bad'}">${esc(t(ui.ricMsg))}</p>` : ''}
     <div class="button-row"><button class="btn primary" ${isConfigured() ? '' : 'disabled'}>${esc(t('connect'))}</button></div>
-  </form>`}
-
-  <h2>${esc(t('gcal'))}</h2>
-  ${gcalSection()}
-
-  <div class="button-row subtle">
+  </form>`;
+  const connections = `
+  <h3>${esc(t('sync'))}</h3>${github}
+  <h3>${esc(t('ricette'))}</h3>${ricette}
+  <h3>${esc(t('gcal'))}</h3>${gcalSection()}`;
+  const lists = `
+  <h3>${esc(t('categories'))}</h3>
+  <ul class="list">
+    ${categories().map((c) => `<li><button class="task-main" type="button" data-action="cat-edit" data-id="${esc(c.id)}"><span class="item-text"><span class="cat" style="--c:${esc(c.color)}">${esc(catName(c))}</span></span></button></li>`).join('')}
+  </ul>
+  <button class="btn small" type="button" data-action="cat-new">+ ${esc(t('newCategory'))}</button>
+  <h3>🏪 ${esc(t('shopsTitle'))}</h3>
+  ${shopsList().length ? `<ul class="list">${shopsList().map((sh) => `<li><button class="task-main" type="button" data-action="shop-rec" data-id="${esc(sh.id)}"><span class="item-text">${esc(sh.name)}<small>${esc([fmtDur(sh.minutes || 30), sh.hours?.length ? windowsText(sh.hours) : t('alwaysOpen'), sh.place || ''].filter(Boolean).join(' · '))}</small></span></button></li>`).join('')}</ul>` : ''}
+  <button class="btn small" type="button" data-action="shop-new">+ ${esc(t('newShop'))}</button>`;
+  const advanced = `
+  <form class="form" id="advanced-form">
+    <div class="two">
+      <label>${esc(t('snap'))}<select name="snap">${opts([5, 10, 15, 30], s.snap, (m) => `${m} min`)}</select></label>
+      <label>${esc(t('travelBuffer'))}<select name="travelBuffer">${[0, 5, 10, 15].map((m) => `<option value="${m}" ${m === Number(travelCfg().buffer) ? 'selected' : ''}>${m ? `${m} min` : esc(t('none'))}</option>`).join('')}</select></label>
+    </div>
+    <label class="check"><input type="checkbox" name="advancedFeatures" ${advancedOn() ? 'checked' : ''}> <span>${esc(t('advancedFeatures'))}<small>${esc(t('advancedFeaturesHint'))}</small></span></label>
+    <label class="check"><input type="checkbox" name="longUnits" ${s.longUnits ? 'checked' : ''}> <span>${esc(t('longUnits'))}</span></label>
+    <div class="field-label">${esc(t('taskGroupsLabel'))}</div>
+    <div class="days glance">${['today', 'tomorrow', 'soon'].map((k) => `<label class="day-pill"><input type="checkbox" name="tg" value="${k}" ${taskGroupsCfg()[k] ? 'checked' : ''}><span>${esc(k === 'soon' ? t('grp_soon') : t(`grp_${k}`))}</span></label>`).join('')}</div>
+    <label>${esc(t('soonDays'))}<select name="soonDays">${[3, 5, 7, 14, 30].map((n) => `<option value="${n}" ${n === Number(taskGroupsCfg().soonDays) ? 'selected' : ''}>${esc(t('nDays', n))}</option>`).join('')}</select></label>
+    <div class="field-label">${esc(t('glanceTitle'))}</div>
+    <div class="days glance">${GLANCE.map((k) => `<label class="day-pill"><input type="checkbox" name="glance" value="${k}" ${glance().has(k) ? 'checked' : ''}><span>${esc(t(`gl_${k}`))}</span></label>`).join('')}</div>
+    <label>${esc(t('tripModeLabel'))}<select id="trip-mode">${['perShop', 'oneTrip'].map((m) => `<option value="${m}" ${m === tripMode() ? 'selected' : ''}>${esc(t(`trip_${m}`))}</option>`).join('')}</select></label>
+    <label>${esc(t('googleKey'))}<input name="googleKey" value="${esc(travelCfg().googleKey)}" placeholder="AIza…" autocomplete="off">${small('googleKeyHint')}</label>
+  </form>
+  <div class="button-row">
     <button class="btn small" type="button" data-action="export">${esc(t('export'))}</button>
+    ${ghConnected() ? `<button class="btn small ghost" type="button" data-action="wipe-local">${esc(t('wipeLocal'))}</button>` : ''}
+  </div>`;
+  return `
+  <h1>${esc(t('tabSettings'))}</h1>
+  <form class="form" id="lang-form">
+    <label>${esc(t('language'))}
+      <select name="lang">${Object.entries(LANGS).map(([k, v]) => `<option value="${k}" ${k === getLang() ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>
+    </label>
+  </form>
+  ${card(esc(t('myDay')), dayCard, 'c-day')}
+  ${card(`🚌 ${esc(t('travelSettings'))}`, travelCard, 'c-travel')}
+  ${card(esc(t('connections')), connections, 'c-links')}
+  ${card(esc(t('listsTitle')), lists, 'c-lists')}
+  <details class="set-card advanced" ${ui.advancedOpen ? 'open' : ''}><summary><h2>${esc(t('advanced'))}</h2></summary>${advanced}</details>
+  <div class="button-row subtle">
     <a class="btn small" href="guide-${getLang() === 'it' ? 'it' : 'en'}.html" target="_blank" rel="noopener">📖 ${esc(t('guide'))}</a>
     <span class="version">${esc(t('appName'))} ${APP_VERSION}</span>
   </div>`;
 }
+function currentViewDefault() { const v = state.settings.defaultView || 'day'; return VIEWS.includes(v) ? v : 'day'; }
 
 // Reminders: Google Calendar notifies you (the "Everyday" calendar's events carry them). A default for
 // everything (shared through the data repo, read by the sync), and each task can have its own.
@@ -2779,10 +3036,11 @@ function daysLabel(days) {
 function renderShell() {
   document.title = t('appName');
   $('#app-title').textContent = t('appName');
-  $('#app-title').title = t('tabPlan');
+  $('#app-title').title = t('tabToday');
   for (const a of document.querySelectorAll('nav a')) {
     a.querySelector('.label').textContent = t(`tab${a.dataset.tab.charAt(0).toUpperCase()}${a.dataset.tab.slice(1)}`);
   }
+  const gear = $('#gear'); if (gear) { gear.setAttribute('aria-label', t('gearSettings')); gear.title = t('gearSettings'); }
   updateSyncBadge();
 }
 
@@ -2796,15 +3054,18 @@ function render() {
   const active = document.activeElement;
   const focusId = active && active.id;
   const typed = focusId && active.tagName === 'INPUT' ? active.value : null;
-  for (const a of document.querySelectorAll('nav a')) a.classList.toggle('active', a.dataset.tab === (TAB_OF[r.name] || 'plan'));
+  for (const a of document.querySelectorAll('nav a')) a.classList.toggle('active', a.dataset.tab === (TAB_OF[r.name] || 'today'));
+  $('#gear')?.classList.toggle('active', r.name === 'settings');
   document.body.classList.toggle('compact', Boolean(state.settings.compact));
   updateShopCount();
   let html;
   switch (r.name) {
     case 'tasks': html = viewTasks(); break;
-    case 'shop': html = viewShop(); break;
+    case 'shop': html = viewTasks('shop'); break;
+    case 'events': html = viewEvents(); break;
     case 'settings': html = viewSettings(); break;
-    default: html = viewPlan(currentDate());
+    case 'plan': html = viewPlan(currentDate()); break;
+    default: html = viewToday();
   }
   // Nothing changed (e.g. a sync that found no news): leave the page alone. Replacing it
   // anyway is what made the screen flicker and fields lose what you were typing.
@@ -3038,10 +3299,15 @@ function repeatText(x) {
   return s;
 }
 function plannedIso(x) { const d = x.planDate || x.due || today(); return ((parseDate(d).getDay() + 6) % 7) + 1; }
+// The one editor for tasks and events (`opts.event`, or a task with `event: true`): the same sections
+// in the same order; an event's "When" is a fixed date (a time is optional) and it has a section for
+// the tasks to do around it instead of due date, importance and prerequisites.
 function openTask(task, draft = null, opts = {}) {
   const isNew = !task;
-  const base = task || { title: '', minutes: 30, importance: 3, category: '', due: '', repeat: '', notes: '', when: '' };
-  const src = draft || base;
+  const evMode = Boolean(task?.event || draft?.event || opts.event || opts.draft?.event);
+  const base = task || (evMode ? { title: '', minutes: 120, importance: 3, category: '', due: '', repeat: '', notes: '', when: '', event: true }
+    : { title: '', minutes: 30, importance: 3, category: '', due: '', repeat: '', notes: '', when: '' });
+  const src = draft || opts.draft || base;
   const x = draft?.allRules ? draft : { ...src, importance: importanceOf(src), minutes: ownMinutes(src), steps: realSteps(src).map((y) => ({ ...y })), checklist: [...(src.checklist || [])], allRules: rulesForEditor(src), travel: travelOf(src) };
   if (!x.travel) x.travel = travelOf(src);
   if (opts.fromOcc) x.fromOcc = opts.fromOcc;
@@ -3054,7 +3320,13 @@ function openTask(task, draft = null, opts = {}) {
     x.planDate = nb?.date || '';
     x.planTime = nb ? nb.start + anchorOffset(nb) : null;
     x.planBlockId = nb?.id || null;
+    if (evMode) {
+      if (isNew && !x.planDate) { x.planDate = opts.date || ''; x.planTime = opts.start ?? null; }
+      if (!x.planDate) x.planDate = x.due || '';
+      if (x.planTime == null && !x.allDay && x.eventTime != null) x.planTime = x.eventTime;
+    }
   }
+  const linkedEvent = !evMode && x.eventId ? eventOf(x.eventId) : null;
   const lenOf = (y) => Number(y.minutes) || 10;
   const stepTotal = x.steps.reduce((n, y) => n + lenOf(y), 0);
   const fromRecipes = x.steps.some((y) => y.from === 'recipes');
@@ -3113,7 +3385,7 @@ function openTask(task, draft = null, opts = {}) {
   }).join('');
   const taskRules = rulesFor(null);
   const timeLabel = x.steps.length > 1 && ai > 0 && anchor ? t('anchorAt', anchor.title || '…') : t('startTime');
-  const heading = routine ? (x.meal ? (isNew ? t('newMealType') : t('mealType')) : (isNew ? t('newSaved') : t('savedTask'))) : helper ? t('editPrep') : isNew ? t('newTask') : t('editTask');
+  const heading = evMode ? (isNew ? t('newEvent') : t('editEvent')) : routine ? (x.meal ? (isNew ? t('newMealType') : t('mealType')) : (isNew ? t('newSaved') : t('savedTask'))) : helper ? t('editPrep') : isNew ? t('newTask') : t('editTask');
   const catName0 = get('categories', x.category) ? catName(get('categories', x.category)) : '';
 
   const basics = `
@@ -3121,19 +3393,50 @@ function openTask(task, draft = null, opts = {}) {
       ${x.steps.length ? `<label>${esc(t('duration'))}<span class="static">${esc(fromRecipes ? t('durationRecipes', fmtDur(stepTotal)) : t('durationFromSteps', fmtDur(stepTotal)))}</span></label>`
     : `<label>${esc(t('duration'))}${durField('minutes', x.minutes || 30)}</label>`}
       ${helper || x.travelRole ? '' : `<label>${esc(t('bufferAfter'))}<select name="buffer"><option value="" ${x.buffer == null || x.buffer === '' ? 'selected' : ''}>${esc(t('bufferDefault', Number(state.settings.taskBuffer) || 0))}</option>${[0, 5, 10, 15, 30, 60].map((m) => `<option value="${m}" ${x.buffer != null && x.buffer !== '' && Number(x.buffer) === m ? 'selected' : ''}>${m ? esc(fmtDur(m)) : esc(t('none'))}</option>`).join('')}</select></label>`}
-      ${helper ? '' : `<label>${esc(t('importance'))}<select name="importance">${IMPORTANCE.map((n) => `<option value="${n}" ${n === x.importance ? 'selected' : ''}>${'★'.repeat(n)}${'☆'.repeat(5 - n)} ${esc(t(`imp_${n}`))}</option>`).join('')}</select></label>`}
+      ${helper || evMode ? '' : `<label>${esc(t('importance'))}<select name="importance">${IMPORTANCE.map((n) => `<option value="${n}" ${n === x.importance ? 'selected' : ''}>${'★'.repeat(n)}${'☆'.repeat(5 - n)} ${esc(t(`imp_${n}`))}</option>`).join('')}</select></label>`}
     </div>
     ${helper ? '' : `<div class="field-label">${esc(t('category'))}</div>${catChips(x.category)}`}
-    ${helper || x.meal ? '' : `<label class="check"><input type="checkbox" name="routine" ${routine ? 'checked' : ''}> <span>★ ${esc(t('keepSaved'))}${small('keepSavedHint')}</span></label>`}
+    ${helper || x.meal || evMode ? '' : `<label class="check"><input type="checkbox" name="routine" ${routine ? 'checked' : ''}> <span>★ ${esc(t('keepSaved'))}${small('keepSavedHint')}</span></label>`}
     ${routine ? `<label class="check"><input type="checkbox" name="meal" data-rerender="1" ${x.meal ? 'checked' : ''}> <span>${esc(t('isMeal'))}</span></label>` : ''}`;
-  const whenBody = !helper ? `
+  const off = x.eventOffset || { days: 0, when: 'before' };
+  const offWeeks = off.days > 0 && off.days % 7 === 0;
+  const evLine = linkedEvent ? `
+    <div class="ev-link">
+      <div class="field-label">📅 ${esc(t('forEvent', linkedEvent.title))} <small>${esc(eventDate(linkedEvent) ? relDay(eventDate(linkedEvent)) : '')}</small></div>
+      <div class="offset-row">
+        <input name="evDays" type="number" min="0" max="365" step="1" value="${esc(offWeeks ? off.days / 7 : off.days)}" aria-label="${esc(t('offsetDays'))}">
+        <select name="evUnit"><option value="days" ${offWeeks ? '' : 'selected'}>${esc(t('daysUnit'))}</option><option value="weeks" ${offWeeks ? 'selected' : ''}>${esc(t('weeksUnit'))}</option></select>
+        <select name="evWhen"><option value="before" ${off.when !== 'after' ? 'selected' : ''}>${esc(t('beforeIt'))}</option><option value="after" ${off.when === 'after' ? 'selected' : ''}>${esc(t('afterIt'))}</option><option value="none">${esc(t('detachEvent'))}</option></select>
+      </div>
+      <button class="btn small ghost" value="open-event" formnovalidate>${esc(t('openEvent'))} ↗</button>
+    </div>` : '';
+  const whenBody = evMode ? `
+    <div class="two">
+      <label>${esc(t('date'))}<input name="planDate" type="date" required value="${esc(x.planDate || '')}"></label>
+      <label>${esc(timeLabel)}<input name="planTime" ${TIME24} value="${x.planTime != null ? fmtTime(x.planTime) : ''}"></label>
+    </div>
+    <small class="hint">${esc(t('eventWhenHint'))}</small>
+    <div class="two">
+      <label>${esc(t('repeat'))}<select name="repeat" data-rerender="1"><option value="">${esc(t('rep_none'))}</option>${REPEATS.map((r) => `<option value="${r}" ${r === x.repeat ? 'selected' : ''}>${esc(t(`rep_${r}`))}</option>`).join('')}</select></label>
+    </div>
+    ${REPEATS.includes(x.repeat) ? `<div class="recur-box">
+      ${x.repeat !== 'weekdays' ? `<div class="times-row"><span>${esc(t('every'))}</span><input name="every" type="number" min="1" max="52" step="1" value="${esc(x.every || 1)}" aria-label="${esc(t('every'))}"><span>${esc(t(`unit_${x.repeat}`, Number(x.every) || 1))}</span></div>` : ''}
+      ${x.repeat === 'weekly' ? `<div class="days mini">${[1, 2, 3, 4, 5, 6, 7].map((d) => `<label class="day-pill"><input type="checkbox" name="repeatDays" value="${d}" ${((x.repeatDays || []).length ? x.repeatDays : [plannedIso(x)]).includes(d) ? 'checked' : ''}><span>${esc(dayShort(d))}</span></label>`).join('')}</div>` : ''}
+      <label>${esc(t('repeatUntil'))}<input name="repeatUntil" type="date" value="${esc(x.repeatUntil || '')}"></label>
+      ${x.planTime == null ? `<small class="hint">${esc(t('repeatNeedsTime'))}</small>` : ''}
+      ${x.fromOcc && (x.seriesFrom || x.due) && x.fromOcc > (x.seriesFrom || x.due) ? `<div class="field-label">${esc(t('applyTo'))}</div>
+      <div class="days"><label class="day-pill"><input type="radio" name="scope" value="following" ${x.scope !== 'all' ? 'checked' : ''}><span>${esc(t('scopeFollowing', relDay(x.fromOcc)))}</span></label>
+      <label class="day-pill"><input type="radio" name="scope" value="all" ${x.scope === 'all' ? 'checked' : ''}><span>${esc(t('scopeAll'))}</span></label></div>` : ''}
+    </div>` : ''}
+    ${remindField(x)}` : !helper ? `
     <div class="two">
       <label>${esc(t('date'))}<input name="planDate" type="date" value="${esc(x.planDate || '')}"></label>
       <label>${esc(timeLabel)}<input name="planTime" ${TIME24} value="${x.planTime != null ? fmtTime(x.planTime) : ''}"></label>
     </div>
     <small class="hint">${esc(t(x.planBlockId ? 'whenPlannedHint' : 'whenHint'))}</small>
+    ${evLine}
     <div class="two">
-      <label>${esc(t('due'))}<input name="due" type="date" value="${esc(x.due || '')}"></label>
+      ${linkedEvent ? `<label>${esc(t('due'))}<span class="static">${esc(x.due ? relDay(x.due) : '—')}</span></label>` : `<label>${esc(t('due'))}<input name="due" type="date" value="${esc(x.due || '')}"></label>`}
       <label>${esc(t('repeat'))}<select name="repeat" data-rerender="1"><option value="">${esc(t('rep_none'))}</option>${[...REPEATS, 'times'].map((r) => `<option value="${r}" ${r === x.repeat ? 'selected' : ''}>${esc(t(`rep_${r}`))}</option>`).join('')}</select></label>
     </div>
     ${x.repeat === 'times' ? `<div class="times-row"><input name="timesN" type="number" min="1" max="99" step="1" value="${esc(x.timesN || 3)}" aria-label="${esc(t('timesN'))}"><span>${esc(t('timesPer'))}</span>
@@ -3157,7 +3460,7 @@ function openTask(task, draft = null, opts = {}) {
   // Tasks it needs done first (not itself, not meals, not ones that already need it: no loops).
   const needCandidates = live('tasks').filter((y) => y.id !== x.id && !y.meal && !y.check && !y.done && !(y.after || []).includes(x.id) && !(x.after || []).includes(y.id))
     .sort((a, b) => a.title.localeCompare(b.title));
-  const needsBody = helper ? '' : `
+  const needsBody = helper || evMode ? '' : `
     <div class="field-label">🔒 ${esc(t('needsFirst'))}</div>
     ${(x.after || []).length ? `<div class="needs">${(x.after || []).map((id, k) => { const y = get('tasks', id); return `<span class="need-chip${y?.done ? ' done' : ''}">${y?.done ? '✓ ' : ''}${esc(y?.title || '?')}<button class="icon" value="rm-after:${k}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></span>`; }).join('')}</div>` : ''}
     <select name="addAfter" data-rerender="1"><option value="">+ ${esc(t('addNeed'))}</option>${needCandidates.map((y) => `<option value="${esc(y.id)}">${y.helper ? '↳ ' : ''}${esc(y.title)}</option>`).join('')}</select>
@@ -3165,7 +3468,20 @@ function openTask(task, draft = null, opts = {}) {
     <div class="field-label">🕒 ${esc(t('windowsTitle'))}</div>
     ${windowsEditor('w_', x.windows || [])}
     ${hint('windowsHint')}`;
-  const whenSummary = !helper ? [x.planDate ? `${relDay(x.planDate)}${x.planTime != null ? ` ${fmtTime(x.planTime)}` : ''}` : '', x.due ? t('dueOn', relDay(x.due)) : '', x.repeat ? `↻ ${x.repeat === 'times' ? t('timesShort', x.timesN || 3, t(`per_${x.timesPer || 'week'}`)) : repeatText(x)}` : '', routine && x.defaultStart != null ? t('usually', fmtTime(x.defaultStart)) : ''].filter(Boolean).join(' · ') : '';
+  const whenSummary = evMode ? [x.planDate ? `${relDay(x.planDate)} ${x.planTime != null ? fmtTime(x.planTime) : t('allDay')}` : t('dateMissing'), x.repeat ? `↻ ${repeatText(x)}` : ''].filter(Boolean).join(' · ')
+    : !helper ? [x.planDate ? `${relDay(x.planDate)}${x.planTime != null ? ` ${fmtTime(x.planTime)}` : ''}` : '', x.due ? t('dueOn', relDay(x.due)) : '', x.repeat ? `↻ ${x.repeat === 'times' ? t('timesShort', x.timesN || 3, t(`per_${x.timesPer || 'week'}`)) : repeatText(x)}` : '', routine && x.defaultStart != null ? t('usually', fmtTime(x.defaultStart)) : ''].filter(Boolean).join(' · ') : '';
+  // Events: the tasks to do around them, with how far before or after, and whether each is planned.
+  const evTasks = evMode && x.id ? eventTasksOf(x.id) : [];
+  const evTasksBody = evMode ? `
+    ${hint('eventTasksHint')}
+    ${evTasks.length ? `<ul class="list ev-tasks">${evTasks.map((y) => { const nb = nextPlanned(y.id); const late = !y.done && y.due && y.due < today(); return `<li class="${y.done ? 'done' : ''}">
+      <button class="task-main" value="ev-task:${esc(y.id)}" formnovalidate><span class="item-text">${y.done ? '✓ ' : ''}${esc(y.title)}<small>${esc([offsetText(y.eventOffset), y.due ? relDay(y.due) : '', fmtDur(y.minutes || 30)].filter(Boolean).join(' · '))}</small>
+      <small class="${y.done ? '' : nb ? 'ok' : late ? 'late' : 'warn'}">${esc(y.done ? t('doneLabel') : nb ? t('plannedAt', relDay(nb.date), fmtTime(nb.start)) : late ? t('lateLabel') : t('toPlanLabel'))}</small></span></button>
+    </li>`; }).join('')}</ul>` : ''}
+    <div class="button-row left">
+      <button class="btn small" value="add-evtask" formnovalidate>+ ${esc(t('addEventTask'))}</button>
+      ${evTasks.some((y) => !y.done && !nextPlanned(y.id)) ? `<button class="btn small primary-ghost" value="plan-evtasks" formnovalidate>✦ ${esc(t('planThese'))}</button>` : ''}
+    </div>` : '';
   const stepsBody = `
     ${hint(x.meal ? 'stepsHintMeal' : 'stepsHint')}
     ${stepCards ? `<ol class="steps-edit">${stepCards}</ol>` : ''}
@@ -3194,17 +3510,19 @@ function openTask(task, draft = null, opts = {}) {
     ${x.check === 'ingredients' ? `${hint('checkStepHint')}` : ''}
     ${x.travelRole ? `<p class="hint">${esc(t('legTaskHint', t(x.travelRole === 'there' ? 'getThere' : 'comeBack')))}</p>` : ''}
     <label>${esc(t('title'))}<input name="title" required value="${esc(x.title)}" autocomplete="off"></label>
-    ${sec('basics', esc(t('secBasics')), [fmtDur(x.steps.length ? stepTotal : x.minutes || 30), helper ? '' : t(`imp_${x.importance}`), catName0].filter(Boolean).join(' · '), basics, true)}
-    ${whenBody ? sec('when', `🕒 ${esc(t('secWhen'))}`, [whenSummary, (x.after || []).length ? `🔒 ${(x.after || []).length}` : '', cleanWindows(x.windows).length ? windowsText(cleanWindows(x.windows)) : ''].filter(Boolean).join(' · '), whenBody + needsBody, true) : ''}
+    ${evMode ? sec('when', `📅 ${esc(t('secWhen'))}`, whenSummary, whenBody, true) : ''}
+    ${evMode ? sec('evtasks', `✓ ${esc(t('secEventTasks'))}`, evTasks.length ? readinessText(x.id) : '', evTasksBody, true) : ''}
+    ${sec('basics', esc(t(evMode ? 'secBasicsEvent' : 'secBasics')), [fmtDur(x.steps.length ? stepTotal : x.minutes || 30), helper || evMode ? '' : t(`imp_${x.importance}`), catName0].filter(Boolean).join(' · '), basics, !evMode)}
+    ${whenBody && !evMode ? sec('when', `🕒 ${esc(t('secWhen'))}`, [whenSummary, (x.after || []).length ? `🔒 ${(x.after || []).length}` : '', cleanWindows(x.windows).length ? windowsText(cleanWindows(x.windows)) : ''].filter(Boolean).join(' · '), whenBody + needsBody, true) : ''}
     ${helper ? '' : sec('place', `📍 ${esc(t('secPlace'))}`, x.place || (x.link ? t('link') : ''), placeBody, Boolean(x.place || x.link))}
     ${sec('steps', `▤ ${esc(t('steps'))}`, x.steps.length ? `${x.steps.length} · ${fmtDur(stepTotal)}` : '', stepsBody, true)}
     ${x.check ? '' : sec('checklist', `☑ ${esc(t('checklist'))}`, x.checklist.length ? String(x.checklist.length) : '', `<label><textarea name="checklist" rows="3" placeholder="${esc(t('checklistPh'))}" aria-label="${esc(t('checklist'))}">${esc((x.checklist || []).join('\n'))}</textarea>
       ${small('checklistHint')}</label>`, x.checklist.length > 0)}
-    ${sec('rules', `⚙ ${esc(t(x.steps.length ? 'rulesWhole' : 'rules'))}`, taskRules.length ? String(taskRules.length) : '', rulesBody, true)}
+    ${advancedOn() || taskRules.length || x.meal ? sec('rules', `⚙ ${esc(t(x.steps.length ? 'rulesWhole' : 'rules'))}`, taskRules.length ? String(taskRules.length) : '', rulesBody, true) : ''}
     ${sec('notes', esc(t('notes')), x.notes ? x.notes.slice(0, 30) : '', `<label><textarea name="notes" rows="2" aria-label="${esc(t('notes'))}">${esc(x.notes || '')}</textarea></label>`, Boolean(x.notes))}
     <div class="button-row">
       <button class="btn primary" value="ok">${esc(t('save'))}</button>
-      ${!helper && !x.planBlockId ? `<button class="btn" value="plan">${esc(t('planIt'))}</button>` : ''}
+      ${!helper && !evMode && !x.planBlockId ? `<button class="btn" value="plan">${esc(t('planIt'))}</button>` : ''}
       <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
       ${isNew || x.id === 'meal_check' ? '' : `<button class="btn danger" value="delete" formnovalidate>${esc(t('delete'))}</button>`}
     </div>`, (form, action, e) => {
@@ -3227,6 +3545,8 @@ function openTask(task, draft = null, opts = {}) {
       again(); return;
     }
     if (action.startsWith('rm-after:')) { x.after = (x.after || []).filter((_, k) => k !== Number(action.slice(9))); again(); return; }
+    if (action === 'open-event' && linkedEvent) { if (linkedEvent.event) setTimeout(() => openTask(linkedEvent), 0); else setTimeout(() => openEvent(linkedEvent), 0); }
+    if (evMode && !x.planDate && (action === 'ok' || action === 'add-evtask' || action === 'plan-evtasks' || action.startsWith('ev-task:'))) { e.preventDefault(); modal.querySelector('input[name=planDate]')?.focus(); return; }
     const wm = action.match(/^(w_|r(\d+)w_)(add|rm:(\d+))$/);
     if (wm) {
       const list = wm[2] != null ? (x.allRules[Number(wm[2])].windows = x.allRules[Number(wm[2])].windows || []) : (x.windows = x.windows || []);
@@ -3252,6 +3572,7 @@ function openTask(task, draft = null, opts = {}) {
       return;
     }
     if (!x.title) { e.preventDefault(); return; }
+    if (evMode) { x.due = x.planDate; x.allDay = x.planTime == null; x.eventTime = x.planTime; x.event = true; if (x.allDay) x.repeat = null; }
     const before = task ? Number(task.minutes) : null;
     const prevTask = task && get('tasks', task.id);
     let rec; let split = false;
@@ -3276,6 +3597,9 @@ function openTask(task, draft = null, opts = {}) {
       // A new time for a recurring task on the plan: the whole series moves (occurrences changed by hand keep theirs).
       rec = upsert('tasks', { ...rec, seriesTime: x.planTime }, { silent: true });
       ensureSeries(rec);
+    } else if (evMode && x.allDay) {
+      const cur = x.planBlockId && get('blocks', x.planBlockId);
+      if (cur) deleteBlock(cur); // no time any more: the day's all-day row shows it
     } else if (!helper && !split) {
       const cur = x.planBlockId && get('blocks', x.planBlockId);
       if (x.planDate) {
@@ -3296,6 +3620,9 @@ function openTask(task, draft = null, opts = {}) {
       const r = x.allRules[Number(action.slice(10))];
       if (r?.taskId) setTimeout(() => openTask(get('tasks', r.taskId)), 0);
     }
+    if (action.startsWith('ev-task:')) setTimeout(() => openTask(get('tasks', action.slice(8))), 0);
+    if (action === 'add-evtask') setTimeout(() => openEventTaskAdd(get('tasks', rec.id), { back: true }), 0);
+    if (action === 'plan-evtasks') { syncEventTasks(); planEventTasks(get('tasks', rec.id)); setTimeout(() => openTask(get('tasks', rec.id)), 0); }
     if (action === 'plan') {
       const date = x.planDate || (rec.due && rec.due > today() ? rec.due : today());
       const b = planTask(rec, date, x.planTime != null ? Math.max(0, x.planTime - anchorOffset(null, rec)) : null);
@@ -3324,8 +3651,15 @@ function openTask(task, draft = null, opts = {}) {
     if (form.querySelector('[value="w_add"]')) x.windows = readWindows(form, 'w_', (x.windows || []).length);
     if (form.splitSteps) x.splitSteps = form.splitSteps.checked;
     if (form.routine) x.routine = form.routine.checked;
+    if (form.evDays) {
+      const when = form.evWhen.value;
+      if (when === 'none') { x.eventId = null; x.eventOffset = null; } else {
+        x.eventOffset = { days: Math.max(0, Number(form.evDays.value) || 0) * (form.evUnit.value === 'weeks' ? 7 : 1), when };
+        const d = eventDate(linkedEvent); if (d) x.due = offsetDue(d, x.eventOffset);
+      }
+    }
     if (!helper) {
-      x.due = form.due.value || null;
+      if (form.due) x.due = form.due.value || null;
       x.repeat = form.repeat.value || null;
       if (x.repeat === 'times' && form.timesN) { x.timesN = Math.max(1, Number(form.timesN.value) || 1); x.timesPer = form.timesPer.value || 'week'; }
       if (form.every) x.every = Math.max(1, Number(form.every.value) || 1);
@@ -3502,11 +3836,12 @@ function openBlock(block, defaults = {}) {
     ${status === 'failed' ? `<p class="conn bad">✕ ${esc(t('markedCouldnt'))}${b.missing?.length ? ` ${esc(t('missingWere', b.missing.join(', ')))}` : ''}</p>` : ''}
     ${isCheckStep(b) && !status ? `${hint('checkStepHint')}` : ''}
     ${isShop ? '' : `
-      ${b.kind === 'prep' ? '' : `<input type="hidden" name="taskId" value="${esc(b.taskId || '')}">
+      ${b.kind === 'prep' || task?.event ? `<input type="hidden" name="taskId" value="${esc(b.taskId || '')}">` : `<input type="hidden" name="taskId" value="${esc(b.taskId || '')}">
       <details class="task-pick" ${isNew && !b.taskId ? 'open' : ''}><summary><span class="field-label">${esc(t('linkTask'))}</span> <span class="tp-cur">${esc(task ? task.title : t('noTaskLinked'))}</span></summary>
         ${taskPickList(b.taskId)}
         <button type="button" class="tp-item none" data-tp="" data-q="">${esc(t('noTaskLinked'))}</button></details>`}
       <label>${esc(t('title'))}<input name="title" value="${esc(b.title)}" autocomplete="off"></label>`}
+      ${task?.event ? `<p class="hint">📅 ${esc(t('blockOfEvent'))}</p>` : ''}
     <div class="three">
       <label>${esc(t('date'))}<input name="date" type="date" required value="${esc(b.date)}"></label>
       <label>${esc(anchorName ? t('anchorAt', anchorName) : t('start'))}<input name="start" ${TIME24} required value="${fmtTime(b.start + off)}"></label>
@@ -3521,7 +3856,7 @@ function openBlock(block, defaults = {}) {
     ${isShop ? '' : `<div class="field-label">${esc(t('category'))}</div>${catChips(b.category)}`}
     <label>${esc(t('notes'))}<textarea name="notes" rows="2">${esc(b.notes || '')}</textarea></label>
     <label class="check"><input type="checkbox" name="allowOverlap" ${b.allowOverlap ? 'checked' : ''}> ${esc(t('allowOverlap'))}</label>
-    ${isShop || isNew ? '' : task ? `<button class="btn small edit-task" value="edit-task" formnovalidate>▤ ${esc(t('editTaskSteps', task.title))}</button>`
+    ${isShop || isNew ? '' : task ? `<button class="btn small edit-task" value="edit-task" formnovalidate>${task.event ? '📅' : '▤'} ${esc(t(task.event ? 'editEventBtn' : 'editTaskSteps', task.title))}</button>`
     : `<button class="btn small edit-task" value="to-task" formnovalidate>▤ ${esc(t('makeTask'))}</button>`}
     <div class="button-row">
       <button class="btn primary" value="ok">${esc(t('save'))}</button>
@@ -3814,14 +4149,21 @@ view.addEventListener('submit', (e) => {
   if (form.id === 'task-add' || form.id === 'side-add') {
     const q = quickAdd(form.title.value);
     if (!q.title) return;
-    const onDay = form.id === 'side-add' && currentView() === 'day' ? currentDate() : null;
-    upsert('tasks', {
-      id: uid(), createdAt: Date.now(), title: q.title, minutes: q.minutes || 30, lenSet: Boolean(q.minutes), priority: q.priority, importance: q.importance || 3,
-      category: findCategory(q.category), due: onDay, repeat: null, notes: '', done: false,
-    }, { silent: true });
+    const x = applyTravel(upsert('tasks', { id: uid(), createdAt: Date.now(), ...quickFields(q) }, { silent: true }));
+    if (q.due && q.time != null && !q.repeat) planTask(x, q.due, Math.max(0, q.time - anchorOffset(null, x))); // "Call Marco tue 15:00": straight onto the plan
     form.title.value = '';
     changed();
     document.getElementById(form.id === 'task-add' ? 'task-input' : 'side-add-input')?.focus();
+  } else if (form.id === 'event-add') {
+    const q = quickAdd(form.title.value);
+    if (!q.title) return;
+    const draft = { event: true, title: q.title, minutes: q.minutes || 120, category: findCategory(q.category), place: q.place || '', notes: '', done: false, planDate: q.due || '', planTime: q.time, allDay: q.time == null };
+    form.title.value = '';
+    if (!q.due) { openTask(null, null, { event: true, draft }); return; } // no date yet: the editor asks
+    saveEvent(draft);
+    toast(t('eventAdded', relDay(q.due)));
+    changed();
+    document.getElementById('event-input')?.focus();
   } else if (form.id === 'shop-add') {
     shopAdd(form.item.value);
     form.item.value = '';
@@ -3834,6 +4176,7 @@ view.addEventListener('submit', (e) => {
 view.addEventListener('input', (e) => {
   if (e.target.id === 'tray-q' && ui.assign) { ui.assign.q = e.target.value; render(); }
   if (e.target.id === 'task-q') { ui.taskQ = e.target.value; render(); }
+  if (e.target.id === 'event-q') { ui.eventQ = e.target.value; render(); }
   if (e.target.id === 'shop-q') { ui.shopQ = e.target.value; render(); }
 });
 
@@ -3886,33 +4229,39 @@ view.addEventListener('change', (e) => {
   if (el.form?.id === 'travel-form') {
     const f = el.form;
     for (const kind of LEGS) if (el.name === `leg_${kind}`) setLegTask(kind, f[`leg_${kind}`].value);
-    saveSettings({ travel: { ...travelCfg(), home: f.home.value.trim(), mode: f.mode.value, buffer: Number(f.buffer.value) || 0, startHere: f.startHere.checked, googleKey: f.googleKey.value.trim(), thereDefault: f.thereDefault.value, backDefault: f.backDefault.value } });
-    if (el.name === 'home' || el.name === 'mode' || el.name === 'buffer' || el.name === 'googleKey') saveSettings({ travelCache: { ...travelCache(), routes: {} } });
-    for (const x of openTasks()) applyTravel(x);
+    saveSettings({ travel: { ...travelCfg(), home: f.home.value.trim(), mode: f.mode.value, startHere: f.startHere.checked, thereDefault: f.thereDefault.value, backDefault: f.backDefault.value } });
+    if (el.name === 'home' || el.name === 'mode') saveSettings({ travelCache: { ...travelCache(), routes: {} } });
+    for (const x of travelTasks()) applyTravel(x);
     changed();
     return;
-  }
-  if (el.form?.id === 'tasklist-form') {
-    const fd = new FormData(el.form); const on = fd.getAll('tg');
-    saveSettings({ taskGroups: { today: on.includes('today'), tomorrow: on.includes('tomorrow'), soon: on.includes('soon'), soonDays: Number(fd.get('soonDays')) || 7 } });
   }
   if (el.form?.id === 'planner-form') {
     const f = Object.fromEntries(new FormData(el.form));
     const dayStart = Number(f.dayStart); const dayEnd = Number(f.dayEnd);
-    const glanceSel = new FormData(el.form).getAll('glance');
     const hr = (a, b, d) => { const x = parseTime(f[a]); const y = parseTime(f[b]); return x != null && y != null && y > x ? [x, y] : d; };
+    // "Breathing room" is one number: the margin after each task and the gap the planner keeps between blocks.
+    const breath = Number(f.taskBuffer) || 0;
     saveSettings({
-      dayStart, dayEnd: Math.max(dayEnd, dayStart + 1), snap: Number(f.snap), buffer: Number(f.buffer), taskBuffer: Number(f.taskBuffer) || 0, maxLoad: Number(f.maxLoad), defaultView: f.defaultView, glance: glanceSel, longUnits: el.form.longUnits.checked,
+      dayStart, dayEnd: Math.max(dayEnd, dayStart + 1), buffer: Math.min(breath, 15), taskBuffer: breath, maxLoad: Number(f.maxLoad), defaultView: f.defaultView, freeWeekends: el.form.freeWeekends.checked,
       autoHours: { wd: hr('ahWdF', 'ahWdT', autoHoursFor('2026-11-02')), we: hr('ahWeF', 'ahWeT', autoHoursFor('2026-11-07')) },
     });
     if (el.name === 'defaultView') ui.view = null;
-    if (el.name === 'taskBuffer') { for (const x of openTasks()) applyTravel(x); changed(); return; }
+    if (el.name === 'taskBuffer') { for (const x of travelTasks()) applyTravel(x); changed(); return; }
+  }
+  if (el.form?.id === 'advanced-form') {
+    const f = el.form; const fd = new FormData(f); const on = fd.getAll('tg');
+    saveSettings({ snap: Number(f.snap.value), longUnits: f.longUnits.checked, advancedFeatures: f.advancedFeatures.checked, glance: fd.getAll('glance'), taskGroups: { today: on.includes('today'), tomorrow: on.includes('tomorrow'), soon: on.includes('soon'), soonDays: Number(f.soonDays.value) || 7 } });
+    if (el.name === 'travelBuffer' || el.name === 'googleKey') {
+      saveSettings({ travel: { ...travelCfg(), buffer: Number(f.travelBuffer.value) || 0, googleKey: f.googleKey.value.trim() }, travelCache: { ...travelCache(), routes: {} } });
+      for (const x of travelTasks()) applyTravel(x);
+      changed();
+    }
   }
 });
 
 view.addEventListener('toggle', (e) => {
-  const d = e.target.closest?.('details.set-sec');
-  if (d) saveSettings({ setOpen: { ...(state.settings.setOpen || {}), [d.dataset.sec]: d.open } });
+  const d = e.target.closest?.('details.advanced');
+  if (d) ui.advancedOpen = d.open;
 }, true);
 
 view.addEventListener('click', (e) => {
@@ -3928,11 +4277,11 @@ view.addEventListener('click', (e) => {
       const g = tl.getBoundingClientRect();
       const step = Math.max(Number(tl.dataset.snap) || 15, 15);
       const m = Number(tl.dataset.start) + (e.clientY - g.top) / PPM;
-      openBlock(null, { date: tl.dataset.date, start: Math.max(0, Math.floor(m / step) * step) });
+      openTask(null, null, { event: true, date: tl.dataset.date, start: Math.max(0, Math.floor(m / step) * step) });
       return;
     }
     const block = e.target.closest('.block:not(.ghost)');
-    if (block?.classList.contains('event')) { openEvent(get('events', block.dataset.id)); return; }
+    if (block?.classList.contains('event')) { const ev = eventOf(block.dataset.id); if (ev?.event) openTask(ev); else if (ev) openEvent(ev); return; }
     if (block && !e.target.closest('.blk-check')) openBlock(get('blocks', block.dataset.id));
     return;
   }
@@ -3955,28 +4304,25 @@ view.addEventListener('click', (e) => {
       const date = currentDate();
       const s = planSettings();
       const from = date === today() ? nowMinutes() : 9 * 60;
-      const start = freeSlot(busyOn(date), 30, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap }) ?? from;
-      openBlock(null, { date, start });
+      const start = freeSlot(busyOn(date), 60, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap }) ?? from;
+      openTask(null, null, { event: true, date, start });
       break;
     }
     case 'new-meal': ui.mealDate = currentDate(); openMeal(null); break;
     case 'new-saved': openSavedPicker(currentDate()); break;
     case 'add-menu': openAddMenu(); break;
     case 'auto': openAutoPlanner(); break;
-    case 'assign': ui.assign = ui.assign ? null : { sel: new Set(), ghosts: [], range: null, opts: false, open: true, q: '' }; render(); break;
+    case 'assign': if (!ui.assign) ui.assign = { sel: new Set(), ghosts: [], range: null, opts: false, open: true, q: '' }; else ui.assign.open = !ui.assign.open; render(); break;
     case 'tray-toggle': ui.assign.open = !ui.assign.open; render(); break;
     case 'tray-planned': e.preventDefault(); ui.assign.showPlanned = !ui.assign.showPlanned; render(); break;
     case 'tray-why': e.preventDefault(); ui.assign.showWhy = !ui.assign.showWhy; render(); break;
-    case 'side-toggle': saveSettings({ sideHidden: sideShown() }); render(); break;
-    case 'side-filters': ui.sideFilters = !ui.sideFilters; render(); break;
     case 'filter': saveSettings({ taskFilter: { ...taskFilter(), [id]: !taskFilter()[id] } }); render(); break;
     case 'filter-cat': saveSettings({ taskFilter: { ...taskFilter(), cat: taskFilter().cat === id ? '' : id } }); render(); break;
     case 'wipe-local': if (confirm(t('wipeLocalConfirm'))) { wipeLocalData().then(() => { toast(t('wipedLocal')); changed(); }); } break;
     case 'filter-clear': saveSettings({ taskFilter: { fix: false, recurring: false, place: false, cat: '' } }); render(); break;
     case 'compact': saveSettings({ compact: !state.settings.compact }); render(); break;
-    case 'side-planned': e.preventDefault(); ui.sidePlanned = !ui.sidePlanned; render(); break;
     case 'import': openImport(); break;
-    case 'assign-close': ui.assign = null; render(); break;
+    case 'assign-close': if (ui.assign) { ui.assign.ghosts = []; ui.assign.sel.clear(); ui.assign.open = false; } render(); break;
     case 'assign-opts': ui.assign.opts = !ui.assign.opts; render(); break;
     case 'assign-all': for (const x of trayTasks()) ui.assign.sel.add(x.id); render(); break;
     case 'assign-none': ui.assign.sel.clear(); render(); break;
@@ -4008,7 +4354,17 @@ view.addEventListener('click', (e) => {
     case 'block-reset': setOutcome(get('blocks', id), null); changed(); break;
     case 'meal-type-new': openTask(null, { title: '', minutes: 30, routine: true, meal: true, defaultStart: 12 * 60, category: 'meals', prep: [], rules: [], checklist: [], notes: '' }); break;
     case 'saved-new': openTask(null, { title: '', minutes: 30, routine: true, meal: false, defaultStart: null, when: '', category: null, importance: 3, prep: [], rules: [], steps: [], checklist: [], notes: '' }); break;
-    case 'event': openEvent(get('events', id)); break;
+    case 'event': { const ev = eventOf(id); if (ev?.event) openTask(ev); else if (ev) openEvent(ev); break; }
+    case 'event-open': { const ev = eventOf(id); if (ev?.event) openTask(ev); else if (ev) openEvent(ev); break; }
+    case 'event-new': openTask(null, null, { event: true, date: btn.dataset.date || currentDate(), start: btn.dataset.start ? Number(btn.dataset.start) : null }); break;
+    case 'event-task-add': { const ev = eventOf(id); if (ev) openEventTaskAdd(ev); break; }
+    case 'event-plan': { const ev = eventOf(id); if (ev) planEventTasks(ev); break; }
+    case 'open-block': { const b = get('blocks', id); if (b) openBlock(b); break; }
+    case 'now-left': { const b = get('blocks', id); if (b) { setStepOutcome(b, btn.dataset.step, 'done'); toast(t('goodTrip')); changed(); } break; }
+    case 'now-done': { const b = get('blocks', id); if (b) { trySetBlockDone(b, true); changed(); } break; }
+    case 'now-move': { const b = get('blocks', id); if (b) openBlock(b); break; }
+    case 'reflow-undo': undoReflow(); break;
+    case 'reflow-ok': ui.reflow = null; render(); break;
     case 'templates': openTemplatesMenu(); break;
     case 'spare': openSpare(); break;
     case 'toggle-conflicts': ui.showConflicts = !ui.showConflicts; render(); break;
@@ -4054,7 +4410,7 @@ view.addEventListener('click', (e) => {
     case 'toggle-done': ui.showDone = !ui.showDone; render(); break;
     case 'toggle-helpers': ui.showHelpers = !ui.showHelpers; render(); break;
     case 'toggle-saved': ui.showSaved = !ui.showSaved; render(); break;
-    case 'tasks-tab': ui.tasksTab = id; render(); window.scrollTo(0, 0); break;
+    case 'tasks-tab': ui.tasksTab = id; saveSettings({ tasksTab: id }); if (route().name === 'shop' && id !== 'shop') location.hash = '#/tasks'; else render(); window.scrollTo(0, 0); break;
     case 'prep-del': if (confirm(t('confirmDeleteTask'))) { remove('tasks', id); changed(); } break;
     case 'fold': {
       // Done tasks start folded; everything else starts open. The choice is remembered.
@@ -4252,6 +4608,8 @@ function loadBar(date, { text = true } = {}) {
     ${text ? `<small>${esc(add ? (now ? `${hoursShort(now)}→${hoursShort(now + add)}` : `+${hoursShort(add)}`) : hoursShort(now))}</small>` : ''}</span>`;
 }
 function inRange(date) { const r = ui.assign?.range; return Boolean(r && date >= r.from && date <= r.to); }
+// Tapping a day opens it, unless tasks are selected in the open drawer: then taps pick the days to spread over.
+const selecting = () => Boolean(ui.assign?.open && ui.assign.sel?.size);
 // The days "Spread" uses: the range you tapped, else what's on screen (from today on).
 function spreadDays() {
   const r = ui.assign?.range;
@@ -4331,10 +4689,19 @@ function assignDrop(id, tgt) {
   // Keep the tray's order (most urgent first).
   const order = trayTasks().map((x) => x.id);
   ids.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  if (ids.length === 1 && !ui.assign.sel.has(id)) {
+    // One task dragged by hand goes straight on the plan; a selection is previewed first.
+    const before = ui.assign.ghosts.length;
+    placeGhosts(ids, [tgt.date], tgt.minute);
+    const added = ui.assign.ghosts.splice(before);
+    if (added.length) { const b = addGhostList(added); if (b) { toast(t('plannedToast', relDay(added[0].date), fmtTime(added[0].start))); changed(); } }
+    return;
+  }
   placeGhosts(ids, [tgt.date], tgt.minute);
 }
-function addGhosts() {
-  const list = ui.assign.ghosts;
+function addGhosts() { const n = addGhostList(ui.assign.ghosts); ui.assign.ghosts = []; toast(t('assignAdded', n)); changed(); }
+// Previews become real blocks.
+function addGhostList(list) {
   let n = 0;
   for (const g of list) {
     const task = get('tasks', g.taskId);
@@ -4347,9 +4714,7 @@ function addGhosts() {
     } else planTask(task, g.date, g.start, { minutes: g.minutes });
     n++;
   }
-  ui.assign.ghosts = [];
-  toast(t('assignAdded', n));
-  changed();
+  return n;
 }
 function trayInfo(x) {
   const bits = [fmtDur(x.minutes || 30)];
@@ -4375,22 +4740,27 @@ function trayHtml() {
       <span class="trow-tick">${a.sel.has(x.id) ? '✓' : ''}</span>
       <span class="trow-text"><span class="chip-title">${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}${taskIssues(x).length ? ` <span class="iss-mark" title="${esc(issueText(x))}">⚠</span>` : ''}</span><small>${esc(trayInfo(x))}</small></span>
       <span class="trow-grip" aria-hidden="true">⠿</span></button>`;
+  // "Now": straight into the next free slot of the day on screen (today: after now).
+  const quick = (x) => (currentDate() >= today() ? `<button class="trow-add" type="button" data-action="plan-task" data-id="${esc(x.id)}" data-date="${currentDate()}" title="${esc(t('nextFreeSlot', relDay(currentDate())))}" aria-label="${esc(t('nextFreeSlot', relDay(currentDate())))}">↓</button>` : '');
+  const rowQ = (x) => `<div class="trow-wrap">${row(x)}${quick(x)}</div>`;
   // Grouped by when it's due (like the Tasks tab) when sorted smartly or by due date; otherwise one list.
   let body;
   if (mode === 'smart' || mode === 'due') {
     const g = dateBuckets(list, (x) => x.due, today()); // the same date groups as the task list
     const label = (k) => (k === 'soon' ? t('grp_soonN', Number(taskGroupsCfg().soonDays) || 7) : k === 'nodate' ? t('grp_anytime') : t(`grp_${k}`));
     body = ['overdue', ...DATE_GROUPS, 'nodate'].filter((k) => g[k].length)
-      .map((k) => `<div class="tray-grp">${esc(label(k))} <small>${g[k].length}</small></div>${sortTaskList(g[k], mode).map(row).join('')}`).join('');
-  } else body = list.map(row).join('');
-  const hint = a.range ? t('trayHintRange') : state.settings.trayHintSeen ? '' : t('trayHint');
-  return `<div class="tray${a.open ? ' open' : ''}" role="region" aria-label="${esc(t('assignTitle'))}">
+      .map((k) => `<div class="tray-grp">${esc(label(k))} <small>${g[k].length}</small></div>${sortTaskList(g[k], mode).map(rowQ).join('')}`).join('');
+  } else body = list.map(rowQ).join('');
+  const hint = a.range ? t('trayHintRange') : t('trayHint');
+  const fixN = all.filter((x) => taskIssues(x).length).length;
+  return `<div class="tray${a.open ? ' open' : ''}" role="region" aria-label="${esc(t('toPlan'))}">
     <div class="tray-head">
-      <button class="tray-toggle" type="button" data-action="tray-toggle" aria-expanded="${Boolean(a.open)}"><span class="fold-ico">▴</span> <b>${esc(t('assignTitle'))}</b>
-        <small>${esc(sel.length ? t('nSelected', sel.length, fmtDur(selMin)) : t('nToPlan', all.length))}</small></button>
+      <button class="tray-toggle" type="button" data-action="tray-toggle" aria-expanded="${Boolean(a.open)}"><span class="fold-ico">▴</span> <b>${esc(t('toPlan'))}</b>
+        <small>${esc(sel.length ? t('nSelected', sel.length, fmtDur(selMin)) : a.ghosts.length ? t('nPreviews', a.ghosts.length) : String(all.length))}</small></button>
       ${sel.length ? `<button class="linkish" type="button" data-action="assign-none">${esc(t('selectNone'))}</button>` : all.length > 1 && a.open ? `<button class="linkish" type="button" data-action="assign-all">${esc(t('selectAll'))}</button>` : ''}
-      <button class="icon" type="button" data-action="assign-opts" aria-label="${esc(t('options'))}" aria-expanded="${Boolean(a.opts)}">⚙</button>
-      <button class="icon" type="button" data-action="assign-close" aria-label="${esc(t('close'))}">✕</button>
+      ${fixN && !a.open ? `<button class="fchip warn" type="button" data-action="filter" data-id="fix" aria-pressed="${Boolean(taskFilter().fix)}">⚠ ${esc(t('f_fix'))} ${fixN}</button>` : ''}
+      ${a.open ? `<button class="icon" type="button" data-action="assign-opts" aria-label="${esc(t('options'))}" aria-expanded="${Boolean(a.opts)}">⚙</button>` : ''}
+      ${a.ghosts.length || sel.length ? `<button class="icon" type="button" data-action="assign-close" aria-label="${esc(t('close'))}">✕</button>` : ''}
     </div>
     ${a.opts ? `<form class="tray-opts" id="assign-opts">
       <label>${esc(t('maxLoad'))}<select name="maxLoad">${[2, 3, 4, 5, 6, 7, 8, 9, 10, 12].map((h) => `<option value="${h}" ${h === Number(state.settings.maxLoad ?? 8) ? 'selected' : ''}>${h} h</option>`).join('')}</select></label>
@@ -4407,7 +4777,8 @@ function trayHtml() {
       ${[...a.ghosts].sort((x, y) => (x.date === y.date ? x.start - y.start : x.date < y.date ? -1 : 1)).map((g) => `<a class="tp-planned" href="#/plan/${esc(g.date)}" style="--c:${esc(catColor(get('tasks', g.taskId)?.category) || 'var(--accent)')}"><span class="tp-dot"></span><span>${esc(ghostTitle(g))}<small class="why-line">${esc(ghostWhy(g) || t('noReason'))}</small></span><small>${esc(relDay(g.date))} ${esc(fmtTime(g.start))}</small></a>`).join('')}
     </details>` : ''}
     <div class="tray-actions">
-      ${all.length ? `<button class="btn${a.ghosts.length ? ' small' : ' primary'} spread" type="button" data-action="assign-spread">✦ ${esc(a.ghosts.length ? t('spreadMore') : t(sel.length ? 'spreadSel' : 'spreadAll', spreadLabel()))}</button>` : ''}
+      ${all.length && !a.ghosts.length ? (sel.length ? `<button class="btn primary spread" type="button" data-action="assign-spread">✦ ${esc(t('spreadSel', spreadLabel()))}</button>` : `<button class="btn primary spread" type="button" data-action="auto">✦ ${esc(t('planBtn'))}</button>`) : ''}
+      ${a.ghosts.length && all.length ? `<button class="btn small" type="button" data-action="assign-spread">✦ ${esc(t('spreadMore'))}</button>` : ''}
       ${a.range ? `<button class="btn small ghost" type="button" data-action="assign-range-clear">${esc(t('clearRange'))}</button>` : ''}
       ${a.ghosts.length ? `<button class="btn small" type="button" data-action="assign-clear">${esc(t('cancel'))}</button>
         <button class="btn primary" type="button" data-action="assign-add">${esc(t('addN', a.ghosts.length))}</button>` : ''}
@@ -4431,11 +4802,28 @@ function assignGhostHtml(g, startMin) {
 
 // The app name in the corner takes you back to the plan.
 $('#app-title').addEventListener('click', () => {
-  if (route().name === 'plan') { location.hash = '#/plan'; window.scrollTo({ top: 0, behavior: 'smooth' }); } else location.hash = '#/plan';
+  if (route().name === 'today') window.scrollTo({ top: 0, behavior: 'smooth' }); else location.hash = '#/today';
 });
 $('#app-title').setAttribute('role', 'link');
 $('#app-title').tabIndex = 0;
-$('#app-title').addEventListener('keydown', (e) => { if (e.key === 'Enter') location.hash = '#/plan'; });
+$('#app-title').addEventListener('keydown', (e) => { if (e.key === 'Enter') location.hash = '#/today'; });
+// Phones: swipe left / right on the page switches tabs (not from a block, chip or the timeline, which drag).
+(() => {
+  let sx = 0; let sy = 0; let at = 0; let ok = false;
+  document.addEventListener('touchstart', (e) => {
+    const tch = e.touches[0]; sx = tch.clientX; sy = tch.clientY; at = Date.now();
+    ok = !e.target.closest('.block, .chip, .tchip, .timeline, .week, .tray, dialog, input, textarea, select, .shop-row, [draggable], .month, .wk-grid');
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (!ok || document.body.classList.contains('is-dragging') || $('#modal')?.open) return;
+    const tch = e.changedTouches[0]; const dx = tch.clientX - sx; const dy = tch.clientY - sy;
+    if (Date.now() - at > 600 || Math.abs(dx) < 70 || Math.abs(dy) > Math.abs(dx) * 0.6) return;
+    const i = TABS.indexOf(TAB_OF[route().name] || 'today'); if (i < 0) return;
+    const j = i + (dx < 0 ? 1 : -1);
+    if (j < 0 || j >= TABS.length) return;
+    location.hash = `#/${TABS[j]}`;
+  }, { passive: true });
+})();
 
 setupTrayDrag({
   onTap: (id, chip) => {
@@ -4538,8 +4926,7 @@ function applyLang(code) {
 function handleShortcut() {
   const go = new URLSearchParams(location.search).get('go');
   if (!go) return;
-  history.replaceState(null, '', location.pathname + (go === 'add' ? '#/tasks' : '#/plan'));
-  if (go === 'today') { ui.view = 'day'; ui.scrolledFor = null; }
+  history.replaceState(null, '', location.pathname + (go === 'add' ? '#/tasks' : go === 'today' ? '#/today' : '#/plan'));
   render();
   if (go === 'add') setTimeout(() => $('#task-input')?.focus(), 50);
   if (go === 'time') setTimeout(openSpare, 50);
@@ -4562,6 +4949,8 @@ async function start() {
   applyLang(state.settings.lang);
   seedCategories();
   seedMeals();
+  migrateBlocksToEvents();
+  syncEventTasks();
   renderShell();
   render();
   const kinds = new Set([...COLLECTIONS, ...Object.keys(RICETTE)]);
@@ -4569,9 +4958,9 @@ async function start() {
     updateSyncBadge();
     if (kind !== 'meta' && kinds.has(kind)) renderIfSafe(); // sync bookkeeping alone never redraws the page
   });
-  let lastTab = TAB_OF[route().name] || 'plan';
+  let lastTab = TAB_OF[route().name] || 'today';
   window.addEventListener('hashchange', () => {
-    const tab = TAB_OF[route().name] || 'plan';
+    const tab = TAB_OF[route().name] || 'today';
     if (tab === 'plan' && lastTab !== 'plan') ui.scrolledFor = null; // back on the planner: jump to now again
     // Back to today from another day (the "Today" button): show now again.
     if (tab === 'plan' && currentDate() === today() && ui.shownDate && ui.shownDate !== today()) ui.scrolledFor = null;
