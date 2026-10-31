@@ -10,15 +10,15 @@ table{border-collapse:collapse;width:100%;font-size:.95em}th,td{text-align:left;
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:.95em}.top a{text-decoration:none}
 nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 0}nav.toc a{display:block;padding:3px 0;text-decoration:none}
 </style></head>
-<body><main><div class="top"><a href="./">← Torna all'app</a><a href="guide-en.html">English</a></div><h1 id="everyday-guida-per-lutente">Everyday: guida per l'utente</h1><nav class="toc"><a href="#cose-everyday">Cos'è Everyday</a><a href="#prima-configurazione">Prima configurazione</a><a href="#le-quattro-schede">Le quattro schede</a><a href="#attivita">Attività</a><a href="#pianificare">Pianificare</a><a href="#spostamenti">Spostamenti</a><a href="#pasti-lista-della-spesa-e-spese">Pasti, lista della spesa e spese</a><a href="#google-calendar">Google Calendar</a><a href="#una-settimana-tipo">Una settimana tipo</a><a href="#consigli-e-problemi-comuni">Consigli e problemi comuni</a></nav>
+<body><main><div class="top"><a href="./">← Torna all'app</a><a href="guide-en.html">English</a></div><h1 id="everyday-guida-per-lutente">Everyday: guida per l'utente</h1><nav class="toc"><a href="#cose-everyday">Cos'è Everyday</a><a href="#prima-configurazione">Prima configurazione</a><a href="#le-quattro-schede">Le quattro schede</a><a href="#oggi">Oggi</a><a href="#attivita">Attività</a><a href="#pianificare">Pianificare</a><a href="#spostamenti">Spostamenti</a><a href="#pasti-lista-della-spesa-e-spese">Pasti, lista della spesa e spese</a><a href="#google-calendar">Google Calendar</a><a href="#una-settimana-tipo">Una settimana tipo</a><a href="#consigli-e-problemi-comuni">Consigli e problemi comuni</a></nav>
 <p>Tutto quello che serve per configurare Everyday e pianificare le giornate.</p>
 <h2 id="cose-everyday">Cos'è Everyday</h2>
 <p>Everyday è un pianificatore delle giornate. Scrivi quello che devi fare e ti aiuta a decidere <em>quando</em> farlo. Ogni attività richiede un certo tempo e, una volta messa in un giorno, diventa un blocco sulla linea di quel giorno, accanto agli appuntamenti del calendario. L'app può suggerire un piano per un giorno, una settimana o un mese, tenere allineato Google Calendar, aggiungere il tempo per arrivare in un luogo, e pianificare pasti e spese insieme all'app di ricette Ricette.</p>
 <p>Funziona nel browser, su telefono o computer, e si installa come un'app normale. I dati restano tuoi: stanno sui tuoi dispositivi e in uno spazio privato su GitHub che vedi solo tu. Non c'è un account da noi, nessuna IA e niente da pagare.</p>
 <p>Cosa non è: non è un calendario (gli appuntamenti arrivano da Google Calendar), non è un'app di note e non è uno strumento per un gruppo. Una persona, un insieme di dati.</p>
 <h2 id="prima-configurazione">Prima configurazione</h2>
-<p>Servono circa un quarto d'ora e un account GitHub (gratuito). Tutto avviene in <strong>Impostazioni</strong>, l'ultima scheda. Ogni parte delle Impostazioni si può chiudere, così vedi solo quella su cui stai lavorando.</p>
-<p><img alt="Impostazioni, con tutte le sezioni chiuse" src="guide/it/05-settings-folded.png" /></p>
+<p>Servono circa un quarto d'ora e un account GitHub (gratuito). Tutto avviene in <strong>Impostazioni</strong>: tocca l'ingranaggio in alto a destra. Ha tre schede — <em>La mia giornata</em>, <em>Spostamenti</em>, <em>Collegamenti</em> — e una sezione <em>Avanzate</em> per il resto.</p>
+<p><img alt="Impostazioni: tre schede" src="guide/it/05-settings-folded.png" /></p>
 <h3 id="1-installare-lapp">1. Installare l'app</h3>
 <p>Apri l'indirizzo dell'app in Chrome sul telefono, o in un browser qualsiasi sul computer. Su Android scegli <em>Installa app</em> (o <em>Aggiungi a schermata Home</em>) dal menu del browser; sul computer clicca la piccola icona di installazione nella barra dell'indirizzo. L'app funziona anche senza connessione; le nuove versioni arrivano da sole e una barra propone di ricaricare. In fondo alle Impostazioni vedi quale versione hai.</p>
 <h3 id="2-collegare-il-tuo-spazio-su-github">2. Collegare il tuo spazio su GitHub</h3>
@@ -26,21 +26,21 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 <ol>
 <li>Su GitHub crea un repository <strong>privato e vuoto</strong> (un "repository" è semplicemente una cartella su GitHub), ad esempio <code>everyday-data</code>. Non copiare quello di qualcun altro.</li>
 <li>Crea un <strong>token di accesso personale</strong> (GitHub → Settings → Developer settings → Fine-grained tokens) che possa leggere e scrivere i <em>Contents</em> di quel repository. Un token è come una password fatta per le app.</li>
-<li>In Impostazioni → <em>Sincronizzazione con GitHub</em> scrivi il tuo utente GitHub, il nome del repository e il token, poi tocca <em>Salva e prova</em>. L'etichetta in alto dice <em>Sincronizzato</em> quando funziona.</li>
+<li>In Impostazioni → <em>Collegamenti</em> → <em>Sincronizzazione con GitHub</em> scrivi il tuo utente GitHub, il nome del repository e il token, poi tocca <em>Salva e prova</em>. L'etichetta in alto dice <em>Sincronizzato</em> quando funziona.</li>
 </ol>
 <p><img alt="Inserire utente, repository e token" src="guide/it/01-sync-form.png" /></p>
 <p><img alt="Collegato: il repository e l'ora dell'ultima sincronizzazione" src="guide/it/02-sync-connected.png" /></p>
 <p>Il token resta sul dispositivo. Fai il passo 3 su ogni telefono o computer che usi: condividono tutti gli stessi dati, entro un minuto da ogni modifica.</p>
 <h3 id="3-facoltativo-ricette-ricette-e-dispensa">3. Facoltativo: Ricette (ricette e dispensa)</h3>
-<p>Se usi anche l'app Ricette, scrivi il nome del suo repository dei dati in Impostazioni → <em>Ricette</em> (lo stesso token deve poterlo usare). Everyday conosce allora le tue ricette e la dispensa, condivide la lista della spesa con Ricette e può pianificare pasti dalle ricette.</p>
+<p>Se usi anche l'app Ricette, scrivi il nome del suo repository dei dati in Impostazioni → <em>Collegamenti</em> → <em>Ricette</em> (lo stesso token deve poterlo usare). Everyday conosce allora le tue ricette e la dispensa, condivide la lista della spesa con Ricette e può pianificare pasti dalle ricette.</p>
 <h3 id="4-facoltativo-google-calendar">4. Facoltativo: Google Calendar</h3>
-<p>Questo collegamento gira su GitHub, non sul telefono, e richiede una configurazione una tantum dalla parte di Google. Impostazioni → <em>Google Calendar</em> elenca i passi; in breve, crei un piccolo progetto Google Cloud, gli permetti di usare il tuo calendario e salvi tre "secret" nel tuo repository. Fatto questo, gli appuntamenti compaiono nell'app e il tuo piano compare in Google Calendar, con i promemoria.</p>
+<p>Questo collegamento gira su GitHub, non sul telefono, e richiede una configurazione una tantum dalla parte di Google. Impostazioni → <em>Collegamenti</em> → <em>Google Calendar</em> elenca i passi; in breve, crei un piccolo progetto Google Cloud, gli permetti di usare il tuo calendario e salvi tre "secret" nel tuo repository. Fatto questo, gli appuntamenti compaiono nell'app e il tuo piano compare in Google Calendar, con i promemoria.</p>
 <p><img alt="La sezione Google Calendar dopo la prima sincronizzazione" src="guide/it/04-settings-gcal.png" /></p>
 <h3 id="5-spostamenti">5. Spostamenti</h3>
 <p>In Impostazioni → <em>Spostamenti</em> scrivi l'indirizzo di casa e come ti muovi di solito (a piedi, bici, mezzi pubblici, auto). Basta questo perché l'app aggiunga il tempo di viaggio alle attività con un luogo. La chiave Google Maps è facoltativa; senza, l'app usa servizi di mappe gratuiti.</p>
 <p><img alt="Impostazioni degli spostamenti: casa, mezzo abituale e le tratte del viaggio" src="guide/it/03-settings-travel.png" /></p>
 <h3 id="6-una-seconda-persona">6. Una seconda persona</h3>
-<p>Ogni persona ha bisogno del proprio repository, del proprio token e (se la vuole) della propria configurazione del calendario. Sul suo dispositivo apri lo stesso indirizzo dell'app e scrivi in Impostazioni il <em>suo</em> repository. Se il dispositivo conteneva prima i dati di qualcun altro, l'app chiede se <strong>partire vuoto</strong> — scegli quello. <em>Svuota questo dispositivo</em>, nella stessa sezione, fa lo stesso in qualsiasi momento.</p>
+<p>Ogni persona ha bisogno del proprio repository, del proprio token e (se la vuole) della propria configurazione del calendario. Sul suo dispositivo apri lo stesso indirizzo dell'app e scrivi in Impostazioni → Collegamenti il <em>suo</em> repository. Se il dispositivo conteneva prima i dati di qualcun altro, l'app chiede se <strong>partire vuoto</strong> — scegli quello. <em>Svuota questo dispositivo</em>, nella stessa sezione, fa lo stesso in qualsiasi momento.</p>
 <h2 id="le-quattro-schede">Le quattro schede</h2>
 <table>
 <thead>
@@ -51,8 +51,12 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 </thead>
 <tbody>
 <tr>
-<td><strong>Giornata</strong></td>
-<td>I tuoi giorni come linea del tempo (Giorno, Settimana, Mese o Elenco): blocchi di tempo, eventi del calendario, le attività ancora da pianificare e i pulsanti che pianificano per te. Toccando il nome dell'app torni qui.</td>
+<td><strong>Oggi</strong></td>
+<td>La casa. La prossima mossa con le ore di <em>partenza</em> e <em>inizio</em>, la lista di oggi, le cose urgenti, la settimana a colpo d'occhio. Toccando il nome dell'app torni qui.</td>
+</tr>
+<tr>
+<td><strong>Planner</strong></td>
+<td>Il tuo piano come Giorno, Settimana o Mese, con un cassetto delle attività ancora da pianificare e il pulsante <strong>Pianifica</strong> che le sistema per te.</td>
 </tr>
 <tr>
 <td><strong>Attività</strong></td>
@@ -62,16 +66,17 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 <td><strong>Spesa</strong></td>
 <td>La lista della spesa (condivisa con Ricette se collegato), raggruppata per reparto, ricetta o negozio.</td>
 </tr>
-<tr>
-<td><strong>Impostazioni</strong></td>
-<td>Lingua, ore del planner, spostamenti, negozi, categorie, sincronizzazione, Ricette, Google Calendar, backup, versione.</td>
-</tr>
 </tbody>
 </table>
-<p>L'etichetta in alto a destra dice se i dati sono allineati: <em>Sincronizzato</em>, <em>In corso</em>, <em>Offline</em>, oppure <em>Solo su questo dispositivo</em> finché non hai collegato nulla.</p>
+<p>L'ingranaggio in alto a destra apre le <strong>Impostazioni</strong>. Sul telefono, scorri a destra o a sinistra per passare da una scheda all'altra. L'etichetta accanto all'ingranaggio dice se i dati sono allineati: <em>Sincronizzato</em>, <em>In corso</em>, <em>Offline</em>, oppure <em>Solo su questo dispositivo</em> finché non hai collegato nulla.</p>
+<h2 id="oggi">Oggi</h2>
+<p><img alt="Oggi: la prossima mossa, la giornata, le urgenze, la settimana" src="guide/it/00-today.png" /></p>
+<p>La scheda <strong>Prossima mossa</strong> risponde a una domanda sola: quando devo muovermi? Per un'attività con un luogo mostra due ore — <em>parti 11:00 → inizio 11:20</em> — e conta i minuti alla partenza. <em>Partito</em> spunta lo spostamento, <em>Fatto</em> chiude l'attività, lo spillo apre l'indirizzo in Maps, <em>Sposta</em> apre il blocco. Sotto, la lista di oggi mostra in ordine blocchi e appuntamenti (un'ora arancione vuol dire «parti a quest'ora»), e una riga dice quanto tempo libero hai fino alla prossima cosa — toccala per vedere cosa ci sta.</p>
+<p><strong>Urgenti</strong> elenca ciò che ha bisogno di te: attività in ritardo, attività in scadenza nei prossimi giorni che non hanno ancora un giorno, attività a cui manca un dettaglio. <em>Oggi</em> ne mette una nel prossimo spazio libero; <em>Sistema</em> la apre sul dettaglio mancante. La striscia della settimana in fondo mostra quanto è pieno ogni giorno; tocca un giorno per aprirlo nel Planner.</p>
+<p>Ogni mattina, la prima volta che apri Oggi, quello che è rimasto da fare nei giorni passati torna nel piano della settimana; una riga dice quante cose si sono spostate, con <em>Annulla</em>.</p>
 <h2 id="attivita">Attività</h2>
 <h3 id="aggiungere-unattivita">Aggiungere un'attività</h3>
-<p>Scrivi nel campo in cima alla scheda Attività e premi Invio. Qualche scorciatoia evita di aprire l'attività: <code>Dentista 1h</code> imposta quanto dura, <code>!1</code>…<code>!5</code> quanto è importante (1 = molto), <code>#lavoro</code> la categoria. <em>Importa</em> prende una lista intera che incolli, un'attività per riga.</p>
+<p>Scrivi nel campo in cima alla scheda Attività e premi Invio. Qualche scorciatoia evita di aprire l'attività: <code>Dentista 1h</code> imposta quanto dura, <code>!1</code>…<code>!5</code> quanto è importante (1 = molto), <code>#lavoro</code> la categoria, <code>@Via Roma 12</code> il luogo, <code>ven</code> o <code>domani</code> il giorno, <code>entro ven</code> una scadenza, <code>ogni lun</code> una ripetizione settimanale. <em>Importa</em> prende una lista intera che incolli, un'attività per riga.</p>
 <p><img alt="La scheda Attività: campo di aggiunta, ricerca, filtri e attività da pianificare" src="guide/it/06-tasks.png" /></p>
 <p>Tocca un'attività per aprirla. È divisa in parti che puoi chiudere; quello che non tocchi tiene un valore ragionevole.</p>
 <p><img alt="Un'attività aperta: durata, margine, importanza, categoria" src="guide/it/07-editor.png" /></p>
@@ -105,7 +110,7 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 </tr>
 <tr>
 <td>Regole</td>
-<td>Cosa deve succedere prima o dopo, a seconda di come va (qualcosa da preparare prima, un seguito se fallisce, una spesa prima di un pasto…).</td>
+<td>Cosa deve succedere prima o dopo, a seconda di come va (qualcosa da preparare prima, un seguito se fallisce, una spesa prima di un pasto…). Si vede quando <em>Regole, modelli e preparazioni</em> è attivo in Impostazioni → Avanzate.</td>
 </tr>
 <tr>
 <td>Note</td>
@@ -122,26 +127,25 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 <p>Il campo di ricerca cerca in titoli, note, luoghi, passaggi e checklist. I <strong>filtri</strong>: <em>Da sistemare</em> mostra le attività a cui il planner chiede ancora un dettaglio (durata, luogo, indirizzo di casa…), <em>Ricorrenti</em>, <em>Con un luogo</em>, o una categoria. <strong>Compatto</strong> mostra una riga per attività quando la lista si allunga. Puoi anche ordinare: intelligente, il tuo ordine (trascina ⠿), scadenza, importanza, durata, categoria, data di aggiunta.</p>
 <h2 id="pianificare">Pianificare</h2>
 <h3 id="le-viste">Le viste</h3>
-<p><strong>Giorno</strong> è una linea del tempo dall'inizio alla fine della tua giornata (le ore le scegli in Impostazioni → Giornata): blocchi per le attività, eventi del calendario nel loro colore, una riga rossa per <em>adesso</em>. <strong>Settimana</strong> mostra sette colonne, <strong>Mese</strong> una griglia, <strong>Elenco</strong> i prossimi giorni uno dopo l'altro. Ogni giorno ha una piccola <em>barra di carico</em>: quanto è pieno rispetto al limite giornaliero che hai scelto. ‹ › si muovono nel tempo, <em>Oggi</em> ti riporta indietro.</p>
-<p><img alt="La vista Giorno: un evento del calendario e un'attività col suo passaggio Arrivare" src="guide/it/09-plan-day.png" /></p>
+<p>Il Planner mostra il tuo piano come <strong>Giorno</strong> (una linea del tempo dall'inizio alla fine della tua giornata — le ore le scegli in Impostazioni → La mia giornata — con una riga rossa per <em>adesso</em>), <strong>Settimana</strong> (sette colonne) o <strong>Mese</strong> (una griglia). Ogni giorno ha una piccola <em>barra di carico</em>: quanto è pieno rispetto al limite giornaliero che hai scelto. ‹ › si muovono nel tempo, <em>Oggi</em> ti riporta indietro, e toccando un giorno nella Settimana o nel Mese lo apri.</p>
+<p><img alt="La vista Giorno: un evento del calendario e un'attività con le ore di partenza e inizio" src="guide/it/09-plan-day.png" /></p>
 <p><img alt="La vista Settimana" src="guide/it/12-week.png" /></p>
-<p>Sul computer, accanto al piano c'è la <strong>colonna delle attività</strong> con quello che resta da pianificare (nascondila con l'interruttore <em>Attività</em>; sul telefono è nascosta di default). Tocca un'attività lì per metterla nel prossimo spazio libero, o trascinala sulla linea del tempo, su un giorno della settimana o su una cella del mese.</p>
+<h3 id="il-cassetto">Il cassetto</h3>
+<p>In fondo al Planner c'è <strong>Da pianificare</strong>: le attività che non hanno ancora un giorno. Aprilo per vederle (ricerca, ordinamento, filtri), tocca ↓ su una riga per metterla nel prossimo spazio libero del giorno che hai davanti, oppure tieni premuto e trascinala sulla linea del tempo, su un giorno della settimana o su una cella del mese. Lo stesso cassetto mostra le anteprime quando lasci pianificare l'app.</p>
 <h3 id="mettere-unattivita-in-un-giorno-a-mano">Mettere un'attività in un giorno a mano</h3>
 <ul>
 <li>Tocca un punto vuoto della linea del Giorno: un nuovo blocco a quell'ora.</li>
-<li><em>+ Aggiungi</em> → un'Attività (nuova o dalla lista), una Salvata, un Pasto, un Blocco, o un Modello (uno schema di giornata riutilizzabile).</li>
+<li><em>+ Aggiungi</em> → un'Attività (nuova o dalla lista), una Salvata, un Pasto o un Blocco.</li>
 <li>Trascina un blocco per spostarlo; trascina il bordo inferiore per allungarlo o accorciarlo. Tocca un blocco per spuntarlo, vedere passaggi e checklist, o cambiarlo.</li>
 </ul>
 <p><img alt="Un blocco aperto: ora, durata, i suoi passaggi" src="guide/it/13-block-travel.png" /></p>
 <h3 id="lasciar-pianificare-lapp">Lasciar pianificare l'app</h3>
-<p><strong>✦ Suggerisci un piano</strong> prende le attività ancora da pianificare e le distribuisce sul periodo che scegli (oggi, 3 giorni, una settimana, due, un mese…), dentro le tue ore di pianificazione. Rispetta scadenze, importanza, il tuo ordine, finestre di tempo, cose che devono venire prima e il limite giornaliero. Ottieni delle <em>anteprime</em> che vedi in ogni vista (ognuna dice perché è finita lì); <em>Aggiungi</em> le rende reali, oppure prima togli quelle che non vuoi. Le attività già pianificate restano in disparte, così non le pianifichi due volte.</p>
-<p><img alt="Suggerisci un piano: scegli il periodo" src="guide/it/10-suggest-dialog.png" /></p>
-<p><img alt="Anteprime nella giornata, con Aggiungi" src="guide/it/11-suggest-previews.png" /></p>
-<p><strong>⇢ Assegna</strong> apre il <strong>vassoio</strong>: le stesse attività come lista da cercare, ordinare e filtrare, da trascinare una per una su giorni o orari.</p>
-<p><strong>⏱ Ho del tempo</strong> (visibile su oggi) risponde a «ho 40 minuti adesso, cosa ci sta?»: propone attività che entrano nel buco fino al prossimo blocco.</p>
-<p>Se un blocco si sovrappone a un evento del calendario, o viene prima di qualcosa da cui dipende, compare un avviso con un pulsante <em>Sistema</em>. Un'attività con ⚠ manca di un dettaglio che il planner vorrebbe (durata, luogo, indirizzo di casa, un tempo di viaggio non ancora trovato): <em>Da sistemare</em> nei filtri le elenca.</p>
+<p><strong>✦ Pianifica</strong> è un unico percorso guidato. Scegli il periodo (oggi, qualche giorno, una settimana, due, il mese). Se ad alcune attività manca un dettaglio che serve al planner, lo chiede lì — una durata con un tocco, un luogo, se dividere un'attività più lunga del limite giornaliero — senza aprirle. Poi le anteprime compaiono nel piano, dentro le tue ore di pianificazione, rispettando scadenze, importanza, il tuo ordine, finestre di tempo, cose che devono venire prima e il limite giornaliero; ogni anteprima dice perché è finita lì. Togli quelle che non vuoi, poi <strong>Aggiungi</strong> nel cassetto le rende reali e il calendario si aggiorna. Le attività già pianificate restano in disparte, così non le pianifichi due volte.</p>
+<p><img alt="Pianifica: scegli il periodo e completa i dettagli mancanti lì" src="guide/it/10-suggest-dialog.png" /></p>
+<p><img alt="Anteprime nella giornata, in attesa di Aggiungi" src="guide/it/11-suggest-previews.png" /></p>
+<p>Se un blocco si sovrappone a un evento del calendario, o viene prima di qualcosa da cui dipende, compare un avviso con un pulsante <em>Sistema</em>. Un'attività con ⚠ manca di un dettaglio che il planner vorrebbe: <em>Da sistemare</em> nei filtri le elenca, e il percorso Pianifica glielo chiede.</p>
 <h2 id="spostamenti">Spostamenti</h2>
-<p>Dai un luogo a un'attività e l'app aggiunge <strong>Arrivare</strong> prima, col tempo di viaggio da casa (o dal luogo dell'attività precedente quel giorno, se nel frattempo non torni a casa) e il mezzo che hai scelto. <strong>Tornare</strong> dopo è facoltativo. Entrambi sono passaggi dell'attività: li vedi sul blocco, li puoi spuntare, e il blocco cresce intorno all'attività in modo che l'attività stessa resti al suo orario.</p>
+<p>Dai un luogo a un'attività e l'app aggiunge <strong>Arrivare</strong> prima, col tempo di viaggio da casa (o dal luogo dell'attività precedente quel giorno, se nel frattempo non torni a casa) e il mezzo che hai scelto. <strong>Tornare</strong> dopo è facoltativo. Entrambi sono passaggi dell'attività: li vedi sul blocco, li puoi spuntare, e il blocco cresce intorno all'attività in modo che l'attività stessa resti al suo orario. Ovunque compaia il blocco — Oggi, Planner, Google Calendar — si legge con due ore: <em>parti 11:00 · 11:20–12:20</em>.</p>
 <p>In Impostazioni → Spostamenti → <em>Tratte del viaggio</em> decidi quando ciascuna viene aggiunta: <em>solo se c'è un luogo</em>, <em>per tutte le attività</em> (un'attività senza luogo mostra allora un «?» di 30 minuti, per ricordarti di contare lo spostamento) o <em>mai</em> (la attivi per singola attività). Ogni attività può comunque fare diversamente nella sua parte <em>Luogo</em>, e scegliere il proprio mezzo.</p>
 <p><strong>Le tratte sono attività salvate.</strong> <em>Prima dell'attività (andata)</em> e <em>Dopo l'attività (ritorno)</em> puntano ciascuna a un'attività salvata — all'inizio <em>Arrivare</em> e <em>Tornare</em>. Le trovi in <em>Salvate</em> e le modifichi dalle Impostazioni: rinominale, o dai loro dei passaggi — ad esempio <em>Preparare la borsa</em> (5 min) e <em>Viaggio</em>. Il passaggio segnato ⚓ (o il primo) riceve il tempo di viaggio dalla mappa; gli altri tengono la loro durata. Puoi anche scegliere qualsiasi altra attività salvata per una delle due tratte.</p>
 <p>I tempi di viaggio vengono da servizi di mappe gratuiti. Con una chiave Google Maps nelle Impostazioni si usa Google e i mezzi pubblici funzionano ovunque. Un «?» su un'attività significa che il tempo non è ancora noto: il planner conta 30 minuti finché non lo è, e ⚠ ti avvisa quando un indirizzo non è stato trovato. <em>Parti da dove sono oggi</em> usa la posizione del telefono per il primo spostamento del giorno.</p>
@@ -149,20 +153,20 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 <p>Con Ricette collegato, <em>+ Aggiungi → Pasto</em> mette un pasto in un giorno e ti fa scegliere le ricette; il passaggio di preparazione prende la durata dalle ricette. Quando arriva il momento (o quando spunti il passaggio di <em>controllo</em>) l'app guarda la dispensa: quello che manca va in <strong>lista della spesa</strong>, e una <strong>spesa</strong> viene pianificata prima del pasto.</p>
 <p><img alt="La lista della spesa, per reparto" src="guide/it/14-shopping.png" /></p>
 <p>La scheda Spesa è la stessa lista di Ricette, in entrambe le direzioni: aggiungi, cambia, spunta o elimina qui e lo vedi lì entro un minuto. Raggruppala per reparto, ricetta o negozio, ordinala A–Z o per data di aggiunta, cercala. Tocca un articolo per cambiarne quantità, nota o i negozi che lo hanno.</p>
-<p>I <strong>negozi</strong> (Impostazioni → Negozi) hanno orari di apertura e, se vuoi, un indirizzo. Indica quali negozi hanno un articolo e le spese vengono pianificate quando quei negozi sono aperti, come un solo giro o uno per negozio. Una spesa è un blocco come gli altri; spuntare gli articoli mentre li compri li segna come comprati in Ricette, e finiscono in dispensa quando lì «metti via la spesa».</p>
+<p>I <strong>negozi</strong> (Impostazioni → Categorie e negozi) hanno orari di apertura e, se vuoi, un indirizzo. Indica quali negozi hanno un articolo e le spese vengono pianificate quando quei negozi sono aperti, come un solo giro o uno per negozio. Una spesa è un blocco come gli altri; spuntare gli articoli mentre li compri li segna come comprati in Ricette, e finiscono in dispensa quando lì «metti via la spesa».</p>
 <h2 id="google-calendar">Google Calendar</h2>
 <p>Una volta configurato, il collegamento funziona nei due sensi:</p>
 <ul>
 <li><strong>I tuoi calendari → Everyday.</strong> Gli appuntamenti dei calendari che importi compaiono nel piano nel loro colore, come tempo occupato attorno a cui il planner lavora. Qui non si cambiano; un link li apre in Google Calendar.</li>
-<li><strong>Everyday → Google Calendar.</strong> Tutto quello che pianifichi viene scritto in un calendario chiamato <em>Everyday</em>, con un promemoria (quello predefinito da Impostazioni → Google Calendar, o quello dell'attività). Sposta o elimina un evento Everyday in Google Calendar e il piano lo segue.</li>
+<li><strong>Everyday → Google Calendar.</strong> Tutto quello che pianifichi viene scritto in un calendario chiamato <em>Everyday</em>, con un promemoria (quello predefinito da Impostazioni → Collegamenti → Google Calendar, o quello dell'attività). Un'attività con uno spostamento è un solo evento che parte quando devi uscire, intitolato <em>Dentista 11:20 · parti 11:00</em>, così il promemoria suona prima che tu debba andare. Sposta o elimina un evento Everyday in Google Calendar e il piano lo segue.</li>
 </ul>
 <p>Il collegamento si aggiorna ogni ora e poco dopo ogni modifica al piano; <em>Sincronizza ora con Google</em> lo aggiorna a mano. La sezione in Impostazioni mostra quando è girato l'ultima volta e quanti appuntamenti sono arrivati. <em>Rimuovi i dati del calendario</em> elimina dal repository gli appuntamenti importati — utile se un repository è stato copiato da quello di un'altra persona e mostra il suo calendario.</p>
 <h2 id="una-settimana-tipo">Una settimana tipo</h2>
-<p><strong>Domenica sera, dieci minuti.</strong> Apri Attività e svuota la testa: scrivi tutto quello che hai in mente, con una durata quando la sai (<code>Chiamare la banca 20m</code>, <code>Dichiarazione dei redditi 2h !2</code>). Dai un luogo alle cose che succedono da qualche parte (<code>Dentista</code>, luogo: l'indirizzo dello studio). Metti i pasti della settimana nei loro giorni (<em>+ Aggiungi → Pasto</em>) e scegli le ricette. Poi Giornata → Settimana → <strong>✦ Suggerisci un piano</strong> per la settimana: guarda le anteprime, trascina altrove quella o due che vuoi, <em>Aggiungi</em>. Gli appuntamenti c'erano già, quindi niente ci finisce sopra; la spesa è stata messa prima del primo pasto che ne ha bisogno.</p>
-<p><strong>Ogni mattina.</strong> Apri l'app: la linea di oggi mostra il piano con la riga <em>adesso</em>, e Google Calendar ti avvisa prima di ogni blocco. Un ⚠ su un'attività vuol dire che manca un dettaglio — sistemalo o ignoralo. Se la giornata sembra troppo piena, trascina qualcosa a domani; se un appuntamento si è spostato, l'avviso te lo dice e <em>Sistema</em> sposta il blocco.</p>
-<p><strong>Durante il giorno.</strong> Spunta i blocchi man mano che finisci (per quelli lunghi, spunta i passaggi). Una riunione finita prima? <strong>⏱ Ho del tempo</strong> trova qualcosa che ci sta nel buco. È saltata fuori una cosa nuova? Scrivila e toccala: va nel prossimo spazio libero. Fai la spesa dalla scheda Spesa, spuntando gli articoli mentre finiscono nel carrello.</p>
-<p><strong>Sera.</strong> Quello che non hai fatto resta aperto: il prossimo <em>Suggerisci un piano</em> lo riprende. Le attività in ritardo stanno raggruppate in cima a <em>Da pianificare</em>, così non si perdono.</p>
-<p><strong>Ogni tanto.</strong> Le cose ricorrenti (palestra lunedì e mercoledì alle 19:00, pulizie settimanali) si impostano una volta e compaiono da sole; la lista <em>Salvate</em> tiene quello che torna senza un ritmo. Impostazioni → Giornata è dove regoli le ore della giornata, il limite giornaliero e il margine predefinito dopo le attività quando i piani sembrano troppo stretti o troppo larghi.</p>
+<p><strong>Domenica sera, dieci minuti.</strong> Apri Attività e svuota la testa: scrivi tutto quello che hai in mente, con una durata quando la sai (<code>Chiamare la banca 20m</code>, <code>Dichiarazione dei redditi 2h !2</code>). Dai un luogo alle cose che succedono da qualche parte (<code>Dentista</code>, luogo: l'indirizzo dello studio). Metti i pasti della settimana nei loro giorni (<em>+ Aggiungi → Pasto</em>) e scegli le ricette. Poi Planner → <strong>✦ Pianifica</strong> → <em>una settimana</em>: rispondi ai due o tre dettagli che chiede, guarda le anteprime, trascina altrove quella o due che vuoi, <em>Aggiungi</em>. Gli appuntamenti c'erano già, quindi niente ci finisce sopra; la spesa è stata messa prima del primo pasto che ne ha bisogno.</p>
+<p><strong>Ogni mattina.</strong> Apri l'app: Oggi mostra la prossima mossa con l'ora di partenza, la lista della giornata, e quello che è scivolato da ieri già rimesso nel piano (Annulla se non sei d'accordo). Google Calendar ti avvisa prima di ogni blocco. <em>Urgenti</em> mostra cosa aspetta una decisione — un tocco lo mette in oggi. Se la giornata sembra troppo piena, apri il Planner e trascina qualcosa a domani.</p>
+<p><strong>Durante il giorno.</strong> Spunta i blocchi man mano che finisci (per quelli lunghi, spunta i passaggi). Una riunione finita prima? La riga del tempo libero in Oggi dice quanto hai e cosa ci sta. È saltata fuori una cosa nuova? Scrivila in Attività con un giorno (<code>chiamare Marco domani 15m</code>) o mettila in oggi da Urgenti. Fai la spesa dalla scheda Spesa, spuntando gli articoli mentre finiscono nel carrello.</p>
+<p><strong>Sera.</strong> Quello che non hai fatto resta aperto: domattina è di nuovo nel piano, e il prossimo <em>Pianifica</em> riprende il resto. Le attività in ritardo stanno in cima a <em>Urgenti</em> e a <em>Da pianificare</em>, così non si perdono.</p>
+<p><strong>Ogni tanto.</strong> Le cose ricorrenti (palestra lunedì e mercoledì alle 19:00, pulizie settimanali) si impostano una volta e compaiono da sole; la lista <em>Salvate</em> tiene quello che torna senza un ritmo. Impostazioni → La mia giornata è dove regoli le ore della giornata, il limite giornaliero e il respiro dopo le attività quando i piani sembrano troppo stretti o troppo larghi.</p>
 <h2 id="consigli-e-problemi-comuni">Consigli e problemi comuni</h2>
 <table>
 <thead>
@@ -174,7 +178,7 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 <tbody>
 <tr>
 <td>L'etichetta dice <em>Offline</em> o mostra un errore</td>
-<td>Controlla la connessione, poi Impostazioni → Sincronizzazione con GitHub → <em>Sincronizza ora</em>. Un token scaduto o senza più accesso mostra lì un errore; creane uno nuovo.</td>
+<td>Controlla la connessione, poi Impostazioni → Collegamenti → <em>Sincronizza ora</em>. Un token scaduto o senza più accesso mostra lì un errore; creane uno nuovo.</td>
 </tr>
 <tr>
 <td>Due dispositivi mostrano cose diverse</td>
@@ -186,7 +190,7 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 </tr>
 <tr>
 <td>Su un dispositivo compaiono i dati di un'altra persona</td>
-<td>Impostazioni → Sincronizzazione con GitHub → <em>Svuota questo dispositivo</em>, dopo aver controllato che il repository indicato sia quello giusto. Se è il repository stesso a essere stato copiato da un altro, elimina prima i suoi file su GitHub (per il calendario: Impostazioni → Google Calendar → <em>Rimuovi i dati del calendario</em>).</td>
+<td>Impostazioni → Avanzate → <em>Svuota questo dispositivo</em>, dopo aver controllato che il repository indicato sia quello giusto. Se è il repository stesso a essere stato copiato da un altro, elimina prima i suoi file su GitHub (per il calendario: Impostazioni → Collegamenti → Google Calendar → <em>Rimuovi i dati del calendario</em>).</td>
 </tr>
 <tr>
 <td>Un'attività mostra ⚠</td>
@@ -198,11 +202,11 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 </tr>
 <tr>
 <td>Il piano è sempre troppo pieno</td>
-<td>Impostazioni → Giornata: abbassa <em>Pianifica al massimo</em>, restringi le ore dei suggerimenti, aggiungi un margine predefinito dopo le attività.</td>
+<td>Impostazioni → La mia giornata: abbassa <em>Pianifica al massimo</em>, restringi le ore dei suggerimenti, aggiungi respiro dopo le attività.</td>
 </tr>
 <tr>
 <td>Voglio i miei dati</td>
-<td>Impostazioni → <em>Scarica backup</em> dà un unico file con tutto; il tuo repository su GitHub contiene gli stessi file.</td>
+<td>Impostazioni → Avanzate → <em>Scarica backup</em> dà un unico file con tutto; il tuo repository su GitHub contiene gli stessi file.</td>
 </tr>
 </tbody>
 </table></main></body></html>
