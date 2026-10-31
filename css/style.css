@@ -903,3 +903,33 @@ main:has(.plan-layout.side-off) { max-width: 1200px; }
 .recur-box .times-row input[type=number] { width: 4.5em; }
 .recur-box label { margin: 0; }
 .series-ico { color: var(--muted); font-size: .85em; }
+
+/* Filters (Tasks tab, tray, tasks column) */
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; }
+.fchip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer; }
+.fchip.on { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+.fchip.cat .chip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+.fchip.cat.on { border-color: var(--c); color: var(--ink); background: color-mix(in srgb, var(--c) 16%, var(--surface)); }
+.fchip.clear { border-style: dashed; }
+.side-head .icon.on { color: var(--accent); }
+.tray .filters { margin: 0 0 6px; }
+.btn.small.on { border-color: var(--accent); color: var(--accent); }
+
+/* Compact density: one line per task, less air */
+body.compact .list.tasks li { padding: 0; }
+body.compact .list.tasks .task-main { padding: 6px 8px; }
+body.compact .list.tasks .item-text { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+body.compact .list.tasks .item-text small { display: block; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+body.compact .list.tasks li > input[type=checkbox] { width: 18px; height: 18px; }
+body.compact #view > .hint, body.compact .task-part > .hint, body.compact .grp-sec .hint { display: none; }
+body.compact .fold { padding: 6px 2px; font-size: .95rem; }
+body.compact .part-h { margin: 8px 0 0; }
+body.compact .task-part { margin: 0 0 6px; }
+body.compact .task-part .grp-sec { margin-left: 4px; }
+body.compact .tchip.trow { padding: 3px 8px; margin: 2px 0; }
+body.compact .tchip.trow small { display: none; }
+body.compact .to-plan .chip { padding: 4px 9px; font-size: .82rem; }
+body.compact .to-plan .chip small { display: none; }
+body.compact .to-plan { padding: 2px 10px 8px; }
+body.compact .tray-grp, body.compact .to-plan .sub { padding: 3px 2px 2px; margin: 6px 0 2px; }
+body.compact .list.tasks .task-main { min-width: 0; overflow: hidden; }
