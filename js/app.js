@@ -173,8 +173,8 @@ function ownMinutes(task) {
   const m = (task?.steps || []).find((y) => y.main);
   return Number(m?.minutes) || Number(task?.minutes) || 30;
 }
-function travelCfg() { const s = state.settings.travel || {}; return { home: '', mode: 'transit', back: false, buffer: 5, googleKey: '', startHere: false, ...s }; }
-function travelOf(task) { return { there: true, back: travelCfg().back, mode: 'default', ...(task?.travel || {}) }; }
+function travelCfg() { const s = state.settings.travel || {}; return { home: '', mode: 'transit', back: false, buffer: 5, googleKey: '', startHere: false, thereDefault: 'place', ...s }; }
+function travelOf(task) { return { there: travelCfg().thereDefault !== 'off', back: travelCfg().back, mode: 'default', ...(task?.travel || {}) }; }
 const travelMode = (task) => { const m = travelOf(task).mode; return TRAVEL_MODES.includes(m) ? m : travelCfg().mode; };
 const travelCache = () => state.settings.travelCache || {};
 function hereNow(date = today()) {
@@ -206,6 +206,11 @@ function withTravel(task, { origin = null, block = null } = {}) {
   const own = ownMinutes(task);
   const mode = travelMode(task);
   const core = rs.length ? rs : [{ id: TRV.main, title: task.title, minutes: own, main: true }];
+  if (!task.place && tv.there && c.thereDefault === 'always' && !task.routine) {
+    // "Get there" on every task: without a place it's a reminder to account for the trip.
+    const steps = [{ id: TRV.there, title: t('getThere'), travel: 'there', mode, from: '', to: '', minutes: UNKNOWN_MINUTES, known: false, pending: false, noPlace: true }, ...core];
+    return { ...task, steps, minutes: steps.reduce((n, y) => n + (Number(y.minutes) || 0), 0) };
+  }
   if (!task.place || (!tv.there && !tv.back)) {
     const steps = rs.length ? rs : [];
     return { ...task, steps, minutes: own };
@@ -268,7 +273,7 @@ async function refreshTravel() {
     if (changed) saveSettings({ travelCache: cache });
     // Apply what's known now (also when origins moved) to every task with a place.
     let any = false;
-    for (const task of openTasks().filter((x) => x.place)) { const before = task.updatedAt; if (applyTravel(task).updatedAt !== before) any = true; }
+    for (const task of openTasks().filter((x) => x.place || x.steps?.some((y) => y.travel) || travelCfg().thereDefault === 'always')) { const before = task.updatedAt; if (applyTravel(task).updatedAt !== before) any = true; }
     if (any || changed) { render(); clearTimeout(syncTimer); syncTimer = setTimeout(runSync, 2500); }
   } finally { travelBusy = false; if (travelAgain) { travelAgain = false; scheduleTravelRefresh(); } }
 }
@@ -280,6 +285,7 @@ function taskIssues(x) {
   const out = [];
   const rs = realSteps(x);
   if (!x.lenSet && !rs.length && ownMinutes(x) === 30) out.push('iss_len');
+  if (!x.place && (x.steps || []).some((y) => y.noPlace)) out.push('iss_place');
   if (x.place) {
     const tv = travelOf(x);
     if (!travelCfg().home && !hereNow()) out.push('iss_home');
@@ -289,7 +295,7 @@ function taskIssues(x) {
   if (ownMinutes(x) > planSettings().maxLoad && !splitsSteps(x)) out.push('iss_long');
   return out;
 }
-const ISSUE_SEC = { iss_len: 'basics', iss_home: 'place', iss_geo: 'place', iss_travel: 'place', iss_long: 'steps' };
+const ISSUE_SEC = { iss_len: 'basics', iss_place: 'place', iss_home: 'place', iss_geo: 'place', iss_travel: 'place', iss_long: 'steps' };
 function issueText(x) { return taskIssues(x).map((k) => t(k)).join(' · '); }
 function issueBadge(x) {
   const iss = taskIssues(x);
@@ -346,7 +352,7 @@ function planTask(task, date, start = null, extra = {}) {
 // (`seriesId` = the task, `occ` = the date). Blocks still `auto` follow the series (time, length,
 // title); one you change on its own stops following. Rules live in plan.js (occurrences()).
 const SERIES_DAYS = 56;
-const isSeries = (x) => Boolean(x && REPEATS.includes(x.repeat) && !x.helper && !x.routine);
+const isSeries = (x) => Boolean(x && REPEATS.includes(x.repeat) && !x.helper);
 const seriesBlocks = (taskId) => live('blocks').filter((b) => b.seriesId === taskId);
 function ensureSeries(task) {
   if (!isSeries(task) || task.seriesTime == null || task.done) return;
@@ -1351,7 +1357,7 @@ function sidePanel(date, v) {
   const td = today();
   const plannedIds = new Set(alreadyPlanned().map((x) => x.id));
   const previewed = new Set((ui.assign?.ghosts || []).map((g) => g.taskId)); // waiting for "Add" in the tray
-  const list = openTasks().filter((x) => !plannedIds.has(x.id) && !previewed.has(x.id) && !(v === 'day' && scheduledOn(x.id, date)));
+  const list = openTasks().filter((x) => passesFilter(x) && !plannedIds.has(x.id) && !previewed.has(x.id) && !(v === 'day' && scheduledOn(x.id, date)));
   const g = dateBuckets(list, (x) => x.due, td);
   const label = (k) => (k === 'soon' ? t('grp_soonN', Number(taskGroupsCfg().soonDays) || 7) : k === 'nodate' ? t('grp_anytime') : t(`grp_${k}`));
   // Day view: tap = next free time that day, drag onto the timeline. Other views: drag onto a day
@@ -1362,7 +1368,9 @@ function sidePanel(date, v) {
     + `<span class="chip-dot"></span><span class="chip-title">${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}</span><small>${esc(fmtDur(x.minutes || 30))}${taskIssues(x).length ? ` <span class="iss-mark" title="${esc(issueText(x))}">⚠</span>` : ''}</small></button>`;
   return `<aside class="to-plan">
     <div class="side-head"><h2>${esc(t('toPlan'))} <small>${list.length}</small></h2>
-      <button class="icon" type="button" data-action="side-toggle" aria-label="${esc(t('hideTasks'))}" title="${esc(t('hideTasks'))}">⟨</button></div>
+      <span><button class="icon${filterActive() || ui.sideFilters ? ' on' : ''}" type="button" data-action="side-filters" aria-label="${esc(t('filters'))}" title="${esc(t('filters'))}" aria-pressed="${Boolean(ui.sideFilters)}">⚲</button>
+      <button class="icon" type="button" data-action="side-toggle" aria-label="${esc(t('hideTasks'))}" title="${esc(t('hideTasks'))}">⟨</button></span></div>
+    ${ui.sideFilters || filterActive() ? filterBar() : ''}
     <form id="side-add" class="row tight"><input id="side-add-input" name="title" autocomplete="off" placeholder="${esc(v === 'day' ? t('sideAddPh') : t('sideAddPhAny'))}"><button class="btn small">+</button></form>
     ${list.length ? ['overdue', ...DATE_GROUPS, 'nodate'].filter((k) => g[k].length).map((k) => `<div class="sub">${esc(label(k))} <small>${g[k].length}</small></div><div class="chips">${sortTasks(g[k], td).map(chip).join('')}</div>`).join('')
       + `<p class="hint">${esc(t(v === 'day' ? 'chipHint' : 'chipHintAny'))}</p>` : `<p class="hint">${esc(t('nothingToPlan'))}</p>`}
@@ -2339,6 +2347,28 @@ function dateBuckets(items, dateOf, td) {
   }
   return out;
 }
+// Filters for the task lists (Tasks tab, tray, tasks column): to fix = tasks the planner still
+// needs details for; recurring; with a place; one category. Kept per device, off by default.
+const FILTER_KEYS = ['fix', 'recurring', 'place'];
+function taskFilter() { return { fix: false, recurring: false, place: false, cat: '', ...(state.settings.taskFilter || {}) }; }
+function filterActive() { const f = taskFilter(); return FILTER_KEYS.some((k) => f[k]) || Boolean(f.cat); }
+function passesFilter(x) {
+  const f = taskFilter();
+  if (f.fix && !taskIssues(x).length) return false;
+  if (f.recurring && !(x.repeat)) return false;
+  if (f.place && !x.place) return false;
+  if (f.cat && (x.category || '') !== f.cat) return false;
+  return true;
+}
+function filterBar() {
+  const f = taskFilter();
+  const chip = (k, label, on) => `<button type="button" class="fchip${on ? ' on' : ''}" data-action="filter" data-id="${k}" aria-pressed="${on}">${label}</button>`;
+  return `<div class="filters" role="group" aria-label="${esc(t('filters'))}">
+    ${chip('fix', `⚠ ${esc(t('f_fix'))}`, f.fix)}${chip('recurring', `↻ ${esc(t('f_recurring'))}`, f.recurring)}${chip('place', `📍 ${esc(t('f_place'))}`, f.place)}
+    ${categories().map((c) => `<button type="button" class="fchip cat${f.cat === c.id ? ' on' : ''}" data-action="filter-cat" data-id="${esc(c.id)}" style="--c:${esc(c.color)}" aria-pressed="${f.cat === c.id}"><span class="chip-dot"></span>${esc(catName(c))}</button>`).join('')}
+    ${filterActive() ? `<button type="button" class="fchip clear" data-action="filter-clear">✕ ${esc(t('clearFilters'))}</button>` : ''}
+  </div>`;
+}
 function folded(key) { return (state.settings.folded ?? ['grp_done']).includes(key); }
 function foldBtn(key, label, n, { open = !folded(key) } = {}) {
   return `<button class="fold" type="button" data-action="fold" data-id="${esc(key)}" aria-expanded="${open}"><span class="fold-ico">▸</span> ${esc(label)} <small>${n}</small></button>`;
@@ -2348,7 +2378,7 @@ function viewTasks() {
   const all = live('tasks');
   const tab = ui.tasksTab || 'todo';
   const q = (ui.taskQ || '').trim();
-  const hit = (x) => !q || matchesQ(taskHay(x), q);
+  const hit = (x) => (!q || matchesQ(taskHay(x), q)) && passesFilter(x);
   const isFolded = (key) => !q && folded(key); // while searching, every group shows its matches
   const search = searchBox({ id: 'task-q', value: ui.taskQ || '' });
   const switcher = `<div class="seg" role="tablist">${['todo', 'saved'].map((k) => `<button type="button" role="tab" class="${k === tab ? 'on' : ''}" aria-selected="${k === tab}" data-action="tasks-tab" data-id="${k}">${esc(t(`tasksTab_${k}`))}</button>`).join('')}</div>`;
@@ -2359,6 +2389,7 @@ function viewTasks() {
     const nSaved = groups.reduce((n, [, l]) => n + l.length, 0);
     return `${switcher}
     <div class="task-tools">${search}</div>
+    ${filterBar()}
     ${q && !nSaved && !tpls.length && !helpers.length ? `<p class="empty">${esc(t('noMatch'))}</p>` : ''}
     <section class="fold-sec first">
       ${foldBtn('saved', t('savedTasks'), nSaved, { open: !isFolded('saved') })}
@@ -2406,9 +2437,10 @@ function viewTasks() {
     <button class="btn primary">${esc(t('add'))}</button>
   </form>
   <p class="hint">${esc(t('quickHint'))}</p>
-  <div class="task-tools">${search}${sortPicker('task-sort', mode)}<button class="btn small" type="button" data-action="import">⤓ ${esc(t('importTasks'))}</button></div>
+  <div class="task-tools">${search}${sortPicker('task-sort', mode)}<button class="btn small${state.settings.compact ? ' on' : ''}" type="button" data-action="compact" aria-pressed="${Boolean(state.settings.compact)}" title="${esc(t('compactHint'))}">≡ ${esc(t('compact'))}</button><button class="btn small" type="button" data-action="import">⤓ ${esc(t('importTasks'))}</button></div>
+  ${filterBar()}
   ${manual && !q ? `<p class="hint">${esc(t('manualHint'))}</p>` : ''}
-  ${open || g.done.length ? '' : `<p class="empty">${esc(q ? t('noMatch') : t('noTasks'))}</p>`}
+  ${open || g.done.length ? '' : `<p class="empty">${esc(q || filterActive() ? t('noMatch') : t('noTasks'))}</p>`}
   ${part('part_toplan', t('partToPlan'), toPlan, dateBuckets(toPlan, (x) => x.due, td), (l) => sortTaskList(l, mode))}
   ${part('part_planned', t('partPlanned'), planned, dateBuckets(planned, (x) => nextPlanned(x.id)?.date, td), byWhen, t('partPlannedHint'))}
   ${g.done.length ? `<section class="fold-sec grp-sec">${foldBtn('grp_done', t('grp_done'), g.done.length, { open: !isFolded('grp_done') })}
@@ -2535,6 +2567,7 @@ function viewSettings() {
       <label>${esc(t('travelModeDefault'))}<select name="mode">${TRAVEL_MODES.map((m) => `<option value="${m}" ${m === travelCfg().mode ? 'selected' : ''}>${MODE_ICON[m]} ${esc(t(`tm_${m}`))}</option>`).join('')}</select></label>
       <label>${esc(t('travelBuffer'))}<select name="buffer">${[0, 5, 10, 15].map((m) => `<option value="${m}" ${m === Number(travelCfg().buffer) ? 'selected' : ''}>${m ? `${m} min` : esc(t('none'))}</option>`).join('')}</select></label>
     </div>
+    <label>${esc(t('thereDefault'))}<select name="thereDefault">${['place', 'always', 'off'].map((k) => `<option value="${k}" ${k === travelCfg().thereDefault ? 'selected' : ''}>${esc(t(`there_${k}`))}</option>`).join('')}</select><small>${esc(t('thereDefaultHint'))}</small></label>
     <label class="check"><input type="checkbox" name="back" ${travelCfg().back ? 'checked' : ''}> <span>${esc(t('backDefault'))}<small>${esc(t('backDefaultHint'))}</small></span></label>
     <label class="check"><input type="checkbox" name="startHere" ${travelCfg().startHere ? 'checked' : ''}> <span>${esc(t('startHere'))}<small>${esc(state.settings.here ? t('hereSetAt', new Date(state.settings.here.at).toLocaleString(getLang())) : t('startHereHint'))}</small></span></label>
     <div class="button-row"><button class="btn small" type="button" data-action="use-location">📍 ${esc(t('useLocation'))}</button><button class="btn small ghost" type="button" data-action="travel-refresh">↻ ${esc(t('travelRefresh'))}</button></div>
@@ -2672,6 +2705,7 @@ function render() {
   const focusId = active && active.id;
   const typed = focusId && active.tagName === 'INPUT' ? active.value : null;
   for (const a of document.querySelectorAll('nav a')) a.classList.toggle('active', a.dataset.tab === (TAB_OF[r.name] || 'plan'));
+  document.body.classList.toggle('compact', Boolean(state.settings.compact));
   updateShopCount();
   let html;
   switch (r.name) {
@@ -2921,9 +2955,9 @@ function openTask(task, draft = null, opts = {}) {
   if (opts.fromOcc) x.fromOcc = opts.fromOcc;
   const helper = Boolean(x.helper);
   const routine = Boolean(x.routine);
-  const todo = !helper && !routine;
+  void routine; // saved tasks get the same editor as to-dos (they only live in another list)
   // When a to-do is on the plan, its date and time show here and can be changed (or cleared to unplan).
-  if (todo && x.planDate === undefined) {
+  if (!helper && x.planDate === undefined) {
     const nb = x.id ? nextBlockOf(x.id) : null;
     x.planDate = nb?.date || '';
     x.planTime = nb ? nb.start + anchorOffset(nb) : null;
@@ -2997,8 +3031,9 @@ function openTask(task, draft = null, opts = {}) {
       ${helper ? '' : `<label>${esc(t('importance'))}<select name="importance">${IMPORTANCE.map((n) => `<option value="${n}" ${n === x.importance ? 'selected' : ''}>${'★'.repeat(n)}${'☆'.repeat(5 - n)} ${esc(t(`imp_${n}`))}</option>`).join('')}</select></label>`}
     </div>
     ${helper ? '' : `<div class="field-label">${esc(t('category'))}</div>${catChips(x.category)}`}
+    ${helper || x.meal ? '' : `<label class="check"><input type="checkbox" name="routine" ${routine ? 'checked' : ''}> <span>★ ${esc(t('keepSaved'))}<small>${esc(t('keepSavedHint'))}</small></span></label>`}
     ${routine ? `<label class="check"><input type="checkbox" name="meal" data-rerender="1" ${x.meal ? 'checked' : ''}> <span>${esc(t('isMeal'))}</span></label>` : ''}`;
-  const whenBody = todo ? `
+  const whenBody = !helper ? `
     <div class="two">
       <label>${esc(t('date'))}<input name="planDate" type="date" value="${esc(x.planDate || '')}"></label>
       <label>${esc(timeLabel)}<input name="planTime" ${TIME24} value="${x.planTime != null ? fmtTime(x.planTime) : ''}"></label>
@@ -3020,14 +3055,11 @@ function openTask(task, draft = null, opts = {}) {
       <div class="days"><label class="day-pill"><input type="radio" name="scope" value="following" ${x.scope !== 'all' ? 'checked' : ''}><span>${esc(t('scopeFollowing', relDay(x.fromOcc)))}</span></label>
       <label class="day-pill"><input type="radio" name="scope" value="all" ${x.scope === 'all' ? 'checked' : ''}><span>${esc(t('scopeAll'))}</span></label></div>` : ''}
     </div>` : ''}
-    <label>${esc(t('bestTime'))}<select name="when">${['', 'morning', 'afternoon', 'evening'].map((w) => `<option value="${w}" ${w === (x.when || '') ? 'selected' : ''}>${esc(t(`when_${w || 'any'}`))}</option>`).join('')}</select></label>
-    ${remindField(x)}`
-    : routine ? `
     <div class="two">
-      <label>${esc(x.steps.length > 1 && ai > 0 && anchor ? t('anchorAt', anchor.title || '…') : t('usualTimeOpt'))}<input name="defaultStart" ${TIME24} value="${x.defaultStart != null ? fmtTime(x.defaultStart) : ''}"></label>
       <label>${esc(t('bestTime'))}<select name="when">${['', 'morning', 'afternoon', 'evening'].map((w) => `<option value="${w}" ${w === (x.when || '') ? 'selected' : ''}>${esc(t(`when_${w || 'any'}`))}</option>`).join('')}</select></label>
+      ${routine ? `<label>${esc(x.steps.length > 1 && ai > 0 && anchor ? t('anchorAt', anchor.title || '…') : t('usualTimeOpt'))}<input name="defaultStart" ${TIME24} value="${x.defaultStart != null ? fmtTime(x.defaultStart) : ''}"></label>` : ''}
     </div>
-    <small class="hint">${esc(t('usualTimeHint'))}</small>
+    ${routine ? `<small class="hint">${esc(t('usualTimeHint'))}</small>` : ''}
     ${remindField(x)}` : '';
   // Tasks it needs done first (not itself, not meals, not ones that already need it: no loops).
   const needCandidates = live('tasks').filter((y) => y.id !== x.id && !y.meal && !y.check && !y.done && !(y.after || []).includes(x.id) && !(x.after || []).includes(y.id))
@@ -3040,8 +3072,7 @@ function openTask(task, draft = null, opts = {}) {
     <div class="field-label">🕒 ${esc(t('windowsTitle'))}</div>
     ${windowsEditor('w_', x.windows || [])}
     <small class="hint">${esc(t('windowsHint'))}</small>`;
-  const whenSummary = todo ? [x.planDate ? `${relDay(x.planDate)}${x.planTime != null ? ` ${fmtTime(x.planTime)}` : ''}` : '', x.due ? t('dueOn', relDay(x.due)) : '', x.repeat ? `↻ ${x.repeat === 'times' ? t('timesShort', x.timesN || 3, t(`per_${x.timesPer || 'week'}`)) : repeatText(x)}` : ''].filter(Boolean).join(' · ')
-    : routine ? (x.defaultStart != null ? fmtTime(x.defaultStart) : t(`when_${x.when || 'any'}`)) : '';
+  const whenSummary = !helper ? [x.planDate ? `${relDay(x.planDate)}${x.planTime != null ? ` ${fmtTime(x.planTime)}` : ''}` : '', x.due ? t('dueOn', relDay(x.due)) : '', x.repeat ? `↻ ${x.repeat === 'times' ? t('timesShort', x.timesN || 3, t(`per_${x.timesPer || 'week'}`)) : repeatText(x)}` : '', routine && x.defaultStart != null ? t('usually', fmtTime(x.defaultStart)) : ''].filter(Boolean).join(' · ') : '';
   const stepsBody = `
     <p class="hint">${esc(t(x.meal ? 'stepsHintMeal' : 'stepsHint'))}</p>
     ${stepCards ? `<ol class="steps-edit">${stepCards}</ol>` : ''}
@@ -3056,7 +3087,7 @@ function openTask(task, draft = null, opts = {}) {
     <label>${esc(t('place'))}<input name="place" value="${esc(x.place || '')}" placeholder="${esc(t('placePh'))}" autocomplete="off"></label>
     <label>${esc(t('placeLink'))}<input name="link" type="url" inputmode="url" value="${esc(x.link || '')}" placeholder="https://maps.app.goo.gl/…" autocomplete="off"></label>
     ${x.place || x.link ? `<p class="hint">${placeLink(x)}</p>` : `<p class="hint">${esc(t('placeHint'))}</p>`}
-    ${todo || routine ? `<div class="field-label">${esc(t('travelTitle'))}</div>
+    ${!helper ? `<div class="field-label">${esc(t('travelTitle'))}</div>
     <div class="travel-opts">
       <label class="check"><input type="checkbox" name="tvThere" ${x.travel.there ? 'checked' : ''}> <span>${esc(t('getThere'))}</span></label>
       <label class="check"><input type="checkbox" name="tvBack" ${x.travel.back ? 'checked' : ''}> <span>${esc(t('comeBack'))}</span></label>
@@ -3079,7 +3110,7 @@ function openTask(task, draft = null, opts = {}) {
     ${sec('notes', esc(t('notes')), x.notes ? x.notes.slice(0, 30) : '', `<label><textarea name="notes" rows="2" aria-label="${esc(t('notes'))}">${esc(x.notes || '')}</textarea></label>`, Boolean(x.notes))}
     <div class="button-row">
       <button class="btn primary" value="ok">${esc(t('save'))}</button>
-      ${todo && !x.planBlockId ? `<button class="btn" value="plan">${esc(t('planIt'))}</button>` : ''}
+      ${!helper && !x.planBlockId ? `<button class="btn" value="plan">${esc(t('planIt'))}</button>` : ''}
       <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
       ${isNew || x.id === 'meal_check' ? '' : `<button class="btn danger" value="delete" formnovalidate>${esc(t('delete'))}</button>`}
     </div>`, (form, action, e) => {
@@ -3147,11 +3178,11 @@ function openTask(task, draft = null, opts = {}) {
       if (isSeries(rec)) ensureSeries(rec);
     }
     // The "When" section: plan it, move it, change its length, or take it off the plan.
-    if (todo && !split && isSeries(rec) && rec.seriesTime != null && x.planTime != null && x.planTime !== rec.seriesTime) {
+    if (!helper && !split && isSeries(rec) && rec.seriesTime != null && x.planTime != null && x.planTime !== rec.seriesTime) {
       // A new time for a recurring task on the plan: the whole series moves (occurrences changed by hand keep theirs).
       rec = upsert('tasks', { ...rec, seriesTime: x.planTime }, { silent: true });
       ensureSeries(rec);
-    } else if (todo && !split) {
+    } else if (!helper && !split) {
       const cur = x.planBlockId && get('blocks', x.planBlockId);
       if (x.planDate) {
         const off = anchorOffset(cur || null, rec);
@@ -3197,7 +3228,8 @@ function openTask(task, draft = null, opts = {}) {
     if (form.addAfter?.value) x.after = [...new Set([...(x.after || []), form.addAfter.value])];
     if (form.querySelector('[value="w_add"]')) x.windows = readWindows(form, 'w_', (x.windows || []).length);
     if (form.splitSteps) x.splitSteps = form.splitSteps.checked;
-    if (todo) {
+    if (form.routine) x.routine = form.routine.checked;
+    if (!helper) {
       x.due = form.due.value || null;
       x.repeat = form.repeat.value || null;
       if (x.repeat === 'times' && form.timesN) { x.timesN = Math.max(1, Number(form.timesN.value) || 1); x.timesPer = form.timesPer.value || 'week'; }
@@ -3211,10 +3243,8 @@ function openTask(task, draft = null, opts = {}) {
     if (form.elements.namedItem('when')) x.when = form.elements.namedItem('when').value || '';
     if (form.remind) { if (form.remind.value === '') delete x.remind; else x.remind = Number(form.remind.value); }
     if (form.category) x.category = form.category.value || null;
-    if (routine) {
-      x.defaultStart = form.defaultStart.value ? parseTime(form.defaultStart.value) : null;
-      x.meal = form.meal.checked;
-    }
+    if (form.defaultStart) x.defaultStart = form.defaultStart.value ? parseTime(form.defaultStart.value) : null;
+    if (form.meal) x.meal = form.meal.checked;
     x.allRules = x.allRules.map((r, i) => {
       const stepId = form[`rs_${i}`]?.value || null;
       const when = form[`rw_${i}`].value;
@@ -3760,9 +3790,9 @@ view.addEventListener('change', (e) => {
   }
   if (el.form?.id === 'travel-form') {
     const f = el.form;
-    saveSettings({ travel: { ...travelCfg(), home: f.home.value.trim(), mode: f.mode.value, buffer: Number(f.buffer.value) || 0, back: f.back.checked, startHere: f.startHere.checked, googleKey: f.googleKey.value.trim() } });
+    saveSettings({ travel: { ...travelCfg(), home: f.home.value.trim(), mode: f.mode.value, buffer: Number(f.buffer.value) || 0, back: f.back.checked, startHere: f.startHere.checked, googleKey: f.googleKey.value.trim(), thereDefault: f.thereDefault.value } });
     if (el.name === 'home' || el.name === 'mode' || el.name === 'buffer' || el.name === 'googleKey') saveSettings({ travelCache: { ...travelCache(), routes: {} } });
-    for (const x of openTasks().filter((y) => y.place)) applyTravel(x);
+    for (const x of openTasks().filter((y) => y.place || y.steps?.some((z) => z.travel) || travelCfg().thereDefault === 'always')) applyTravel(x);
     changed();
     return;
   }
@@ -3836,6 +3866,11 @@ view.addEventListener('click', (e) => {
     case 'tray-planned': e.preventDefault(); ui.assign.showPlanned = !ui.assign.showPlanned; render(); break;
     case 'tray-why': e.preventDefault(); ui.assign.showWhy = !ui.assign.showWhy; render(); break;
     case 'side-toggle': saveSettings({ sideHidden: sideShown() }); render(); break;
+    case 'side-filters': ui.sideFilters = !ui.sideFilters; render(); break;
+    case 'filter': saveSettings({ taskFilter: { ...taskFilter(), [id]: !taskFilter()[id] } }); render(); break;
+    case 'filter-cat': saveSettings({ taskFilter: { ...taskFilter(), cat: taskFilter().cat === id ? '' : id } }); render(); break;
+    case 'filter-clear': saveSettings({ taskFilter: { fix: false, recurring: false, place: false, cat: '' } }); render(); break;
+    case 'compact': saveSettings({ compact: !state.settings.compact }); render(); break;
     case 'side-planned': e.preventDefault(); ui.sidePlanned = !ui.sidePlanned; render(); break;
     case 'import': openImport(); break;
     case 'assign-close': ui.assign = null; render(); break;
@@ -4040,6 +4075,7 @@ function trayTasks() {
   const ghosted = new Set((ui.assign?.ghosts || []).map((g) => g.taskId));
   const td = today();
   return sortTaskList(openTasks().filter((x) => {
+    if (!passesFilter(x)) return false;
     if (x.repeat === 'times') return timesLeft(x, td) > 0;
     if (splitsSteps(x)) return partsLeft(x).length > 0;
     return !planned.has(x.id) && !ghosted.has(x.id);
@@ -4258,6 +4294,7 @@ function trayHtml() {
     </form>` : ''}
     ${a.open ? `
     <div class="tray-tools">${searchBox({ id: 'tray-q', value: a.q || '' })}${sortPicker('tray-sort', mode)}</div>
+    ${filterBar()}
     ${list.length ? `<div class="tray-list">${body}</div>` : `<p class="hint tray-hint">${esc(q ? t('noMatch') : a.ghosts.length ? t('trayAllPlaced') : t('trayEmpty'))}</p>`}
     ${hint ? `<p class="hint tray-hint">${esc(hint)}</p>` : ''}
     ${plannedList(planned, 'tray-planned', a.showPlanned)}` : ''}
