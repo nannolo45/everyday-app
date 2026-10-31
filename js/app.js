@@ -24,7 +24,7 @@ import { setupTrayDrag } from './tray.js';
 import { assignItems, planTrips, openOn, shopsFor } from './shops.js';
 
 // Shown under Settings; keep in step with VERSION in sw.js (a unit test checks).
-export const APP_VERSION = 'v27';
+export const APP_VERSION = 'v28';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 // Hints that were emptied in i18n (the guide explains instead) render nothing.
@@ -2645,13 +2645,17 @@ function settingsHtml(s, msg) {
       <label>${esc(t('travelModeDefault'))}<select name="mode">${TRAVEL_MODES.map((m) => `<option value="${m}" ${m === travelCfg().mode ? 'selected' : ''}>${MODE_ICON[m]} ${esc(t(`tm_${m}`))}</option>`).join('')}</select></label>
       <label>${esc(t('travelBuffer'))}<select name="buffer">${[0, 5, 10, 15].map((m) => `<option value="${m}" ${m === Number(travelCfg().buffer) ? 'selected' : ''}>${m ? `${m} min` : esc(t('none'))}</option>`).join('')}</select></label>
     </div>
-    <label>${esc(t('thereDefault'))}<select name="thereDefault">${['place', 'always', 'off'].map((k) => `<option value="${k}" ${k === travelCfg().thereDefault ? 'selected' : ''}>${esc(t(`there_${k}`))}</option>`).join('')}</select>${small('thereDefaultHint')}</label>
-    <label>${esc(t('backDefault'))}<select name="backDefault">${['place', 'always', 'off'].map((k) => `<option value="${k}" ${k === travelCfg().backDefault ? 'selected' : ''}>${esc(t(`back_${k}`))}</option>`).join('')}</select></label>
-    <div class="field-label">${esc(t('legTasks'))}</div>
-    <div class="two">
-      ${LEGS.map((kind) => `<label>${esc(t(kind === 'there' ? 'getThere' : 'comeBack'))}<select name="leg_${kind}">${savedForLegs().map((x) => `<option value="${esc(x.id)}" ${x.travelRole === kind ? 'selected' : ''}>${esc(x.title)}</option>`).join('')}</select></label>`).join('')}
-    </div>
-    <div class="button-row">${LEGS.map((kind) => `<button class="btn small ghost" type="button" data-action="leg-edit" data-kind="${kind}">✎ ${esc(legTemplate(kind)?.title || t(kind === 'there' ? 'getThere' : 'comeBack'))}</button>`).join('')}</div>
+    <div class="field-label">🧭 ${esc(t('legsTitle'))}</div>
+    ${hint('legsHint')}
+    ${LEGS.map((kind) => { const sel = kind === 'there' ? 'thereDefault' : 'backDefault'; const tpl = legTemplate(kind); return `
+    <fieldset class="leg-box">
+      <legend>${esc(t(kind === 'there' ? 'legBefore' : 'legAfter'))}</legend>
+      <div class="leg-fields">
+        <label>${esc(t('legTask'))}<select name="leg_${kind}">${savedForLegs().map((x) => `<option value="${esc(x.id)}" ${x.travelRole === kind ? 'selected' : ''}>${esc(x.title)}</option>`).join('')}</select></label>
+        <label>${esc(t('legWhen'))}<select name="${sel}">${['place', 'always', 'off'].map((k) => `<option value="${k}" ${k === travelCfg()[sel] ? 'selected' : ''}>${esc(t(`legWhen_${k}`))}</option>`).join('')}</select></label>
+      </div>
+      <button class="btn small ghost" type="button" data-action="leg-edit" data-kind="${kind}">✎ ${esc(t('legEdit', tpl?.title || t(kind === 'there' ? 'getThere' : 'comeBack')))}</button>
+    </fieldset>`; }).join('')}
     <label class="check"><input type="checkbox" name="startHere" ${travelCfg().startHere ? 'checked' : ''}> <span>${esc(t('startHere'))}<small>${esc(state.settings.here ? t('hereSetAt', new Date(state.settings.here.at).toLocaleString(getLang())) : t('startHereHint'))}</small></span></label>
     <div class="button-row"><button class="btn small" type="button" data-action="use-location">📍 ${esc(t('useLocation'))}</button><button class="btn small ghost" type="button" data-action="travel-refresh">↻ ${esc(t('travelRefresh'))}</button></div>
     <label>${esc(t('googleKey'))}<input name="googleKey" value="${esc(travelCfg().googleKey)}" placeholder="AIza…" autocomplete="off">${small('googleKeyHint')}</label>
@@ -2718,6 +2722,7 @@ function settingsHtml(s, msg) {
 
   <div class="button-row subtle">
     <button class="btn small" type="button" data-action="export">${esc(t('export'))}</button>
+    <a class="btn small" href="guide-${getLang() === 'it' ? 'it' : 'en'}.html" target="_blank" rel="noopener">📖 ${esc(t('guide'))}</a>
     <span class="version">${esc(t('appName'))} ${APP_VERSION}</span>
   </div>`;
 }
