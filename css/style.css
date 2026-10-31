@@ -933,3 +933,5 @@ body.compact .to-plan .chip small { display: none; }
 body.compact .to-plan { padding: 2px 10px 8px; }
 body.compact .tray-grp, body.compact .to-plan .sub { padding: 3px 2px 2px; margin: 6px 0 2px; }
 body.compact .list.tasks .task-main { min-width: 0; overflow: hidden; }
+
+.button-row.subtle .version { margin-left: auto; color: var(--muted); font-size: .8rem; align-self: center; }

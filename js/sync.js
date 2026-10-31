@@ -200,6 +200,33 @@ export async function runWorkflow(file) {
   } catch { return 'error'; }
 }
 
+// Everything the Google Calendar workflow wrote: the status file and the monthly event files.
+// Used when a repository was copied from someone else's and carries their calendar.
+async function listDir(path, repo) {
+  const res = await api(`contents/${path}?ref=${encodeURIComponent(branch())}`, {}, repo);
+  if (res.status === 404) return [];
+  if (!res.ok) throw fail(res);
+  const list = await res.json();
+  return Array.isArray(list) ? list.filter((f) => f.type === 'file') : [];
+}
+async function deleteFile(path, sha, repo) {
+  const res = await api(`contents/${path}`, {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: `everyday: remove ${path}`, sha, branch: branch() }),
+  }, repo);
+  if (!res.ok && res.status !== 404) throw fail(res);
+}
+export async function removeCalendarData() {
+  const files = [];
+  const status = await getFile('data/gcal.json');
+  if (status.sha) files.push({ path: 'data/gcal.json', sha: status.sha });
+  for (const f of await listDir('data/events')) files.push({ path: f.path, sha: f.sha });
+  for (const f of files) await deleteFile(f.path, f.sha);
+  await replaceCollection('events', []);
+  await replaceCollection('gcal', []);
+  return files.length;
+}
+
 export async function testConnection(repo = state.settings.repo) {
   if (!isConfigured()) return { error: 'missing' };
   try {

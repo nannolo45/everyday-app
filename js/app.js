@@ -1,7 +1,7 @@
 import {
   state, load, live, get, has, upsert, remove, uid, onChange, saveSettings, saveMeta, COLLECTIONS, RICETTE, replaceCollection, kvGet, kvSet,
 } from './store.js';
-import { syncNow, isConfigured, isSyncing, testConnection, watchMonth, ricetteConfigured, runWorkflow, fetchRicettePhoto } from './sync.js';
+import { syncNow, isConfigured, isSyncing, testConnection, watchMonth, ricetteConfigured, runWorkflow, fetchRicettePhoto, removeCalendarData } from './sync.js';
 import {
   today, addDays, parseDate, isDate, nowMinutes, weekday, dateStr, fmtTime, fmtDur, parseTime, quickAdd,
   REPEATS, occurrences, nextOccurrence, completeTask, reopenTask, groupTasks, sortTasks, layoutBlocks, freeSlot, dayTotals,
@@ -22,6 +22,9 @@ import { t, setLang, getLang, LANGS, detectLang } from './i18n.js';
 import { setupDrag } from './drag.js';
 import { setupTrayDrag } from './tray.js';
 import { assignItems, planTrips, openOn, shopsFor } from './shops.js';
+
+// Shown under Settings; keep in step with VERSION in sw.js (a unit test checks).
+export const APP_VERSION = 'v26';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -2635,6 +2638,7 @@ function viewSettings() {
 
   <div class="button-row subtle">
     <button class="btn small" type="button" data-action="export">${esc(t('export'))}</button>
+    <span class="version">${esc(t('appName'))} ${APP_VERSION}</span>
   </div>`;
 }
 
@@ -2660,7 +2664,9 @@ function gcalSection() {
     <label class="check"><input type="checkbox" id="show-events" ${state.settings.showEvents === false ? '' : 'checked'}> ${esc(t('showEvents'))}</label>
     <label>🔔 ${esc(t('remindDefault'))}<select id="remind-default">${REMINDS.map((m) => `<option value="${m}" ${m === remindDefault() ? 'selected' : ''}>${esc(remindLabel(m))}</option>`).join('')}</select>
       <small>${esc(t('remindHint'))}</small></label>
-    <div class="button-row"><button class="btn small" type="button" data-action="gcal-now">${esc(t('gcalNow'))}</button></div>
+    <div class="button-row"><button class="btn small" type="button" data-action="gcal-now">${esc(t('gcalNow'))}</button>
+      <button class="btn small ghost" type="button" data-action="gcal-remove">${esc(t('gcalRemove'))}</button></div>
+    <p class="hint">${esc(t('gcalRemoveHint'))}</p>
   </div>`;
 }
 
@@ -3974,6 +3980,7 @@ view.addEventListener('click', (e) => {
     case 'gh-edit': ui.editGithub = true; ui.connMsg = ''; render(); break;
     case 'gh-cancel': ui.editGithub = false; render(); break;
     case 'gcal-now': gcalNow(); break;
+    case 'gcal-remove': if (confirm(t('gcalRemoveConfirm'))) { removeCalendarData().then((n) => { toast(t('gcalRemoved', n)); changed(); }).catch(() => { toast(t('err_network')); }); } break;
     case 'ric-off': saveSettings({ ricetteRepo: '' }).then(() => { ui.ricMsg = ''; render(); }); break;
     case 'export': exportData(); break;
     default: break;
