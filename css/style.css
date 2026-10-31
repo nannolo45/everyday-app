@@ -943,3 +943,8 @@ details.set-sec > summary::after { content: '›'; margin-left: auto; color: var
 details.set-sec[open] > summary::after { transform: rotate(90deg); }
 details.set-sec > summary h2 { margin: 10px 0; }
 details.set-sec > .set-body { padding-bottom: 8px; }
+
+.leg-box { border: 1px solid var(--line); border-radius: 14px; padding: 8px 14px 12px; margin: 10px 0; }
+.leg-box legend { padding: 0 6px; font-weight: 600; color: var(--muted); font-size: .9rem; }
+.leg-fields { display: grid; gap: 8px; margin-bottom: 8px; }
+@media (min-width: 700px) { .leg-fields { grid-template-columns: 1fr 1fr; } }
