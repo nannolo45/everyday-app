@@ -10,10 +10,10 @@ table{border-collapse:collapse;width:100%;font-size:.95em}th,td{text-align:left;
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:.95em}.top a{text-decoration:none}
 nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 0}nav.toc a{display:block;padding:3px 0;text-decoration:none}
 </style></head>
-<body><main><div class="top"><a href="./">← Back to the app</a><a href="guide-it.html">Italiano</a></div><h1 id="everyday-user-guide">Everyday: user guide</h1><nav class="toc"><a href="#what-everyday-is">What Everyday is</a><a href="#first-setup">First setup</a><a href="#the-four-tabs">The four tabs</a><a href="#today">Today</a><a href="#tasks">Tasks</a><a href="#planning">Planning</a><a href="#travel">Travel</a><a href="#meals-shopping-list-and-grocery-runs">Meals, shopping list and grocery runs</a><a href="#google-calendar">Google Calendar</a><a href="#a-typical-week">A typical week</a><a href="#tips-and-troubleshooting">Tips and troubleshooting</a></nav>
+<body><main><div class="top"><a href="./">← Back to the app</a><a href="guide-it.html">Italiano</a></div><h1 id="everyday-user-guide">Everyday: user guide</h1><nav class="toc"><a href="#what-everyday-is">What Everyday is</a><a href="#first-setup">First setup</a><a href="#the-four-tabs">The four tabs</a><a href="#today">Today</a><a href="#events">Events</a><a href="#tasks">Tasks</a><a href="#planning">Planning</a><a href="#travel">Travel</a><a href="#meals-shopping-list-and-grocery-runs">Meals, shopping list and grocery runs</a><a href="#google-calendar">Google Calendar</a><a href="#a-typical-week">A typical week</a><a href="#tips-and-troubleshooting">Tips and troubleshooting</a></nav>
 <p>Everything you need to set Everyday up and plan your days with it.</p>
 <h2 id="what-everyday-is">What Everyday is</h2>
-<p>Everyday is a planner for your days. You write down what you have to do, and it helps you decide <em>when</em> to do it. Every task takes some time, and once you put it on a day it becomes a block on that day's timeline, next to your calendar appointments. The app can suggest a plan for a day, a week or a month, keep Google Calendar in step, add the time it takes to get to a place, and plan meals and grocery runs together with the Ricette recipe app.</p>
+<p>Everyday is a planner for your days. There are two kinds of things in it: <strong>events</strong>, which already have a date (a concert, a visit, a class), and <strong>tasks</strong>, which still need one — you write them down and the app helps you decide <em>when</em> to do them. Every task takes some time, and once you put it on a day it becomes a block on that day's timeline, next to your events and calendar appointments. Tasks can also be tied to an event ("buy the tickets, two weeks before"), so the event carries its own to-do list. The app can suggest a plan for a day, a week or a month, keep Google Calendar in step, add the time it takes to get to a place, and plan meals and grocery runs together with the Ricette recipe app.</p>
 <p>It works in the browser on a phone or a computer and can be installed like a normal app. Your data stays yours: it lives on your devices and in a private space on GitHub that only you can see. There is no account with us, no AI and nothing to pay.</p>
 <p>What it is not: it is not a calendar (your appointments come from Google Calendar), not a notes app and not a tool for a team. One person, one set of data.</p>
 <h2 id="first-setup">First setup</h2>
@@ -55,28 +55,68 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 <td>Home. The next move with its <em>leave</em> and <em>start</em> times, today's list, what is pressing, the week at a glance. Tapping the app's name brings you back here.</td>
 </tr>
 <tr>
-<td><strong>Planner</strong></td>
-<td>Your plan as a Day, a Week or a Month, with a drawer of the tasks still to plan and the <strong>Plan</strong> button that lays them out for you.</td>
+<td><strong>Events</strong></td>
+<td>Everything with a fixed date, nearest first: your own events and the ones from Google Calendar, each with how ready it is.</td>
 </tr>
 <tr>
 <td><strong>Tasks</strong></td>
-<td>Everything to do: <em>To plan</em>, <em>Planned</em>, <em>Done</em>, and the <em>Saved</em> list of things that come back (gym, cleaning, meals). Search, filters, sorting, import from pasted text.</td>
+<td>Everything to do: <em>To plan</em>, <em>Planned</em>, <em>Done</em>, the <em>Saved</em> list of things that come back (gym, cleaning, meals), and the <strong>Shopping</strong> list. Search, filters, sorting, import from pasted text.</td>
 </tr>
 <tr>
-<td><strong>Shopping</strong></td>
-<td>The shopping list (shared with Ricette when connected), grouped by department, recipe or shop.</td>
+<td><strong>Planner</strong></td>
+<td>Your plan as a Day, a Week or a Month, with a drawer of the tasks still to plan and the <strong>Plan</strong> button that lays them out for you.</td>
 </tr>
 </tbody>
 </table>
-<p>The gear at the top right opens <strong>Settings</strong>. On a phone, swipe left or right to move between the tabs. The badge next to the gear shows whether your data is in sync: <em>Synced</em>, <em>Syncing</em>, <em>Offline</em>, or <em>Only on this device</em> when you haven't connected yet.</p>
+<p>The order is the order you plan in: see what's on today, put the dated things in, add the tasks around them, then let the Planner lay everything out. The gear at the top right opens <strong>Settings</strong>. On a phone, swipe left or right to move between the tabs. The badge next to the gear shows whether your data is in sync: <em>Synced</em>, <em>Syncing</em>, <em>Offline</em>, or <em>Only on this device</em> when you haven't connected yet.</p>
 <h2 id="today">Today</h2>
 <p><img alt="Today: the next move, the day, what is pressing, the week" src="guide/en/00-today.png" /></p>
 <p>The <strong>next move</strong> card answers one question: when do I have to move? For a task with a place it shows two times — <em>leave 11:00 → start 11:20</em> — and counts down to the leave time. <em>On my way</em> ticks the trip, <em>Done</em> finishes the task, the pin opens the address in Maps, <em>Move</em> opens the block. Below it, today's list shows every block and appointment in order (an orange time means "leave then"), and a line tells you how much free time you have until the next thing — tap it to see what fits.</p>
 <p><strong>Pressing</strong> lists what needs you: overdue tasks, tasks due in the next days that have no day yet, and tasks missing a detail. <em>Today</em> puts one in the next free slot; <em>Fix</em> opens it on the missing detail. The week strip at the bottom shows how full each day is; tap a day to open it in the Planner.</p>
 <p>Every morning, the first time you open Today, what was left undone on earlier days goes back on the plan over the coming week; a line says how many things moved, with <em>Undo</em>.</p>
+<h2 id="events">Events</h2>
+<p>An event is something with a date you don't choose: a concert on the 20th of May, the dentist on Thursday at 9, Luca's wedding in June. You put it in as soon as you hear about it, and from then on it is on the plan, in Google Calendar, and on Today when the day comes. The planner never moves an event.</p>
+<p><img alt="The Events tab: nearest first, with how ready each one is" src="guide/en/15-events.png" /></p>
+<h3 id="adding-an-event">Adding an event</h3>
+<p>Type it in the field at the top of the Events tab: <code>Concert 20 May 21:00 @Arena 3h</code>, <code>Dentist 12/11 at 9</code>, <code>Luca's wedding 12 Jun</code>, <code>Pottery class thu 18:30 2h</code>. The app reads the date (<code>20 May</code>, <code>20/5</code>, <code>fri</code>, <code>tomorrow</code>), the time (<code>21:00</code>, <code>at 9</code>), the place (<code>@…</code>) and the length (<code>2h</code>). Without a time it is an <strong>all-day</strong> event. Without a date the editor opens and asks for one — a date is the only thing an event needs.</p>
+<p>Tap an event to open it. It is the same editor as a task, with the same parts in the same order; only the first one differs:</p>
+<p><img alt="An event opened: date and time first" src="guide/en/16-event-editor.png" /></p>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>What you set there</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>When</td>
+<td>The date (required) and the time (leave it empty for all day); repetition for a weekly class; the reminder.</td>
+</tr>
+<tr>
+<td>To do before and after</td>
+<td>The tasks tied to this event, with their lead time and whether each is planned — see below.</td>
+</tr>
+<tr>
+<td>Length and category</td>
+<td>How long it takes (two hours until you say otherwise), a buffer after it, the category.</td>
+</tr>
+<tr>
+<td>Place, Steps, Checklist, Notes</td>
+<td>Exactly as for a task: a place adds <em>Get there</em> with the real travel time, so Today shows <em>leave 20:15 → start 21:00</em>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tasks-tied-to-an-event">Tasks tied to an event</h3>
+<p>This is what makes events useful. In the event, <em>+ To do before / after</em> adds a task with a lead time: <em>Buy the tickets · 2 weeks before</em>, <em>Book the train · 1 week before</em>, <em>Thank Anna · 1 day after</em>. Each one is a normal task: it appears in the Tasks tab (marked 📅 with the event's name), gets its due date from the event, shows up in <em>Pressing</em> when it slips, and the Planner places it like anything else. Move the event and all its tasks move with it.</p>
+<p><img alt="The event's to-do list, with each task's lead time and state" src="guide/en/17-event-tasks.png" /></p>
+<p>Inside the event you see at a glance where you stand — <em>3 to do · 2 to plan</em>, then ✓ <em>all done</em> — and <em>Plan these</em> lays the open ones out over the days before the event. The same badge shows in the Events list and on Today's next-move card. Open a tied task and its <em>When</em> part says <em>For the event "Concert" · 2 weeks before</em>; change the lead time there, or untie it.</p>
+<p>Events imported from Google Calendar can take tied tasks too: open one from the Events list and add them the same way. The event itself stays Google's (you change it there), but its preparation lives here.</p>
+<h3 id="events-on-the-plan">Events on the plan</h3>
+<p>On the Day timeline an event is a block with a 📅 and a stronger colour. Tapping an empty spot on the timeline makes a new event at that time (you picked a time, so it is fixed); <em>+ Add → Event</em> does the same. You can still drag an event's block by hand; the planner, the morning re-flow and <em>Plan</em> leave events alone and work around them. Events go to Google Calendar like everything else, all-day ones as all-day entries.</p>
 <h2 id="tasks">Tasks</h2>
 <h3 id="adding-a-task">Adding a task</h3>
-<p>Type in the field at the top of the Tasks tab and press Enter. A few shortcuts save you from opening the task: <code>Dentist 1h</code> sets how long it takes, <code>!1</code> to <code>!5</code> how important it is (1 = very), <code>#work</code> the category, <code>@Via Roma 12</code> the place, <code>fri</code> or <code>tomorrow</code> the day, <code>by fri</code> a due date, <code>every mon</code> a weekly repeat. <em>Import</em> takes a whole list you paste in, one task per line.</p>
+<p>Type in the field at the top of the Tasks tab and press Enter. A few shortcuts save you from opening the task: <code>Dentist 1h</code> sets how long it takes, <code>!1</code> to <code>!5</code> how important it is (1 = very), <code>#work</code> the category, <code>@Via Roma 12</code> the place, <code>fri</code> or <code>tomorrow</code> the day, <code>by fri</code> a due date, <code>every mon</code> a weekly repeat. With a day <em>and</em> a time (<code>Call Marco tue 15:00</code>) the task goes straight onto the plan. <em>Import</em> takes a whole list you paste in, one task per line.</p>
 <p><img alt="The Tasks tab: add field, search, filters and the tasks to plan" src="guide/en/06-tasks.png" /></p>
 <p>Tap a task to open it. The task is split into parts you can fold; anything you don't touch keeps a sensible value.</p>
 <p><img alt="A task opened: length, buffer, importance, category" src="guide/en/07-editor.png" /></p>
@@ -94,7 +134,7 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 </tr>
 <tr>
 <td>When</td>
-<td>A day and a time, a due date, repetition, the part of the day you prefer, things that must come first, time windows (e.g. office hours), the reminder.</td>
+<td>A day and a time, a due date, repetition, the part of the day you prefer, things that must come first, time windows (e.g. office hours), the reminder. For a task tied to an event: the event and the lead time instead of a due date.</td>
 </tr>
 <tr>
 <td>Place</td>
@@ -134,8 +174,8 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 <p>At the bottom of the Planner sits <strong>To plan</strong>: the tasks that have no day yet. Open it to see them (search, sort, filter), tap ↓ on a row to put it in the next free slot of the day on screen, or hold and drag it onto the timeline, a week day or a month cell. The same drawer shows the previews when you let the app plan.</p>
 <h3 id="putting-a-task-on-a-day-by-hand">Putting a task on a day by hand</h3>
 <ul>
-<li>Tap an empty spot on the Day timeline: a new block at that time.</li>
-<li><em>+ Add</em> → a Task (new or from the list), a Saved one, a Meal or a Block.</li>
+<li>Tap an empty spot on the Day timeline: a new <strong>event</strong> at that time.</li>
+<li><em>+ Add</em> → a Task (new or from the list), an Event, a Saved one or a Meal.</li>
 <li>Drag a block to move it; drag its bottom edge to make it longer or shorter. Tap a block to tick it, see its steps and checklist, or change it.</li>
 </ul>
 <p><img alt="A block opened: time, length, its steps" src="guide/en/13-block-travel.png" /></p>
@@ -152,19 +192,19 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 <h2 id="meals-shopping-list-and-grocery-runs">Meals, shopping list and grocery runs</h2>
 <p>With Ricette connected, <em>+ Add → Meal</em> puts a meal on a day and lets you pick recipes for it; the preparation step takes its length from the recipes. When the time comes (or when you tick the <em>check</em> step) the app looks at the pantry: what's missing goes on the <strong>shopping list</strong>, and a <strong>grocery run</strong> is planned before the meal.</p>
 <p><img alt="The shopping list, grouped by department" src="guide/en/14-shopping.png" /></p>
-<p>The Shopping tab is the same list as in Ricette, both ways: add, change, tick or delete here and it shows there within a minute. Group it by department, recipe or shop, sort it A–Z or by when things were added, search it. Tap an item to change its quantity, note or the shops that have it.</p>
+<p>The <strong>Shopping</strong> part of the Tasks tab (To do · Saved · Shopping; the app remembers which one you used last, and a grocery-run block opens it directly) is the same list as in Ricette, both ways: add, change, tick or delete here and it shows there within a minute. Group it by department, recipe or shop, sort it A–Z or by when things were added, search it. Tap an item to change its quantity, note or the shops that have it.</p>
 <p><strong>Shops</strong> (Settings → Categories and shops) have opening hours and, if you like, an address. Say which shops carry an item and the grocery runs are planned when those shops are open, as one run or one per shop. A grocery run is a block like any other; ticking items as you buy them marks them bought in Ricette, and they go into the pantry when you put the shopping away there.</p>
 <h2 id="google-calendar">Google Calendar</h2>
 <p>Once set up, the link works both ways:</p>
 <ul>
 <li><strong>Your calendars → Everyday.</strong> Appointments from the calendars you import appear on the plan in their colour, as busy time the planner works around. You can't change them here; a link opens them in Google Calendar.</li>
-<li><strong>Everyday → Google Calendar.</strong> Everything you plan is written to a calendar called <em>Everyday</em>, with a reminder (the default from Settings → Connections → Google Calendar, or the task's own). A task with a trip is one event that starts when you leave, titled <em>Dentist 11:20 · leave 11:00</em>, so the reminder rings before you have to go. Move or delete an Everyday event in Google Calendar and your plan follows.</li>
+<li><strong>Everyday → Google Calendar.</strong> Everything you plan is written to a calendar called <em>Everyday</em>, with a reminder (the default from Settings → Connections → Google Calendar, or the task's own). A task with a trip is one event that starts when you leave, titled <em>Dentist 11:20 · leave 11:00</em>, so the reminder rings before you have to go. Your own events carry a 📅; all-day ones become all-day entries. Move or delete an Everyday event in Google Calendar and your plan follows.</li>
 </ul>
 <p>The link refreshes every hour and a moment after you change your plan; <em>Sync with Google now</em> refreshes it by hand. The section in Settings shows when it last ran and how many appointments came in. <em>Remove calendar data</em> deletes the imported appointments from your repository — useful if a repository was copied from someone else's and shows their calendar.</p>
 <h2 id="a-typical-week">A typical week</h2>
-<p><strong>Sunday evening, ten minutes.</strong> Open Tasks and empty your head: type everything that is on your mind, with a length when you know it (<code>Call the bank 20m</code>, <code>Tax return 2h !2</code>). Give a place to the things that happen somewhere (<code>Dentist</code>, place: the practice's address). Put the week's meals on their days (<em>+ Add → Meal</em>) and pick the recipes. Then Planner → <strong>✦ Plan</strong> → <em>a week</em>: answer the two or three details it asks, look at the previews, drag the one or two you want elsewhere, <em>Add</em>. Your appointments were already there, so nothing lands on top of them; the grocery run was placed before the first meal that needs it.</p>
-<p><strong>Every morning.</strong> Open the app: Today shows the next move with its leave time, the day's list, and anything that slipped from yesterday already back on the plan (Undo if you disagree). Google Calendar reminds you before each block. <em>Pressing</em> shows what needs a decision — one tap puts it on today. If the day looks too full, open the Planner and drag something to tomorrow.</p>
-<p><strong>During the day.</strong> Tick blocks as you finish them (for long ones, tick the steps). A meeting ended early? The free-time line on Today says how long you have and what fits. Something new came up? Type it in Tasks with a day (<code>call Marco tomorrow 15m</code>) or put it on today from Pressing. Buy groceries from the Shopping tab, ticking items as they go into the basket.</p>
+<p><strong>Sunday evening, ten minutes — left to right across the tabs.</strong> Open Events and put in anything with a date you heard about during the week (<code>Dentist thu 9:00 @…</code>, <code>Dinner at Marco's sat 20:00</code>); for the big ones add what has to happen before (<code>+ To do before / after</code>). Then Tasks: empty your head, with a length when you know it (<code>Call the bank 20m</code>, <code>Tax return 2h !2</code>), and a place for the things that happen somewhere. Put the week's meals on their days (<em>+ Add → Meal</em>) and pick the recipes. Then Planner → <strong>✦ Plan</strong> → <em>a week</em>: answer the two or three details it asks, look at the previews, drag the one or two you want elsewhere, <em>Add</em>. Your appointments were already there, so nothing lands on top of them; the grocery run was placed before the first meal that needs it.</p>
+<p><strong>Every morning.</strong> Open the app: Today shows the next move with its leave time (an event's card also says how ready it is), the day's list, and anything that slipped from yesterday already back on the plan (Undo if you disagree). Google Calendar reminds you before each block. <em>Pressing</em> shows what needs a decision — one tap puts it on today. If the day looks too full, open the Planner and drag something to tomorrow.</p>
+<p><strong>During the day.</strong> Tick blocks as you finish them (for long ones, tick the steps). A meeting ended early? The free-time line on Today says how long you have and what fits. Something new came up? A date → Events (<code>Concert 20 May 21:00</code>); a thing to do → Tasks (<code>call Marco tomorrow 15m</code>), or put it on today from Pressing. Buy groceries from the Shopping tab, ticking items as they go into the basket.</p>
 <p><strong>Evening.</strong> What you didn't do stays open: tomorrow morning it is back on the plan, and the next <em>Plan</em> picks up the rest. Overdue tasks sit at the top of <em>Pressing</em> and of <em>To plan</em>, so they don't get lost.</p>
 <p><strong>Once in a while.</strong> Recurring things (gym Monday and Wednesday at 19:00, weekly cleaning) are set once and appear on their own; the <em>Saved</em> list holds what comes back without a rhythm. Settings → My day is where you adjust the day's hours, the daily limit and the breathing room after tasks when the plans feel too tight or too loose.</p>
 <h2 id="tips-and-troubleshooting">Tips and troubleshooting</h2>
@@ -203,6 +243,10 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 <tr>
 <td>The plan is always too full</td>
 <td>Settings → My day: lower <em>Plan at most</em>, narrow the suggestion hours, add breathing room after tasks.</td>
+</tr>
+<tr>
+<td>An event is on the wrong day</td>
+<td>Open it from Events and change the date: its block and all its tied tasks move with it. On the Day view you can also drag the block.</td>
 </tr>
 <tr>
 <td>I want my data</td>

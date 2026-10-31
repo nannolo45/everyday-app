@@ -24,7 +24,7 @@ import { setupTrayDrag } from './tray.js';
 import { assignItems, planTrips, openOn, shopsFor } from './shops.js';
 
 // Shown under Settings; keep in step with VERSION in sw.js (a unit test checks).
-export const APP_VERSION = 'v30';
+export const APP_VERSION = 'v31';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 // Hints that were emptied in i18n (the guide explains instead) render nothing.
