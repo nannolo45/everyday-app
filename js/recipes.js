@@ -91,6 +91,10 @@ function descendants(id, folders) {
 // filter: {q, folder ('' all, '__none', or an id: includes subfolders), tags: Set of tag ids,
 //          maxMinutes, canCook: (r) => bool, sort: 'name' | 'quick' | 'cooked'}
 // ctx: {folders, defs (Ricette's tag settings), label (tag id → name, for search)}
+// Ricette's stage of a recipe: fav · tried · try · archived (missing on old records = try).
+export const STAGES = ['fav', 'tried', 'try', 'archived'];
+export const stageOf = (r) => (STAGES.includes(r?.stage) ? r.stage : 'try');
+
 export function filterRecipes(recipes, { q = '', folder = '', tags = new Set(), maxMinutes = null, canCook = null, sort = 'name' } = {}, ctx = {}) {
   const folders = ctx.folders || [];
   const defs = ctx.defs || [];

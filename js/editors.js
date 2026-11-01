@@ -7,7 +7,7 @@ import { addDays, fmtDur, fmtTime, formatTemplateLines, freeSlot, groupTasks, IM
 import { AUTO_SPANS, partOfDay, placeGhosts, planEventTasks, trayTasks, tripItems, warnConflicts } from './planning.js';
 import { pantryCoverage } from './recipe-tools.js';
 import { ingredientsOf } from './kitchen.js';
-import { filterRecipes, folderOfRecipe, folderTree, minutesOf, originLabel, tagCounts, tagLabel, tagsOf, timeParts } from './recipes.js';
+import { filterRecipes, folderOfRecipe, folderTree, minutesOf, originLabel, STAGES, stageOf, tagCounts, tagLabel, tagsOf, timeParts } from './recipes.js';
 import { changed, currentDate, render } from './shell.js';
 import { fold, matchesQ } from './shoplist.js';
 import { candidates, spareTime } from './smart.js';
@@ -562,10 +562,11 @@ export function mealStepsHtml(plan, block) {
 // The recipe picker: a full sheet with photos, search, folders, tags and quick filters.
 // Tap cards to select one or more recipes; ⓘ shows the recipe with what's in the pantry.
 export function openPicker({ people = 2, selected = [], onDone, onBack }) {
-  const st = { q: '', folder: '', tags: new Set(), canCook: false, quick: false, sort: 'name', sel: [...selected], preview: null };
+  const st = { q: '', folder: '', tags: new Set(), canCook: false, quick: false, sort: 'cooked', sel: [...selected], preview: null };
   const folders = live('r_folders');
   const defs = tagDefs();
-  const all = recipes();
+  // Archived recipes never come up (unless already chosen for this meal).
+  const all = recipes().filter((r) => stageOf(r) !== 'archived' || selected.includes(r.id));
   const tree = folderTree(folders);
   const fname = (id) => tree.find((f) => f.id === id)?.name || '';
   const tags = tagCounts(all, defs, pinnedTags());
@@ -591,9 +592,14 @@ export function openPicker({ people = 2, selected = [], onDone, onBack }) {
       <button class="pk-info" value="info:${esc(r.id)}" formnovalidate aria-label="${esc(t('details'))}">i</button>
     </div>`;
   };
+  // Grouped as in Ricette: Preferite, then Provate, then Da provare (a new recipe is a choice, not an accident).
+  const STAGE_ICON = { fav: '★', tried: '✓', try: '✦', archived: '🗄' };
   const grid = () => {
     const l = list();
-    return l.length ? l.map(card).join('') : `<p class="empty">${esc(t('noMatches'))}</p>`;
+    if (!l.length) return `<p class="empty">${esc(t('noMatches'))}</p>`;
+    const groups = STAGES.map((s) => [s, l.filter((r) => stageOf(r) === s)]).filter(([, g]) => g.length);
+    if (groups.length < 2) return l.map(card).join('');
+    return groups.map(([s, g]) => `<h3 class="pk-group" data-stage="${s}">${STAGE_ICON[s]} ${esc(t(`stage_${s}`))} <small>${g.length}</small></h3>${g.map(card).join('')}`).join('');
   };
   const pill = (value, label, on) => `<button class="pill${on ? ' on' : ''}" value="${esc(value)}" formnovalidate>${esc(label)}</button>`;
 

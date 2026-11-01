@@ -7,8 +7,8 @@ import { sameFood } from './foods.js';
 import { addDays, autoTemplatesFor, completeTask, fmtDur, fmtTime, freeSlot, importanceOf, nextOccurrence, nowMinutes, occurrences, parseDate, reopenTask, REPEATS, templateBlocks, today } from './plan.js';
 import { prepMinutes } from './recipes.js';
 import { findConflicts, placeGroceries, placePrep, windowOn, WINDOWS } from './smart.js';
-import { get, has, live, remove, state, uid, upsert } from './store.js';
-import { isConfigured, ricetteConfigured } from './sync.js';
+import { contractTooNew, get, has, live, remove, state, uid, upsert } from './store.js';
+import { isConfigured, queueCooked, ricetteConfigured, unqueueCooked } from './sync.js';
 import { hereNow, ownMinutes, realSteps, travelCache, travelCfg, travelOf } from './travel-plan.js';
 import { placeNotFound } from './travel.js';
 import { cleanWindows, openModal } from './widgets.js';
@@ -258,7 +258,23 @@ export function ensureSeries(task) {
   const wantSet = new Set(want);
   for (const [d, b] of have) if (d >= td && !wantSet.has(d) && b.auto && !outcomeOf(b)) remove('blocks', b.id);
 }
-export function ensureAllSeries() { for (const x of live('tasks').filter((y) => isSeries(y) && y.seriesTime != null && !y.done)) ensureSeries(x); syncEventTasks(); }
+export function ensureAllSeries() { for (const x of live('tasks').filter((y) => isSeries(y) && y.seriesTime != null && !y.done)) ensureSeries(x); syncEventTasks(); publishTrips(); }
+// The grocery trips to come, shared with Ricette (prefs record {id: 'trips', value}) so its list can show them:
+// [{id, date, start, minutes, shops}] in time order (shops = shop ids; [] = a trip for anywhere). Written only
+// when it changed, never while the contract is newer than Everyday's.
+export function upcomingTrips(td = today()) {
+  return live('blocks').filter((b) => b.kind === 'groceries' && !outcomeOf(b) && b.date >= td)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.start - b.start))
+    .map((b) => ({ id: b.id, date: b.date, start: b.start, minutes: b.minutes, shops: [...(b.shops || [])] }));
+}
+export function publishTrips() {
+  if (!ricetteConfigured() || contractTooNew()) return false;
+  const value = upcomingTrips();
+  const cur = get('r_prefs', 'trips');
+  if (JSON.stringify(cur?.value || []) === JSON.stringify(value) && (cur || !value.length)) return false;
+  upsert('r_prefs', { ...(cur || {}), id: 'trips', value }, { silent: true });
+  return true;
+}
 // Change a series from one occurrence on: the old series ends the day before, a copy carries the
 // changes from `fromOcc`, and the blocks from that day on move to the copy.
 export function splitSeries(prev, changes, fromOcc) {
@@ -343,6 +359,11 @@ export function outcomeOf(b) { return b?.outcome || (b?.done ? 'done' : null); }
 export function setOutcome(block, outcome, { steps = true } = {}) {
   const prev = outcomeOf(block);
   const b = upsert('blocks', { ...block, done: outcome === 'done', outcome: outcome || null }, { silent: true });
+  // A meal eaten counts as cooked in Ricette too (cookedCount / lastCooked), at the next sync.
+  if (b.kind === 'meal' && ricetteConfigured()) {
+    if (outcome === 'done' && prev !== 'done') for (const x of mealRecipes(b)) if (x.recipeId && get('r_recipes', x.recipeId)) queueCooked(x.recipeId, b.id);
+    if (outcome !== 'done' && prev === 'done') unqueueCooked(b.id);
+  }
   // Ticking the whole task ticks its open steps; unticking it (or resetting) clears them.
   if (steps && stepsOf(b).length) {
     if (outcome === 'done') for (const st of stepsOf(b)) if (!b.stepState?.[st.id]) setStepOutcome(get('blocks', b.id), st.id, 'done', { parent: false });

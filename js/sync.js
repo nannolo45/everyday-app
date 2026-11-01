@@ -4,6 +4,30 @@ import {
   state, COLLECTIONS, SHARDED, RICETTE, READ_ONLY, CONTRACT_FILES, contractTooNew, shardOf, mergeLists, purgeTombstones, serialize, replaceCollection, saveMeta,
 } from './store.js';
 
+// ---------- meals cooked here, counted in Ricette (contract v1: Everyday's one write to recipes.json) ----------
+// A meal ticked done queues {recipeId, blockId, at}; the next sync adds them to the recipe's cookedCount and
+// lastCooked on the copy it has just read from GitHub (so a count made in Ricette meanwhile is never lost),
+// spreading the record and touching nothing else. Unticked before that sync: taken off the queue.
+export function cookedQueue() { return state.meta.cookedQueue || []; }
+export function queueCooked(recipeId, blockId) {
+  if (cookedQueue().some((x) => x.recipeId === recipeId && x.blockId === blockId)) return;
+  saveMeta({ cookedQueue: [...cookedQueue(), { recipeId, blockId, at: Date.now() }] });
+}
+export function unqueueCooked(blockId) {
+  if (cookedQueue().some((x) => x.blockId === blockId)) saveMeta({ cookedQueue: cookedQueue().filter((x) => x.blockId !== blockId) });
+}
+// The recipes file with the queued counts added; null when nothing changes.
+export function withCooked(recipes, queue, now = Date.now()) {
+  let any = false;
+  const out = recipes.map((r) => {
+    const mine = queue.filter((x) => x.recipeId === r.id);
+    if (!mine.length || r.deleted) return r;
+    any = true;
+    return { ...r, cookedCount: (Number(r.cookedCount) || 0) + mine.length, lastCooked: Math.max(Number(r.lastCooked) || 0, ...mine.map((x) => x.at)), updatedAt: now };
+  });
+  return any ? out : null;
+}
+
 export function pathFor(collection, shard = null) {
   return shard ? `data/${collection}/${shard}.json` : `data/${collection}.json`;
 }
@@ -96,6 +120,17 @@ async function syncFile(c, shard, repo = state.settings.repo, path = pathFor(c, 
     stillCurrent();
     // The prefs decide for themselves (the marker may have just arrived in them), the rest by the prefs as synced.
     const frozen = CONTRACT_FILES.has(c) && contractTooNew(c === 'r_prefs' ? remote.data : state.r_prefs);
+    if (c === 'r_recipes' && cookedQueue().length && !contractTooNew(state.r_prefs)) {
+      const queue = cookedQueue();
+      const data = withCooked(remote.data, queue);
+      if (data) {
+        stillCurrent();
+        if (!(await putFile(path, serialize(data), remote.sha, repo))) continue;
+        remote.data = data;
+      }
+      // done (or the recipes are gone): off the queue, keeping anything queued meanwhile
+      await saveMeta({ cookedQueue: cookedQueue().filter((x) => !queue.includes(x)) });
+    }
     if (READ_ONLY.has(c) || frozen) {
       const next = [...state[c].filter((x) => !inFile(x)), ...remote.data].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
       await replaceCollection(c, next);
