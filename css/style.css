@@ -1013,10 +1013,17 @@ details.set-sec > .set-body { padding-bottom: 8px; }
 .set-card > h2 { margin: 12px 0 6px; font-size: 1.15rem; }
 .set-card h3 { margin: 16px 0 6px; font-size: .95rem; color: var(--muted); font-family: var(--sans); font-weight: 600; letter-spacing: .02em; text-transform: uppercase; }
 .set-card .form { margin: 0; }
-details.advanced > summary { list-style: none; cursor: pointer; display: flex; align-items: center; }
-details.advanced > summary::-webkit-details-marker { display: none; }
-details.advanced > summary::after { content: '›'; margin-left: auto; color: var(--muted); font-size: 1.4rem; transition: transform .15s; }
-details.advanced[open] > summary::after { transform: rotate(90deg); }
+.set-card h4 { margin: 14px 0 4px; font-size: .95rem; font-weight: 700; }
+details.set-card > summary { list-style: none; cursor: pointer; display: flex; align-items: center; }
+details.set-card > summary::-webkit-details-marker { display: none; }
+details.set-card > summary::after { content: '›'; margin-left: auto; color: var(--muted); font-size: 1.4rem; transition: transform .15s; }
+details.set-card[open] > summary::after { transform: rotate(90deg); }
+details.set-card > summary h2 { margin: 12px 0; }
+details.set-card[open] > summary h2 { margin-bottom: 6px; }
+.set-card .why { display: block; color: var(--muted); font-size: .8rem; line-height: 1.35; margin: 2px 0 8px; }
+.set-card label.opt { display: block; margin: 10px 0 0; }
+.set-card label.opt .why { margin-top: 4px; }
+.set-card label.check small { display: block; color: var(--muted); font-size: .8rem; font-weight: 400; }
 .leg-line { display: grid; grid-template-columns: 1fr auto; gap: 6px 8px; align-items: center; margin: 6px 0; }
 .leg-line .leg-name { grid-column: 1 / -1; font-size: .85rem; color: var(--muted); font-weight: 600; }
 .leg-line select { min-width: 0; }
@@ -1073,3 +1080,18 @@ label.check.tall { align-items: flex-start; }
 .list.ev-tasks .item-text small.late { color: var(--danger); }
 .button-row.left { margin: 6px 0 0; }
 .today-allday { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+
+/* ---------- shopping list v2 (css/shoplist.css, shared with Ricette): Everyday's own placement ---------- */
+.shop-tools .shop-view { margin-left: auto; white-space: nowrap; }
+.shop-tools .icon-btn { width: 40px; padding: 6px 0; font-size: 1.1rem; line-height: 1; }
+.shop-filter-chips { margin: -2px 0 8px; }
+.sl-bar { margin: 6px 0 10px; flex-wrap: wrap; }
+.sl-bar .btn { margin: 0; white-space: nowrap; }
+.sl-bar.sel > span { flex: 1 1 100%; }
+.sl-bar.sel > .btn:first-of-type { margin-left: auto; }
+.sl-frozen { margin: 6px 0 10px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--warn); color: var(--ink); font-size: .9rem; }
+.sl-cart { margin-top: 14px; }
+.sl-cart .sl-row .sl-name { text-decoration: line-through; color: var(--muted); }
+.trip-list .sl-row { min-height: 46px; }
+.sl-dialog .sl-menu { margin: 4px 0 8px; }
+@media (min-width: 1100px) { .sl-cartbar { --nav-h: 0px; } }

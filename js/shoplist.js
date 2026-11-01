@@ -100,3 +100,20 @@ export function groupItems(open, mode, ctx = {}) {
   }
   return [...groups.keys()].filter((c) => groups.get(c).length).map((c) => ({ key: c, kind: 'dept', items: groups.get(c) }));
 }
+
+// ---- Filters (v2): narrow the open items. filters = { shop: shop id | '', low: boolean }
+// shop: items that can be bought there (their own shops include it, or they name no live shop = any shop).
+// low:  items the pantry added because something runs low (auto).
+export const FILTER_KINDS = ['shop', 'low'];
+export function filterItems(open, filters = {}, ctx = {}) {
+  const ids = new Set((ctx.shops || []).map((x) => x.id));
+  return open.filter((i) => {
+    if (filters.low && !i.auto) return false;
+    if (filters.shop) {
+      const own = (i.shops || []).filter((id) => ids.has(id));
+      if (own.length && !own.includes(filters.shop)) return false;
+    }
+    return true;
+  });
+}
+export function filterCount(filters = {}) { return (filters.shop ? 1 : 0) + (filters.low ? 1 : 0); }

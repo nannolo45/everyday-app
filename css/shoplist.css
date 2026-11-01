@@ -1,0 +1,55 @@
+/* The shopping list's shared styles (v2), for the markup of js/shoplist-ui.js. Shared by Ricette and Everyday:
+   copy unchanged; each app sets its colours through these variables (defaults in brackets):
+   --bg --surface --ink --muted --line --accent --accent-ink --accent-soft --warn --danger --radius (14px). */
+
+.sl-list { display: flex; flex-direction: column; gap: 4px; }
+.sl-group { margin: 0 0 10px; }
+.sl-ghead { display: flex; align-items: center; gap: 8px; margin: 10px 0 2px; font-size: .95rem; font-weight: 700; }
+.sl-glabel { flex: 1; min-width: 0; }
+.sl-ghead .sl-count { color: var(--muted); font-weight: 400; }
+.sl-link { border: 0; background: transparent; color: var(--accent); font: inherit; font-size: .85rem; font-weight: 600; padding: 6px 4px; cursor: pointer; }
+.sl-rows { list-style: none; margin: 0; padding: 0; }
+.sl-row { display: flex; align-items: center; gap: 12px; min-height: 52px; border-bottom: 1px solid var(--line); }
+.sl-row:last-child { border-bottom: 0; }
+.sl-check { width: 22px; height: 22px; margin: 0; flex: none; accent-color: var(--accent); }
+.sl-main { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); text-align: left; padding: 8px 0; font: inherit; cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; }
+.sl-name { font-size: 1rem; }
+.sl-meta { flex-basis: 100%; font-size: .8rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sl-badge { font-size: .72rem; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--warn, var(--accent)); }
+.sl-row.checked .sl-name { text-decoration: line-through; color: var(--muted); }
+.sl-row.selecting.on { background: var(--accent-soft); border-radius: 10px; }
+.sl-handle { width: 32px; height: 40px; flex: none; border: 0; background: transparent; color: var(--muted); padding: 0; cursor: grab; touch-action: none; display: grid; place-items: center; }
+.sl-handle svg { width: 18px; height: 18px; fill: currentColor; }
+.sl-ghead .sl-handle { margin-left: -6px; }
+
+.sl-cartbar { position: sticky; bottom: calc(var(--nav-h, 0px) + env(safe-area-inset-bottom) + 8px); z-index: 4; display: flex; align-items: center; gap: 10px; margin: 12px 0 0; padding: 8px 8px 8px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius, 14px); box-shadow: 0 4px 14px rgba(0,0,0,.18); }
+.sl-cartcount { flex: 1; text-align: left; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: .95rem; padding: 8px 0; cursor: pointer; }
+.sl-cartmain { min-height: 40px; border: 0; border-radius: 10px; background: var(--accent-soft); color: var(--accent); font: inherit; font-weight: 600; padding: 0 14px; cursor: pointer; }
+
+.sl-sec { margin: 14px 0; }
+.sl-sech { margin: 0 0 8px; font-size: .75rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.sl-sub { font-size: .85rem; color: var(--muted); margin: 6px 0; }
+.sl-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.sl-chip { min-height: 36px; border: 1px solid var(--line); background: transparent; color: var(--ink); border-radius: 999px; padding: 0 12px; font: inherit; font-size: .9rem; cursor: pointer; }
+.sl-chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.sl-chip.dashed { border-style: dashed; color: var(--muted); }
+
+.sl-sheet { display: flex; flex-direction: column; gap: 12px; padding: 4px 0; }
+.sl-field { display: flex; flex-direction: column; gap: 6px; font-size: .85rem; color: var(--muted); margin: 0; }
+.sl-field input, .sl-field select { min-height: 46px; font-size: 1rem; color: var(--ink); }
+.sl-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.sl-stepper { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--bg); }
+.sl-stepper input { flex: 1; min-width: 0; text-align: center; border: 0; background: transparent; margin: 0; }
+.sl-stepper button { width: 44px; min-height: 46px; border: 0; background: transparent; color: var(--accent); font-size: 1.2rem; cursor: pointer; }
+.sl-newshop { display: inline-flex; gap: 6px; align-items: center; }
+.sl-newshop input { width: 9em; min-height: 36px; padding: 0 10px; margin: 0; }
+.sl-hint { font-size: .8rem; color: var(--muted); margin: 0; }
+.sl-actions { display: flex; align-items: center; gap: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
+.sl-gap { flex: 1; }
+.sl-actions button { min-height: 46px; border-radius: 12px; font: inherit; font-weight: 600; padding: 0 16px; cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--ink); }
+.sl-actions .sl-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.sl-actions .sl-danger { border: 0; color: var(--danger); padding: 0 6px; }
+
+.sl-menu { display: flex; flex-direction: column; gap: 8px; }
+.sl-menuitem { min-height: 48px; text-align: left; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 12px; padding: 0 14px; font: inherit; font-weight: 600; cursor: pointer; }
+.sl-menuitem.danger { color: var(--danger); }

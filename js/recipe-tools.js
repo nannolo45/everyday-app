@@ -163,11 +163,13 @@ export function pantryCoverage(r, pantry, { servings, basics = true, expiringIds
     if (!ing.name) continue;
     const need = ing.qty == null ? null : (ing.qty * n) / base;
     const p = findPantryItem(ing.name, pantry);
+    // staples tracked by level (data contract v1): at home when ok or low, whatever qty says
+    const byLevel = p && p.track === 'level';
     const stock = p ? (Number(p.qty) || 0) : 0;
-    const usable = p && stock > 0;
+    const usable = p && (byLevel ? p.level === 'ok' || p.level === 'low' : stock > 0);
     if (usable) {
       if (!matched.includes(p)) matched.push(p);
-      const avail = need == null ? null : convert(stock, p.unit || '', ing.unit || '');
+      const avail = need == null || byLevel ? null : convert(stock, p.unit || '', ing.unit || '');
       if (need == null || avail == null || avail + 1e-9 >= need) {
         have.push(ing.name);
         if (expiringIds.has(p.id)) uses.push(p);

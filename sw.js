@@ -1,9 +1,9 @@
 // Offline support: the app shell is cached; it updates itself in the background.
 // After changing any app file, bump VERSION so installed copies pick up the update.
-const VERSION = 'everyday-v31';
+const VERSION = 'everyday-v37';
 const SHELL = [
-  './', 'index.html', 'css/style.css', 'manifest.webmanifest', 'guide-en.html', 'guide-it.html',
-  'js/app.js', 'js/store.js', 'js/sync.js', 'js/plan.js', 'js/smart.js', 'js/kitchen.js', 'js/parse.js', 'js/recipes.js', 'js/recipe-tools.js', 'js/categories.js', 'js/depts.js', 'js/sortable.js', 'js/drag.js', 'js/tray.js', 'js/shops.js', 'js/shoplist.js', 'js/travel.js', 'js/i18n.js',
+  './', 'index.html', 'css/shoplist.css', 'css/style.css', 'manifest.webmanifest', 'guide-en.html', 'guide-it.html',
+  'js/app.js', 'js/categories.js', 'js/connections.js', 'js/core.js', 'js/depts.js', 'js/drag.js', 'js/editors.js', 'js/i18n.js', 'js/kinds.js', 'js/kitchen.js', 'js/model.js', 'js/parse.js', 'js/plan.js', 'js/planning.js', 'js/recipe-tools.js', 'js/recipes.js', 'js/shell.js', 'js/shoplist-ui.js', 'js/shoplist.js', 'js/shops.js', 'js/smart.js', 'js/sortable.js', 'js/store.js', 'js/sync.js', 'js/travel-plan.js', 'js/travel.js', 'js/tray.js', 'js/views/events.js', 'js/views/planner.js', 'js/views/settings.js', 'js/views/shop.js', 'js/views/tasks.js', 'js/views/today.js', 'js/widgets.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/icon-maskable.png', 'icons/sc-today.png', 'icons/sc-add.png', 'icons/sc-time.png', 'icons/sc-meal.png',
 ];
 
@@ -30,7 +30,10 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith((async () => {
     const cache = await caches.open(VERSION);
-    const key = req.mode === 'navigate' ? 'index.html' : req;
+    // Navigations open the app shell, except the pages that are shells of their own (the guide):
+    // keyed by name, so a guide page is never cached as the app, nor the app served for the guide.
+    const page = req.mode === 'navigate' ? url.pathname.split('/').pop() : '';
+    const key = req.mode === 'navigate' ? (page && page !== 'index.html' && SHELL.includes(page) ? page : 'index.html') : req;
     const cached = await cache.match(key, { ignoreSearch: req.mode === 'navigate' });
     const network = fetch(req, { cache: 'no-cache' }).then((res) => {
       if (res.ok && res.type === 'basic') cache.put(key, res.clone());

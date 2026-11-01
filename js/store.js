@@ -20,6 +20,16 @@ export const RICETTE = {
 // Written only by others: Ricette's recipes, and the Google Calendar sync (events + its status).
 // (Ricette's prefs are shared both ways: list view and department order, one record per setting.)
 export const READ_ONLY = new Set(['r_recipes', 'r_folders', 'r_tagdefs', 'events', 'gcal']);
+// Data contract with Ricette (its prefs record {id: 'contract', value}). Everyday follows version 1;
+// when Ricette's data says a higher one, Everyday keeps reading the shared files but stops writing them
+// (and asks to update the app), so an older Everyday never damages data it doesn't understand.
+export const CONTRACT = 1;
+export const CONTRACT_FILES = new Set(['r_prefs', 'r_pantry', 'r_shopping', 'r_shops']);
+export function contractVersion(prefs = state.r_prefs) {
+  const m = (prefs || []).find((x) => x && x.id === 'contract' && !x.deleted);
+  return Number(m?.value) || 0;
+}
+export const contractTooNew = (prefs) => contractVersion(prefs) > CONTRACT;
 const ALL = [...COLLECTIONS, ...Object.keys(RICETTE)];
 const TOMBSTONE_TTL = 90 * 24 * 3600 * 1000;
 
@@ -60,6 +70,7 @@ export async function kvSet(key, value) {
   });
 }
 
+const DEFAULT_SETTINGS = { dayStart: 6, dayEnd: 23, snap: 15, buffer: 5, maxLoad: 8 };
 export const state = {
   tasks: [], blocks: [], templates: [], categories: [], events: [], gcal: [], shopping: [], shops: [], config: [], r_recipes: [], r_folders: [], r_tagdefs: [], r_prefs: [], r_pantry: [], r_shopping: [], r_shops: [],
   settings: {
@@ -149,10 +160,46 @@ export async function replaceCollection(collection, items) {
   emit(collection);
 }
 
+// Settings that describe how you plan (not this device) travel with your data: each is one record in
+// `config` ({id: 'set:<key>', value}), so the newest change on any device wins, per setting. The token,
+// the repositories, the language, view toggles and what is folded stay on the device.
+export const SHARED_SETTINGS = ['dayStart', 'dayEnd', 'buffer', 'taskBuffer', 'maxLoad', 'defaultView', 'freeWeekends', 'autoHours',
+  'travel', 'snap', 'longUnits', 'advancedFeatures', 'glance', 'taskGroups'];
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 export async function saveSettings(patch) {
   Object.assign(state.settings, patch);
+  let shared = false;
+  for (const k of Object.keys(patch)) {
+    if (!SHARED_SETTINGS.includes(k) || same(get('config', `set:${k}`)?.value, patch[k])) continue;
+    upsert('config', { id: `set:${k}`, value: patch[k] }, { silent: true });
+    shared = true;
+  }
   await kvSet('settings', state.settings);
   emit('settings');
+  if (shared) emit('config');
+}
+// Take what other devices saved (after a sync, and at start).
+export async function applySharedSettings() {
+  let changed = false;
+  for (const k of SHARED_SETTINGS) {
+    const r = get('config', `set:${k}`);
+    if (r && !same(state.settings[k], r.value)) { state.settings[k] = r.value; changed = true; }
+  }
+  if (changed) { await kvSet('settings', state.settings); emit('settings'); }
+  return changed;
+}
+// Emptying the device (or starting fresh in another repository): shared settings go back to the
+// defaults, so one person's home address or hours never travel into another person's repository.
+export async function resetSharedSettings() {
+  for (const k of SHARED_SETTINGS) { if (k in DEFAULT_SETTINGS) state.settings[k] = DEFAULT_SETTINGS[k]; else delete state.settings[k]; }
+  await kvSet('settings', state.settings);
+}
+// Once: settings made before they were shared go up, dated as old, so any real change elsewhere wins.
+export function seedSharedSettings() {
+  for (const k of SHARED_SETTINGS) {
+    if (state.settings[k] === undefined || has('config', `set:${k}`)) continue;
+    upsert('config', { id: `set:${k}`, value: state.settings[k] }, { silent: true, at: 1 });
+  }
 }
 
 export async function saveMeta(patch) {

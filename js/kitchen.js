@@ -10,14 +10,21 @@ import { parseIngredient, scaleQty, convert, addQuantities, namesMatch, stepFor 
 import { isBasic } from './recipe-tools.js';
 
 const round = (x) => Math.round(x * 1000) / 1000;
+// Staples tracked by level (data contract v1, track: 'level'): at home when the level is ok or low,
+// whatever qty says; cooking doesn't use them up; putting one away sets it back to ok.
+export const byLevel = (p) => Boolean(p) && p.track === 'level';
+export const levelAtHome = (p) => p.level === 'ok' || p.level === 'low';
 const num = (v) => { if (v === '' || v == null) return null; const n = parseFloat(String(v).replace(',', '.')); return Number.isFinite(n) ? n : null; };
 
 export function ingredientsOf(r) {
   return (r?.ingredients || []).map((i) => (i.name == null ? parseIngredient(i.raw || '') : i));
 }
 
-export function makeKitchen(store, names = { recipes: 'recipes', pantry: 'pantry', shopping: 'shopping' }) {
+// opts.autoItems: whether this app puts "running low" items on the list itself. With Ricette connected
+// that's Ricette's job alone (data contract v1), so Everyday passes () => false there.
+export function makeKitchen(store, names = { recipes: 'recipes', pantry: 'pantry', shopping: 'shopping' }, opts = {}) {
   const { live, get, upsert, remove, uid } = store;
+  const autoItems = opts.autoItems || (() => true);
   const P = names.pantry; const S = names.shopping;
 
   const findPantry = (name, pantry = live(P)) => pantry.find((p) => namesMatch(p.name, name));
@@ -38,6 +45,7 @@ export function makeKitchen(store, names = { recipes: 'recipes', pantry: 'pantry
   }
 
   function lowInfo(p) {
+    if (byLevel(p)) return null;
     const min = num(p.min);
     if (min == null) return null;
     const qty = num(p.qty) || 0;
@@ -50,6 +58,7 @@ export function makeKitchen(store, names = { recipes: 'recipes', pantry: 'pantry
   // Items at or below their "remind me at" threshold go on the list by themselves (Ricette's rule:
   // an item already ticked as bought stays ticked until it's put away in the pantry).
   function ensureLowItems() {
+    if (!autoItems()) return;
     for (const p of live(P)) {
       const id = `low_${p.id}`;
       const cur = get(S, id);
@@ -95,7 +104,9 @@ export function makeKitchen(store, names = { recipes: 'recipes', pantry: 'pantry
       if (isFood(it)) {
         const p = it.pantryId ? get(P, it.pantryId) : findPantry(it.name);
         const qty = num(it.qty);
-        if (p) {
+        if (p && byLevel(p)) {
+          upsert(P, { ...p, level: 'ok' });
+        } else if (p) {
           let next = num(p.qty) || 0; let unit = p.unit || '';
           if (!it.stocked && qty != null) {
             const add = convert(qty, it.unit || '', unit);
@@ -121,7 +132,9 @@ export function makeKitchen(store, names = { recipes: 'recipes', pantry: 'pantry
       const need = scaleQty(ing.qty, base, n);
       let buy = need; let covered = false; let have = null;
       const p = findPantry(ing.name, pantry);
-      if (p) {
+      if (p && byLevel(p)) {
+        have = p; covered = levelAtHome(p); buy = covered ? 0 : need;
+      } else if (p) {
         have = p;
         const pq = num(p.qty) || 0;
         if (need == null) covered = pq > 0;
@@ -140,8 +153,10 @@ export function makeKitchen(store, names = { recipes: 'recipes', pantry: 'pantry
     const pantry = live(P).map((p) => ({ ...p }));
     for (const it of live(S)) {
       // Still to buy, or bought (ticked) and not put away yet: either way it'll be at home.
-      if (it.stocked || it.qty == null) continue;
+      if (it.stocked) continue;
       const p = findPantry(it.name, pantry);
+      if (p && byLevel(p)) { p.level = 'ok'; continue; } // on the list: bought by then
+      if (it.qty == null) continue;
       if (!p) { pantry.push({ id: `list_${it.id}`, name: it.name, qty: it.qty, unit: it.unit || '' }); continue; }
       const add = convert(it.qty, it.unit, p.unit);
       if (add != null) p.qty = round((num(p.qty) || 0) + add);
@@ -153,7 +168,7 @@ export function makeKitchen(store, names = { recipes: 'recipes', pantry: 'pantry
       for (const ing of ingredientsOf(r)) {
         if (ing.qty == null) continue;
         const p = findPantry(ing.name, pantry);
-        if (!p) continue;
+        if (!p || byLevel(p)) continue;
         const sub = convert(scaleQty(ing.qty, base, m.servings || base), ing.unit, p.unit);
         if (sub != null) p.qty = Math.max(0, round((num(p.qty) || 0) - sub));
       }
@@ -173,7 +188,7 @@ export function makeKitchen(store, names = { recipes: 'recipes', pantry: 'pantry
     for (const ing of ingredientsOf(r)) {
       if (ing.qty == null) continue;
       const p = findPantry(ing.name);
-      if (!p) continue;
+      if (!p || byLevel(p)) continue;
       const sub = convert(scaleQty(ing.qty, base, n), ing.unit, p.unit);
       if (sub == null) continue;
       upsert(P, { ...p, qty: Math.max(0, round((num(p.qty) || 0) - sub)) });

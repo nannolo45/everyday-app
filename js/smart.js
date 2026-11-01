@@ -1,5 +1,6 @@
 // The "smart" part of the planner: plain rules and scores, no AI and no outside services.
 // Everything here is pure (no DOM, no storage) so it can be unit-tested.
+import { isTodo } from './kinds.js';
 import { addDays, parseDate, importanceOf } from './plan.js';
 
 // Preferred times of day, in minutes from midnight.
@@ -39,7 +40,7 @@ export function scoreTask(task, date, now = Date.now()) {
 // Tasks worth considering for a day: open, not a preparation helper, not already planned,
 // and (for repeating tasks) actually due by then.
 export function candidates(tasks, plannedTaskIds, date) {
-  return tasks.filter((t) => !t.done && !t.deleted && !t.helper && !t.routine && !plannedTaskIds.has(t.id)
+  return tasks.filter((t) => !t.done && !t.deleted && isTodo(t) && !plannedTaskIds.has(t.id)
     && !(t.repeat && t.due && t.due > date));
 }
 

@@ -1,7 +1,7 @@
 // Two-way sync of local collections with JSON files in a private GitHub repository.
 // Plain collections live in data/<name>.json, monthly ones in data/<name>/<YYYY-MM>.json.
 import {
-  state, COLLECTIONS, SHARDED, RICETTE, READ_ONLY, shardOf, mergeLists, purgeTombstones, serialize, replaceCollection, saveMeta,
+  state, COLLECTIONS, SHARDED, RICETTE, READ_ONLY, CONTRACT_FILES, contractTooNew, shardOf, mergeLists, purgeTombstones, serialize, replaceCollection, saveMeta,
 } from './store.js';
 
 export function pathFor(collection, shard = null) {
@@ -93,7 +93,10 @@ async function syncFile(c, shard, repo = state.settings.repo, path = pathFor(c, 
   const inFile = (x) => shard == null || shardOf(c, x) === shard;
   for (let attempt = 0; attempt < 4; attempt++) {
     const remote = await getFile(path, repo);
-    if (READ_ONLY.has(c)) {
+    stillCurrent();
+    // The prefs decide for themselves (the marker may have just arrived in them), the rest by the prefs as synced.
+    const frozen = CONTRACT_FILES.has(c) && contractTooNew(c === 'r_prefs' ? remote.data : state.r_prefs);
+    if (READ_ONLY.has(c) || frozen) {
       const next = [...state[c].filter((x) => !inFile(x)), ...remote.data].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
       await replaceCollection(c, next);
       return;
@@ -103,10 +106,12 @@ async function syncFile(c, shard, repo = state.settings.repo, path = pathFor(c, 
     const text = serialize(content);
     if (text !== serialize(remote.data)) {
       if (!(content.length === 0 && remote.sha == null)) { // don't create empty files
+        stillCurrent();
         const ok = await putFile(path, text, remote.sha, repo);
         if (!ok) continue;
       }
     }
+    stillCurrent();
     // Merge again with whatever changed locally while we were talking to GitHub.
     // Same order every time (by id), so an unchanged collection is recognised as unchanged.
     await replaceCollection(c, purgeTombstones(mergeLists(content, state[c])).sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)));
@@ -135,14 +140,30 @@ export function shardsToSync(c, now = new Date()) {
 }
 
 let running = null;
+// A sync belongs to the repository it started with. Switching repositories or emptying the device
+// pauses syncing (pauseSync): a sync in flight drops what it fetched instead of merging it into the
+// new state and uploads nothing more, and no new one starts (the minute timer, a change) until
+// resumeSync, once the switch is complete.
+let generation = 0;
+let runGen = 0;
+let paused = 0;
+function stillCurrent() { if (runGen !== generation) throw new SyncError('cancelled'); }
+export async function pauseSync() {
+  paused++;
+  generation++;
+  const r = running;
+  if (r) await r.catch(() => {});
+}
+export function resumeSync() { paused = Math.max(0, paused - 1); }
 let again = false;
 export function requestAgain() { if (running) again = true; }
 
 export function syncNow() {
-  if (!isConfigured()) return Promise.resolve({ skipped: true });
+  if (!isConfigured() || paused) return Promise.resolve({ skipped: true });
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return Promise.resolve({ offline: true });
   // Already syncing: ask for another round. If that run had just finished its loop, start a new one.
   if (running) { again = true; return running.then(() => (again ? syncNow() : { ok: true })); }
+  runGen = generation;
   running = (async () => {
     try {
       do {
@@ -166,6 +187,7 @@ export function syncNow() {
       } while (again);
       return { ok: true };
     } catch (e) {
+      if (e instanceof SyncError && e.code === 'cancelled') return { cancelled: true };
       const code = e instanceof SyncError ? e.code : (e instanceof TypeError ? 'network' : 'unknown');
       await saveMeta({ lastError: code });
       return { error: code };
