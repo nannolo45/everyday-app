@@ -2,7 +2,7 @@
 import { catColor, esc, fmtDay, hint, PPM, range, reasonText, relDay, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { isEvent } from '../kinds.js';
-import { alreadyPlanned, autoApply, autoChecks, blocksOn, blockTimeText, checklistLeft, checklistOf, checkMissed, conflictsOn, conflictText, eventsOn, ISSUE_SEC, issueText, linkFor, nextPlanned, outcomeOf, partsLeft, plannedWhen, prereqsOf, splitsSteps, stepTimes, taskIssues, timedEventsOn, timesLeft } from '../model.js';
+import { alreadyPlanned, autoApply, autoChecks, blocksOn, blockTimeText, checklistLeft, checklistOf, checkMissed, conflictsOn, conflictText, eventsOn, ISSUE_SEC, issueText, linkFor, nextPlanned, outcomeOf, partsLeft, plannedWhen, prereqsOf, splitsSteps, stepTimes, taskDayOf, taskIssues, timedEventsOn, timesLeft } from '../model.js';
 import { addDays, dateStr, dayTotals, fmtDur, fmtTime, importanceOf, layoutBlocks, parseDate, sortTasks, today, weekday } from '../plan.js';
 import { autoHoursFor, hoursShort, inRange, loadOf, selecting, spreadLabel, trayTasks } from '../planning.js';
 import { currentDate } from '../shell.js';
@@ -103,7 +103,8 @@ export function timelineRange(items) {
 
 export function stepCheck(b, y) {
   const st = y.state || (outcomeOf(b) === 'done' ? 'done' : null);
-  return `<input type="checkbox" data-action="step-done" data-block="${esc(b.id)}" data-step="${esc(y.id)}" ${st === 'done' ? 'checked' : ''} aria-label="${esc(y.title)}">`;
+  // A trace (a day the task was partly done) is a record: its ticks stay as they were.
+  return `<input type="checkbox" data-action="step-done" data-block="${esc(b.id)}" data-step="${esc(y.id)}" ${st === 'done' ? 'checked' : ''} ${outcomeOf(b) === 'partial' ? 'disabled' : ''} aria-label="${esc(y.title)}">`;
 }
 export function conflictBanner(date) {
   const td = today();
@@ -236,21 +237,25 @@ export function blockHtml(b, startMin, conflict, compact = false) {
   if (b.kind === 'groceries') { const n = live('r_shopping').filter((x) => !x.checked).length; extra = `<span class="mini-badge">${n}</span>`; }
   if (status === 'failed') extra = `<span class="mini-badge bad">✕</span>`;
   const st = stepTimes(b);
+  // A task over several days: which day this is, and on a trace how much got done that day.
+  // (on the time line: the title column is often too narrow to show them)
+  const day = taskDayOf(b);
+  const along = `${day ? `<span class="mini-badge day" title="${esc(t('taskDayTitle'))}">${esc(t('taskDayN', day))}</span>` : ''}${status === 'partial' ? `<span class="mini-badge part">◐ ${st.filter((y) => y.state === 'done').length}/${st.length}</span>` : ''}`;
   // Steps fit beside the title when the block is a single column and tall enough; otherwise a count.
   const stepsIn = st.length && showSteps() && b.cols === 1 && !compact && b.minutes >= 30;
-  if (st.length && !stepsIn && status !== 'failed') extra += `<span class="mini-badge">▤ ${status === 'done' ? st.length : st.filter((y) => y.state === 'done').length}/${st.length}</span>`;
+  if (st.length && !stepsIn && status !== 'failed' && status !== 'partial') extra += `<span class="mini-badge">▤ ${status === 'done' ? st.length : st.filter((y) => y.state === 'done').length}/${st.length}</span>`;
   const stepsHtml = stepsIn ? `<div class="blk-steps">${st.map((y, i) => {
     const hpx = (y.end - y.start) * PPM;
-    return `<div class="blk-step${i ? '' : ' first'}${hpx < 16 ? ' tight' : ''}${y.state ? ` ${y.state}` : status === 'done' ? ' done' : ''}" style="top:${(y.start - b.start) * PPM}px;height:${hpx}px">
+    return `<div class="blk-step${i ? '' : ' first'}${hpx < 16 ? ' tight' : ''}${y.state ? ` ${y.state}` : status === 'done' ? ' done' : status === 'partial' ? ' later' : ''}" style="top:${(y.start - b.start) * PPM}px;height:${hpx}px">
       ${hpx >= 11 ? `${stepCheck(b, y)}<span class="st-title${y.travel && !y.known ? ' unknown' : ''}">${y.travel ? `${MODE_ICON[y.mode] || '🚌'} ` : ''}${y.travel && !y.known ? '? ' : ''}${esc(y.title)}</span><span class="st-time">${fmtTime(y.start)}</span>` : ''}</div>`;
   }).join('')}</div>` : '';
   const isEv = Boolean(b.taskId && isEvent(get('tasks', b.taskId)));
   return `<div class="block${stepsIn ? ' with-steps' : ''}${status ? ` ${status}` : ''}${status === 'failed' ? ' done' : ''}${short ? ' short' : ''}${conflict ? ' conflict' : ''}${b.kind ? ` k-${b.kind}` : ''}${isEv ? ' own-event' : ''}" data-id="${esc(b.id)}" data-start="${b.start}" data-minutes="${b.minutes}"
     style="--c:${esc(color)};top:${(b.start - startMin) * PPM}px;height:${Math.max(b.minutes * PPM, 16)}px;left:${left};width:${width}">
-    <input type="checkbox" class="blk-check" data-action="block-done" data-id="${esc(b.id)}" ${status === 'done' ? 'checked' : ''} aria-label="${esc(t('markDone'))}">
+    ${status === 'partial' ? `<span class="blk-check part" aria-label="${esc(t('partlyDone'))}" title="${esc(t('partlyDone'))}">◐</span>` : `<input type="checkbox" class="blk-check" data-action="block-done" data-id="${esc(b.id)}" ${status === 'done' ? 'checked' : ''} aria-label="${esc(t('markDone'))}">`}
     <div class="blk-body">
       <div class="blk-title">${conflict ? '<span class="warn-ico">⚠</span> ' : ''}${KIND_ICON[b.kind] || ''}${isEv ? '📅 ' : ''}${esc(b.title)}${b.seriesId ? ' <span class="series-ico" title="' + esc(t('recurring')) + '">↻</span>' : ''} ${extra}</div>
-      <div class="blk-time">${esc(blockTimeText(b))}</div>
+      <div class="blk-time">${esc(blockTimeText(b))}${along ? ` ${along}` : ''}</div>
     </div>
     ${stepsHtml}
     <div class="resize" aria-hidden="true"></div>

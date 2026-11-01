@@ -2,7 +2,7 @@
 import { fmtDay, GROCERY_MINUTES, planSettings, relDay, toast, ui } from './core.js';
 import { t } from './i18n.js';
 import { isTodo } from './kinds.js';
-import { busyOn, conflictsOn, conflictText, eventTasksOf, followParent, itemById, leadOf, newBlock, openTasks, outcomeOf, partsLeft, periodKey, plannedTaskIds, planTask, prereqsOf, splitsSteps, stepLen, timesLeft } from './model.js';
+import { busyOn, conflictsOn, conflictText, eventTasksOf, followParent, itemById, leadOf, leaveTrace, minutesLeft, newBlock, openTasks, outcomeOf, partsLeft, periodKey, plannedTaskIds, planTask, prereqsOf, splitsSteps, stepLen, timesLeft } from './model.js';
 import { addDays, fmtTime, freeSlot, importanceOf, nowMinutes, parseDate, today } from './plan.js';
 import { assignItems, planTrips, shopsFor } from './shops.js';
 import { nearestSlot, placeGroceries, placePrep, scoreTask, spreadTasks, WINDOWS } from './smart.js';
@@ -24,7 +24,7 @@ export function planEventTasks(ev) {
   let made = 0;
   for (const p of planPlacements(open.map((x) => x.id), days)) {
     const task = get('tasks', p.taskId); if (!task) continue;
-    planTask(task, p.date, p.start, { minutes: p.minutes }); made++;
+    placeBlock(task, p); made++;
   }
   toast(made ? t('plannedN', made) : t('noRoom'));
   changed();
@@ -95,21 +95,27 @@ export function morningReflow() {
   if (reflowing || state.settings.lastReflow === td) return;
   reflowing = true;
   try {
-    const left = live('blocks').filter((b) => b.date < td && b.taskId && !outcomeOf(b) && !b.seriesId && b.kind !== 'prep' && !b.stepId
+    // (steps planned on their own come back too: a step block left undone moves like a task)
+    const left = live('blocks').filter((b) => b.date < td && b.taskId && !outcomeOf(b) && !b.seriesId && b.kind !== 'prep'
       && get('tasks', b.taskId) && !get('tasks', b.taskId).done && isTodo(get('tasks', b.taskId)));
     saveSettings({ lastReflow: td });
     if (!left.length) return;
     const removed = left.map((b) => ({ ...b }));
-    for (const b of left) remove('blocks', b.id);
+    const tasksBefore = new Map();
+    for (const b of left) {
+      // Some of its steps done that day: the block stays as a trace and only the rest is planned again.
+      const before = get('tasks', b.taskId);
+      if (!b.stepId && leaveTrace(b)) { if (!tasksBefore.has(before.id)) tasksBefore.set(before.id, before); continue; }
+      remove('blocks', b.id);
+    }
     const ids = [...new Set(left.map((b) => b.taskId))];
     const days = Array.from({ length: 7 }, (_, i) => addDays(td, i));
     const added = [];
     for (const p of planPlacements(ids, days)) {
       const task = get('tasks', p.taskId); if (!task) continue;
-      const b = planTask(task, p.date, p.start, { minutes: p.minutes });
-      added.push(b.id);
+      added.push(placeBlock(task, p).id);
     }
-    ui.reflow = { moved: ids.length, removed, added };
+    ui.reflow = { moved: ids.length, removed, added, tasks: [...tasksBefore.values()] };
     setTimeout(changed, 0);
   } finally { reflowing = false; }
 }
@@ -117,6 +123,7 @@ export function undoReflow() {
   const r = ui.reflow; if (!r) return;
   for (const id of r.added) remove('blocks', id);
   for (const b of r.removed) upsert('blocks', b, { silent: true });
+  for (const x of r.tasks || []) upsert('tasks', x, { silent: true }); // the steps done count as before
   ui.reflow = null;
   toast(t('undone'));
   changed();
@@ -207,7 +214,7 @@ export function planningItems(tasks, dates) {
   const inRun = new Set(tasks.map((x) => x.id));
   const lastItem = new Map();
   for (const x of tasks) {
-    const base = { taskId: x.id, boost: boostOf.get(x.id) || 0, title: x.title, minutes: x.minutes || 30, due: x.repeat === 'times' ? null : x.due || null, importance: importanceOf(x), priority: x.priority, when: x.when, createdAt: x.createdAt, windows: x.windows?.length ? x.windows : null, prep: x.prep };
+    const base = { taskId: x.id, boost: boostOf.get(x.id) || 0, title: x.title, minutes: minutesLeft(x), due: x.repeat === 'times' ? null : x.due || null, importance: importanceOf(x), priority: x.priority, when: x.when, createdAt: x.createdAt, windows: x.windows?.length ? x.windows : null, prep: x.prep };
     let notBefore = null; const afterTasks = [];
     let waiting = null;
     for (const { task: p, block } of prereqsOf(x)) {
@@ -343,18 +350,21 @@ export function assignDrop(id, tgt) {
   placeGhosts(ids, [tgt.date], tgt.minute);
 }
 export function addGhosts() { const n = addGhostList(ui.assign.ghosts); ui.assign.ghosts = []; toast(t('assignAdded', n)); changed(); }
+// A placement ({date, start, minutes, stepId?}) as a block: the whole task, or one of its steps on its own
+// (linked to the task and the step).
+export function placeBlock(task, p) {
+  const step = p.stepId && (task.steps || []).find((y) => y.id === p.stepId);
+  if (!step) return planTask(task, p.date, p.start, { minutes: p.minutes });
+  const first = (task.steps || []).filter((y) => y.title)[0]?.id === step.id;
+  return planTask(task, p.date, p.start, { minutes: p.minutes, stepId: step.id, title: `${task.title} · ${step.title}`, partial: !first });
+}
 // Previews become real blocks.
 export function addGhostList(list) {
   let n = 0;
   for (const g of list) {
     const task = get('tasks', g.taskId);
     if (!task) continue;
-    const step = g.stepId && (task.steps || []).find((y) => y.id === g.stepId);
-    if (step) {
-      // One step of a task planned on its own: its own block, linked to the task and the step.
-      const first = (task.steps || []).filter((y) => y.title)[0]?.id === step.id;
-      planTask(task, g.date, g.start, { minutes: g.minutes, stepId: step.id, title: `${task.title} · ${step.title}`, partial: !first });
-    } else planTask(task, g.date, g.start, { minutes: g.minutes });
+    placeBlock(task, g);
     n++;
   }
   return n;

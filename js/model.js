@@ -216,7 +216,7 @@ export function newBlock(fields) {
 export function planTask(task, date, start = null, extra = {}) {
   const s = planSettings();
   const { series, ...fields } = extra;
-  const minutes = fields.minutes || task.minutes || 30;
+  const minutes = fields.minutes || (fields.stepId ? task.minutes : minutesLeft(task)) || 30;
   let at = start;
   if (at == null) {
     const from = (date === today() ? nowMinutes() : s.dayStart) + leadOf(task);
@@ -230,7 +230,9 @@ export function planTask(task, date, start = null, extra = {}) {
     ensureSeries(tk);
     return b;
   }
-  return newBlock({ date, start: at, minutes, title: task.title, category: task.category || null, taskId: task.id, ...fields });
+  // Part of it was done on earlier days: this block holds only the steps left.
+  const before = !fields.stepId && (task.stepsDone || []).length ? { doneBefore: [...task.stepsDone] } : {};
+  return newBlock({ date, start: at, minutes, title: task.title, category: task.category || null, taskId: task.id, ...before, ...fields });
 }
 
 // ---------- recurring tasks as a series of blocks ----------
@@ -372,7 +374,42 @@ export function setOutcome(block, outcome, { steps = true } = {}) {
 export function stepsOf(b) {
   if (b?.stepId) return []; // a single step planned on its own
   const task = b?.taskId && get('tasks', b.taskId);
-  return (task?.steps || []).filter((x) => x.title);
+  // A block that continues a task started on earlier days holds only the steps left at the time.
+  const before = new Set(b?.doneBefore || []);
+  return (task?.steps || []).filter((x) => x.title && !before.has(x.id));
+}
+// ---------- a task over several days ----------
+// A task whose day ends with only some steps ticked: that day's block stays as a trace (outcome
+// 'partial', its ticks kept), the ticked steps join task.stepsDone, and the rest is planned again as a
+// block of its own (doneBefore = the steps already done then). So the plan shows every day the task
+// was on your plate, and what got done on each.
+export const stepsDoneOf = (task) => new Set(task?.stepsDone || []);
+export function stepsLeftOf(task) { const done = stepsDoneOf(task); return (task?.steps || []).filter((y) => y.title && !done.has(y.id)); }
+// What's left of a task, in minutes (its whole length when nothing is done yet).
+export function minutesLeft(task) {
+  if (!(task?.stepsDone || []).length) return task?.minutes || 30;
+  return stepsLeftOf(task).reduce((n, y) => n + stepLen({}, y), 0) || task.minutes || 30;
+}
+// The days a task has been on the plan so far: {first, last, days} (null when never planned).
+export function taskSpan(task) {
+  const dates = [...new Set(live('blocks').filter((b) => b.taskId === task.id && b.kind !== 'prep' && !b.seriesId).map((b) => b.date))].sort();
+  return dates.length ? { first: dates[0], last: dates[dates.length - 1], days: dates.length } : null;
+}
+// Which day of the task a block is (1 for the first), counting only days it was planned on.
+export function taskDayOf(b) {
+  // Only a one-off to-do has "days": saved tasks, meals, events and repeating tasks come back by design.
+  const task = b?.taskId && !b.seriesId && get('tasks', b.taskId);
+  if (!task || !isTodo(task) || task.repeat) return 0;
+  const dates = [...new Set(live('blocks').filter((x) => x.taskId === b.taskId && x.kind !== 'prep').map((x) => x.date))].sort();
+  return dates.length > 1 ? dates.indexOf(b.date) + 1 : 0;
+}
+// Leave a past block as a trace of the steps done that day; returns the task as updated (or null).
+export function leaveTrace(b) {
+  const task = get('tasks', b.taskId);
+  const ticked = stepsOf(b).filter((y) => b.stepState?.[y.id] === 'done').map((y) => y.id);
+  if (!task || !ticked.length) return null;
+  upsert('blocks', { ...b, outcome: 'partial' }, { silent: true });
+  return upsert('tasks', { ...task, stepsDone: [...new Set([...(task.stepsDone || []), ...ticked])] }, { silent: true });
 }
 // A step's length on a block: your own length for this one (✎ in the meal dialog), else, for a
 // step that takes its length from the recipes, the meal's prep time; else its usual length.
@@ -837,7 +874,7 @@ export function splitsSteps(x) {
 }
 // Steps that don't have a block (or a preview) yet.
 export function partsLeft(x) {
-  const steps = (x.steps || []).filter((y) => y.title);
+  const steps = stepsLeftOf(x);
   const has = new Set([...live('blocks').filter((b) => b.taskId === x.id && b.stepId).map((b) => b.stepId),
     ...(ui.assign?.ghosts || []).filter((g) => g.taskId === x.id && g.stepId).map((g) => g.stepId)]);
   return steps.filter((y) => !has.has(y.id));

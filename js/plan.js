@@ -194,13 +194,14 @@ export function nextDue(repeat, due, todayStr, task = null) {
 export function completeTask(task, todayStr, now = Date.now()) {
   if (task.repeat && REPEATS.includes(task.repeat)) {
     const due = nextDue(task.repeat, task.due, todayStr, task);
-    return due ? { ...task, done: false, lastDone: todayStr, due } : { ...task, done: true, doneAt: now, lastDone: todayStr }; // the series is over
+    const { stepsDone, ...fresh } = task; void stepsDone; // the next time starts from the first step
+    return due ? { ...fresh, done: false, lastDone: todayStr, due } : { ...task, done: true, doneAt: now, lastDone: todayStr }; // the series is over
   }
   return { ...task, done: true, doneAt: now };
 }
 
 export function reopenTask(task) {
-  const { doneAt, ...rest } = task;
+  const { doneAt, stepsDone, ...rest } = task; void stepsDone; // reopened: every step counts again
   return { ...rest, done: false };
 }
 

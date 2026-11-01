@@ -2,14 +2,14 @@
 import { advancedOn, catChips, catColor, catName, esc, findCategory, fmtDay, hint, kitchen, modal, PALETTE, planSettings, quickFields, range, reasonText, relDay, route, small, toast, ui, weekdayNames } from './core.js';
 import { getLang, t } from './i18n.js';
 import { isEvent, isMealType, isSaved, isStep, withKind } from './kinds.js';
-import { alreadyPlanned, anchorIndex, anchorOffset, anchorTitle, applyTemplate, blocksOn, busyOn, checklistLeft, checklistOf, checkMealNow, deleteBlock, endSeries, ensureSeries, eventBlockOf, eventDate, eventOf, eventTasksOf, followParent, isCheckStep, isSeries, leadOf, mealRecipes, mealTitle, mealTypes, newBlock, nextBlockOf, nextPlanned, offsetDue, offsetText, openTasks, outcomeOf, plannedTaskIds, plannedWhen, planTask, PREP_PLACES, qtyText, readinessText, recipeOf, recipes, RULE_PLACES, RULE_WHEN, rulesOf, savedGroups, savedInfo, savedStart, savedTasks, seriesBlocks, setBlockDone, setOutcome, setStepOutcome, setTaskDone, shoppingItems, splitSeries, stepLen, stepsOf, stepTimes, syncEventTasks, taskIssues, templates, travelTasks, trySetBlockDone, tryStep } from './model.js';
+import { alreadyPlanned, anchorIndex, anchorOffset, anchorTitle, applyTemplate, blocksOn, busyOn, checklistLeft, checklistOf, checkMealNow, deleteBlock, endSeries, ensureSeries, eventBlockOf, eventDate, eventOf, eventTasksOf, followParent, isCheckStep, isSeries, leadOf, mealRecipes, mealTitle, mealTypes, newBlock, nextBlockOf, nextPlanned, offsetDue, offsetText, openTasks, outcomeOf, plannedTaskIds, plannedWhen, planTask, PREP_PLACES, qtyText, readinessText, recipeOf, recipes, RULE_PLACES, RULE_WHEN, rulesOf, savedGroups, savedInfo, savedStart, savedTasks, seriesBlocks, setBlockDone, setOutcome, setStepOutcome, setTaskDone, shoppingItems, splitSeries, stepLen, stepsDoneOf, stepsOf, stepTimes, syncEventTasks, taskIssues, taskSpan, templates, travelTasks, trySetBlockDone, tryStep } from './model.js';
 import { addDays, fmtDur, fmtTime, formatTemplateLines, freeSlot, groupTasks, IMPORTANCE, importanceOf, isDate, nowMinutes, parseDate, parseTemplateLines, parseTime, quickAdd, REPEATS, sortTasks, today } from './plan.js';
 import { AUTO_SPANS, partOfDay, placeGhosts, planEventTasks, trayTasks, tripItems, warnConflicts } from './planning.js';
 import { pantryCoverage } from './recipe-tools.js';
 import { ingredientsOf } from './kitchen.js';
 import { filterRecipes, folderOfRecipe, folderTree, minutesOf, originLabel, tagCounts, tagLabel, tagsOf, timeParts } from './recipes.js';
 import { changed, currentDate, render } from './shell.js';
-import { fold } from './shoplist.js';
+import { fold, matchesQ } from './shoplist.js';
 import { candidates, spareTime } from './smart.js';
 import { get, has, kvGet, kvSet, live, remove, saveSettings, state, uid, upsert } from './store.js';
 import { fetchRicettePhoto, ricetteConfigured } from './sync.js';
@@ -775,12 +775,17 @@ export function openTask(task, draft = null, opts = {}) {
   };
   const rulesFor = (sid) => x.allRules.map((r, i) => [r, i]).filter(([r]) => (r.stepId || null) === sid);
 
+  // Steps already done on earlier days (the task is spread over several days).
+  const doneSteps = stepsDoneOf(x);
+  const span = x.id && !isNew ? taskSpan(x) : null;
+  const doneN = x.steps.filter((y) => y.title && doneSteps.has(y.id)).length;
+  const progressLine = doneN || (span && span.days > 1) ? `<p class="hint progress-line">${esc([doneN ? t('stepsProgress', doneN, x.steps.filter((y) => y.title).length) : '', span && span.days > 1 ? t('onPlateSince', fmtDay(span.first, { weekday: 'short', day: 'numeric', month: 'short' }), span.days) : ''].filter(Boolean).join(' · '))}</p>` : '';
   const stepCards = x.steps.map((y, i) => {
     const mine = rulesFor(y.id);
     const isAnchor = i === ai && x.steps.length > 1;
     return `<li class="step-card${isAnchor ? ' anchor' : ''}">
       <div class="step-row">
-        <span class="step-n">${i + 1}</span>
+        <span class="step-n${doneSteps.has(y.id) ? ' done' : ''}" ${doneSteps.has(y.id) ? `title="${esc(t('stepDoneBefore'))}"` : ''}>${doneSteps.has(y.id) ? '✓' : i + 1}</span>
         <input name="st_t_${i}" value="${esc(y.title)}" placeholder="${esc(t('stepPh'))}" autocomplete="off" aria-label="${esc(t('title'))}">
         ${durField(`st_m_${i}`, lenOf(y))}
         <button class="icon anchor-btn${isAnchor ? ' on' : ''}" value="anchor:${i}" formnovalidate title="${esc(t('anchorBtn'))}" aria-pressed="${isAnchor}">⚓</button>
@@ -872,7 +877,7 @@ export function openTask(task, draft = null, opts = {}) {
   const needsBody = helper || evMode ? '' : `
     <div class="field-label">🔒 ${esc(t('needsFirst'))}</div>
     ${(x.after || []).length ? `<div class="needs">${(x.after || []).map((id, k) => { const y = get('tasks', id); return `<span class="need-chip${y?.done ? ' done' : ''}">${y?.done ? '✓ ' : ''}${esc(y?.title || '?')}<button class="icon" value="rm-after:${k}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></span>`; }).join('')}</div>` : ''}
-    <select name="addAfter" data-rerender="1"><option value="">+ ${esc(t('addNeed'))}</option>${needCandidates.map((y) => `<option value="${esc(y.id)}">${isStep(y) ? '↳ ' : ''}${esc(y.title)}</option>`).join('')}</select>
+    <div class="need-pick"><input type="search" id="need-q" placeholder="+ ${esc(t('needSearchPh'))}" autocomplete="off" enterkeyhint="done" aria-label="${esc(t('addNeed'))}"><div class="need-list" id="need-list" role="listbox"></div></div>
     ${hint('needsHint')}
     <div class="field-label">🕒 ${esc(t('windowsTitle'))}</div>
     ${windowsEditor('w_', x.windows || [])}
@@ -893,6 +898,7 @@ export function openTask(task, draft = null, opts = {}) {
     </div>` : '';
   const stepsBody = `
     ${hint(isMealType(x) ? 'stepsHintMeal' : 'stepsHint')}
+    ${progressLine}
     ${stepCards ? `<ol class="steps-edit">${stepCards}</ol>` : ''}
     ${x.steps.length > 1 && ai > 0 && anchor ? `<p class="hint anchor-hint">⚓ ${esc(t('anchorHintGen', anchor.title || '…', x.steps.slice(0, ai).map((y) => y.title).filter(Boolean).join(', ')))}</p>` : ''}
     <button class="btn small" value="add-step" formnovalidate>+ ${esc(t('addStep'))}</button>
@@ -924,7 +930,7 @@ export function openTask(task, draft = null, opts = {}) {
     ${sec('basics', esc(t(evMode ? 'secBasicsEvent' : 'secBasics')), [fmtDur(x.steps.length ? stepTotal : x.minutes || 30), helper || evMode ? '' : t(`imp_${x.importance}`), catName0].filter(Boolean).join(' · '), basics, !evMode)}
     ${whenBody && !evMode ? sec('when', `🕒 ${esc(t('secWhen'))}`, [whenSummary, (x.after || []).length ? `🔒 ${(x.after || []).length}` : '', cleanWindows(x.windows).length ? windowsText(cleanWindows(x.windows)) : ''].filter(Boolean).join(' · '), whenBody + needsBody, true) : ''}
     ${helper ? '' : sec('place', `📍 ${esc(t('secPlace'))}`, x.place || (x.link ? t('link') : ''), placeBody, Boolean(x.place || x.link))}
-    ${sec('steps', `▤ ${esc(t('steps'))}`, x.steps.length ? `${x.steps.length} · ${fmtDur(stepTotal)}` : '', stepsBody, true)}
+    ${sec('steps', `▤ ${esc(t('steps'))}`, x.steps.length ? `${doneN ? `◐ ${doneN}/` : ''}${x.steps.length} · ${fmtDur(stepTotal)}` : '', stepsBody, true)}
     ${x.check ? '' : sec('checklist', `☑ ${esc(t('checklist'))}`, x.checklist.length ? String(x.checklist.length) : '', `<label><textarea name="checklist" rows="3" placeholder="${esc(t('checklistPh'))}" aria-label="${esc(t('checklist'))}">${esc((x.checklist || []).join('\n'))}</textarea>
       ${small('checklistHint')}</label>`, x.checklist.length > 0)}
     ${advancedOn() || taskRules.length || isMealType(x) ? sec('rules', `⚙ ${esc(t(x.steps.length ? 'rulesWhole' : 'rules'))}`, taskRules.length ? String(taskRules.length) : '', rulesBody, true) : ''}
@@ -952,6 +958,17 @@ export function openTask(task, draft = null, opts = {}) {
       const i = Number(action.slice(8));
       [x.steps[i - 1], x.steps[i]] = [x.steps[i], x.steps[i - 1]];
       again(); return;
+    }
+    // "Needs first": a task picked from the search, or a new one made from what you typed
+    if (action.startsWith('add-after:')) { x.after = [...new Set([...(x.after || []), action.slice(10)])]; again('#need-q'); return; }
+    if (action === 'new-after') {
+      const q = quickAdd(form.querySelector('#need-q')?.value || '');
+      if (q.title) {
+        const y = applyTravel(upsert('tasks', { id: uid(), createdAt: Date.now(), ...quickFields(q) }, { silent: true }));
+        x.after = [...(x.after || []), y.id];
+        toast(t('needCreated', y.title));
+      }
+      again('#need-q'); return;
     }
     if (action.startsWith('rm-after:')) { x.after = (x.after || []).filter((_, k) => k !== Number(action.slice(9))); again(); return; }
     if (action === 'open-event' && linkedEvent) { if (isEvent(linkedEvent)) setTimeout(() => openTask(linkedEvent), 0); else setTimeout(() => openEvent(linkedEvent), 0); }
@@ -1058,7 +1075,6 @@ export function openTask(task, draft = null, opts = {}) {
     if (form.place) { x.place = form.place.value.trim(); x.link = form.link.value.trim(); }
     if (form.tvThere) x.travel = { there: form.tvThere.checked, back: form.tvBack.checked, mode: form.tvMode.value || 'default' };
     if (form.buffer) x.buffer = form.buffer.value === '' ? null : Number(form.buffer.value) || 0;
-    if (form.addAfter?.value) x.after = [...new Set([...(x.after || []), form.addAfter.value])];
     if (form.querySelector('[value="w_add"]')) x.windows = readWindows(form, 'w_', (x.windows || []).length);
     if (form.splitSteps) x.splitSteps = form.splitSteps.checked;
     if (form.routine) x.kind = form.routine.checked ? (isMealType(x) ? 'meal' : 'saved') : 'todo';
@@ -1109,6 +1125,22 @@ export function openTask(task, draft = null, opts = {}) {
     if (ev.target.dataset.rule != null) ev.target.closest('.rule').classList.toggle('is-groceries', ev.target.value === 'groceries');
     if (ev.target.dataset.rulekind != null) ev.target.closest('.rule').querySelector('.rule-title').classList.toggle('hide', Boolean(ev.target.value));
   });
+  // "Needs first": type to find a task (or make a new one) instead of scrolling a list of all of them.
+  const needQ = form.querySelector('#need-q');
+  if (needQ) {
+    const box = form.querySelector('#need-list');
+    const draw = () => {
+      const q = needQ.value.trim();
+      if (!q) { box.innerHTML = ''; return; }
+      const hits = needCandidates.filter((y) => matchesQ(fold(y.title), q)).slice(0, 8);
+      const exact = hits.some((y) => fold(y.title).trim() === fold(q));
+      box.innerHTML = hits.map((y) => `<button class="need-opt" role="option" value="add-after:${esc(y.id)}" formnovalidate>${isStep(y) ? '↳ ' : ''}${esc(y.title)}</button>`).join('')
+        + (exact ? '' : `<button class="need-opt new" role="option" value="new-after" formnovalidate>+ ${esc(t('newNeed', q))}</button>`);
+    };
+    needQ.addEventListener('input', draw);
+    // Enter takes the first suggestion (and never saves the whole task by accident).
+    needQ.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); box.querySelector('button')?.click(); } });
+  }
   // Folding a section is remembered for next time.
   for (const d of form.querySelectorAll('details.ed-sec')) {
     d.addEventListener('toggle', () => { saveSettings({ edSec: { ...(state.settings.edSec || {}), [d.dataset.sec]: d.open } }); });
