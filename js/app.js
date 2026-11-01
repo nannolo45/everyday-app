@@ -11,9 +11,10 @@
 //   views/*.js        one per tab: today, events, tasks (and shop), planner, settings
 // Pure logic with unit tests lives in plan.js, smart.js, kinds.js, travel.js, shops.js and friends;
 // storage and sync in store.js and sync.js.
+import { moveWeek, openRoutine } from './routines.js';
 import { $, findCategory, fmtDay, modal, PPM, quickFields, range, relDay, route, seedCategories, TAB_OF, TABS, toast, ui, view } from './core.js';
 import { setupDrag } from './drag.js';
-import { doShift, finishTimer, openAddMenu, openPickSheet, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, openMeal, openPlanSaved, openSavedPicker, openShopRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
+import { doShift, finishTimer, openAddMenu, openPickSheet, openQuickTask, plusKind, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, openMeal, openPlanSaved, openSavedPicker, openShopRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
 import { t } from './i18n.js';
 import { isEvent } from './kinds.js';
 import { anchorOffset, autoChecks, checklistLeft, checkMissed, conflictsOn, eventOf, followParent, migrateBlocksToEvents, normalizeKinds, planTask, saveEvent, seedMeals, setOutcome, setStepOutcome, setTaskDone, syncEventTasks, travelTasks, trySetBlockDone, tryStep } from './model.js';
@@ -27,8 +28,8 @@ import { setupTrayDrag } from './tray.js';
 import { elapsedText, pauseTimer, resumeTimer, runningBlock } from './timer.js';
 import { fixAll, fixOcc, fixTimes, laterWeek, skipOcc } from './weekpick.js';
 import { showSteps } from './views/planner.js';
-import { leaveShop, onSorted, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName, SHOPS } from './views/shop.js';
-import { taskFilter } from './views/tasks.js';
+import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName, SHOPS } from './views/shop.js';
+import { openTaskTools, taskFilter } from './views/tasks.js';
 import { clearSearch, syncDateText, tidyTime } from './widgets.js';
 import { applyLang, exportData, gcalNow, handleShortcut, saveGithub, saveRicette, showUpdateBar, wipeLocalData } from './connections.js';
 
@@ -250,7 +251,13 @@ view.addEventListener('click', (e) => {
     case 'occ-more': { const x = get('tasks', id); if (x) openPickSheet(x, btn.dataset.date); break; }
     case 'fix-week': { const n = fixAll(ui.weekRows || []); toast(t('fixedN', n)); changed(); break; }
     case 'week-later': laterWeek(id); render(); break;
-    case 'task-tools': saveSettings({ taskTools: !(state.settings.taskTools) }); render(); break;
+    case 'task-tools': openTaskTools(id || 'todo'); break;
+    case 'filter-off': saveSettings({ taskFilter: { ...taskFilter(), [id]: id === 'cat' ? '' : false } }); render(); break;
+    case 'routine-open': openRoutine(id); break;
+    case 'routine-week': moveWeek(id); render(); break;
+    case 'routine-review': ui.routineWeek = id; ui.tasksTab = 'saved'; saveSettings({ tasksTab: 'saved' }); location.hash = '#/tasks'; render(); window.scrollTo(0, 0); break;
+    case 'saved-plan': { const x = get('tasks', id); if (x) openPlanSaved(x, today(), { stay: true }); break; }
+    case 'shop-info': openShopInfo(); break;
     case 'assign-close': if (ui.assign) { ui.assign.ghosts = []; ui.assign.sel.clear(); ui.assign.open = false; } render(); break;
     case 'assign-opts': ui.assign.opts = !ui.assign.opts; render(); break;
     case 'assign-all': for (const x of trayTasks()) ui.assign.sel.add(x.id); render(); break;
@@ -405,7 +412,14 @@ setupDrag(view, {
 });
 
 // The app name in the corner takes you back to the plan.
-$('#fab').addEventListener('click', () => openAddMenu({ fab: true }));
+// The + : a tap adds what fits the tab (v52); holding it (or a right click) opens the menu of every kind.
+{
+  const fab = $('#fab'); let hold = null; let held = false;
+  fab.addEventListener('pointerdown', () => { held = false; hold = setTimeout(() => { held = true; navigator.vibrate?.(12); openAddMenu({ fab: true }); }, 500); });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) fab.addEventListener(ev, () => clearTimeout(hold));
+  fab.addEventListener('contextmenu', (e) => { e.preventDefault(); if (!held) openAddMenu({ fab: true }); held = true; });
+  fab.addEventListener('click', () => { if (held) { held = false; return; } openQuickTask({ kind: plusKind() }); });
+}
 $('#app-title').addEventListener('click', () => {
   if (route().name === 'today') window.scrollTo({ top: 0, behavior: 'smooth' }); else location.hash = '#/today';
 });

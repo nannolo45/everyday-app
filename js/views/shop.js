@@ -9,7 +9,7 @@ import { qtyText } from '../model.js';
 import { parseIngredient } from '../parse.js';
 import { today } from '../plan.js';
 import { tripMode } from '../planning.js';
-import { changed } from '../shell.js';
+import { changed, runSync } from '../shell.js';
 import { addedOf, availableModes, fold, byItemOrder, currentMode, DRAG_MODES, filterCount, filterItems, GROUPED_MODES, groupItems, itemMatches as itemMatchesQ, saveModeTarget } from '../shoplist.js';
 import { cartBarHtml, itemSheetHtml, listHtml, menuHtml, rowsHtml, shopChipsHtml, SL_ACTIONS as A, viewSheetHtml } from '../shoplist-ui.js';
 import { byOrder, reorderSubset } from '../sortable.js';
@@ -111,7 +111,8 @@ function toolRow(mode) {
   ].join('');
   return `<div class="task-tools shop-tools">${searchBox({ id: 'shop-q', value: ui.shopQ || '', ph: t('searchItems') })}
     <button type="button" class="btn small shop-view" data-action="shop-view" aria-label="${esc(t('sl_views'))}">⇅ ${esc(t(`listMode_${mode}`))}${n ? ` · ${n}` : ''}</button>
-    <button type="button" class="btn small icon-btn" data-action="shop-menu" aria-label="${esc(t('sl_menu'))}">⋯</button></div>
+    <button type="button" class="btn small icon-btn" data-action="shop-menu" aria-label="${esc(t('sl_menu'))}">⋯</button>
+    <button type="button" class="btn small icon-btn" data-action="shop-info" aria-label="${esc(t('shopInfo'))}" title="${esc(t('shopInfo'))}">ⓘ</button></div>
     ${chips ? `<div class="sl-chips shop-filter-chips">${chips}</div>` : ''}`;
 }
 
@@ -128,18 +129,11 @@ export function viewShop() {
   const labels = slLabels();
   const food = allDone.filter(isFood).length;
   const any = live(SH()).length > 0;
+  // (v52) the explanation and the sync line are behind ⓘ; adding goes through the + button
   return `
-  <p class="hint">${esc(ricetteConfigured() ? t('shopFromRicette') : t('shopOwn'))}</p>
-  ${ricetteConfigured()
-    ? `<p class="sync-line"><span class="ok-dot"></span>${esc(state.meta.ricetteSynced ? t('ricetteSyncedAt', new Date(state.meta.ricetteSynced).toLocaleTimeString(getLang(), { hour: '2-digit', minute: '2-digit', hour12: false })) : t('ricetteNotYet'))} <button class="linkish" type="button" data-action="sync-now">↻ ${esc(t('syncNow'))}</button></p>`
-    : `<p class="sync-line"><a href="#/settings/adv">${esc(t('connectRicette'))}</a></p>`}
   ${listFrozen() ? `<p class="sl-frozen" role="alert">⚠ ${esc(t('sl_contract'))}</p>` : ''}
   ${ui.shopUndo ? `<div class="reflow"><span>${esc(ui.shopUndo.msg)}</span><button class="linkish" type="button" data-action="shop-undo">${esc(t('undo'))}</button><button class="icon" type="button" data-action="shop-undo-ok" aria-label="${esc(t('close'))}">✕</button></div>` : ''}
-  <form id="shop-add" class="row">
-    <input name="item" id="shop-add-input" required placeholder="${esc(t('shopAddPh'))}" autocomplete="off">
-    <button class="btn primary" aria-label="${esc(t('add'))}">+</button>
-  </form>
-  ${any ? toolRow(mode) : ''}
+  ${toolRow(mode)}
   ${reorder ? `<div class="reflow sl-bar"><span>${esc(t('sl_reorderBar'))}</span><button class="btn small primary" type="button" data-action="shop-reorder-done">${esc(t('sl_done'))}</button></div>` : ''}
   ${sel ? `<div class="reflow sl-bar sel"><span>${esc(t('sl_nSelected', sel.size))}</span>
     <button class="btn small" type="button" data-action="shop-sel-shops" ${sel.size ? '' : 'disabled'}>${esc(t('sl_setShops'))}</button>
@@ -152,6 +146,16 @@ export function viewShop() {
   ${cartBarHtml({ labels, count: allDone.length, open: Boolean(ui.cartOpen), main: { label: `📦 ${ricetteConfigured() && food ? t('putAway') : t('doneShopping')}` } })}`;
 }
 
+// ⓘ: where this list comes from, and when it last synced with Ricette.
+export function openShopInfo() {
+  openModal(`
+    <h2>ⓘ ${esc(t('shopInfo'))}</h2>
+    <p>${esc(ricetteConfigured() ? t('shopFromRicette') : t('shopOwn'))}</p>
+    ${ricetteConfigured()
+    ? `<p class="sync-line"><span class="ok-dot"></span>${esc(state.meta.ricetteSynced ? t('ricetteSyncedAt', new Date(state.meta.ricetteSynced).toLocaleTimeString(getLang(), { hour: '2-digit', minute: '2-digit', hour12: false })) : t('ricetteNotYet'))}</p>`
+    : `<p class="sync-line"><a href="#/settings/adv">${esc(t('connectRicette'))}</a></p>`}
+    <div class="button-row">${ricetteConfigured() ? `<button class="btn" value="sync">↻ ${esc(t('syncNow'))}</button>` : ''}<button class="btn primary" value="cancel">${esc(t('close'))}</button></div>`, (form, action) => { if (action === 'sync') runSync(); });
+}
 export function shopAdd(text) {
   const ing = parseIngredient(text);
   if (!ing.name) return;

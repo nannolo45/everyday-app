@@ -167,7 +167,9 @@ export function isOccurrence(task, s) {
     default: return false;
   }
 }
-// The occurrences between two dates (inclusive), honouring `skipped` and `repeatUntil`.
+// (v53) A routine can rest for a while: `pauses` [{from, to}] (`to` empty = until you resume).
+export const inPause = (task, d) => (task.pauses || []).some((p) => p.from && d >= p.from && (!p.to || d <= p.to));
+// The occurrences between two dates (inclusive), honouring `skipped`, `repeatUntil` and `pauses`.
 export function occurrences(task, from, to) {
   const out = [];
   if (!task.repeat || !REPEATS.includes(task.repeat)) return out;
@@ -176,7 +178,7 @@ export function occurrences(task, from, to) {
   const start = from > anchor ? from : anchor;
   const end = task.repeatUntil && task.repeatUntil < to ? task.repeatUntil : to;
   const skip = new Set(task.skipped || []);
-  for (let d = start; d <= end; d = addDays(d, 1)) if (isOccurrence(task, d) && !skip.has(d)) out.push(d);
+  for (let d = start; d <= end; d = addDays(d, 1)) if (isOccurrence(task, d) && !skip.has(d) && !inPause(task, d)) out.push(d);
   return out;
 }
 // The next occurrence strictly after `after` (within two years), or null.

@@ -1,4 +1,5 @@
 // views/settings.js: moved from app.js (v36). See app.js for how the modules fit together.
+import { advancedListsHtml } from './tasks.js';
 import { advancedOn, APP_VERSION, categories, catName, esc, fmtDay, route, ui, weekdayNames } from '../core.js';
 import { getLang, LANGS, t } from '../i18n.js';
 import { kindOf } from '../kinds.js';
@@ -144,6 +145,7 @@ export function settingsHtml(s, msg) {
     ${why('glanceWhy')}
     <label class="check"><input type="checkbox" name="longUnits" ${s.longUnits ? 'checked' : ''}> <span>${esc(t('longUnits'))}<small>${esc(t('longUnitsWhy'))}</small></span></label>
   </form>
+  ${advancedOn() ? advancedListsHtml() : ''}
   <h3>💾 ${esc(t('advData'))}</h3>
   ${why('dataWhy')}
   <div class="button-row">

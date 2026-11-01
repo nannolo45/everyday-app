@@ -2,7 +2,7 @@
 import { advancedOn, catChips, catChipsMulti, catColor, catName, catsOf, readCats, esc, findCategory, fmtDay, hint, kitchen, modal, PALETTE, planSettings, quickFields, range, reasonText, relDay, route, small, toast, ui, weekdayNames } from './core.js';
 import { getLang, t } from './i18n.js';
 import { isEvent, isMealType, isSaved, isStep, withKind } from './kinds.js';
-import { alreadyPlanned, anchorIndex, anchorOffset, anchorTitle, applyTemplate, blocksOn, busyOn, checklistLeft, checklistOf, checkMealNow, deleteBlock, endSeries, ensureSeries, eventBlockOf, eventDate, eventOf, eventTasksOf, followParent, isCheckStep, isSeries, leadOf, mealRecipes, mealTitle, mealTypes, newBlock, nextBlockOf, nextPlanned, offsetDue, offsetText, openTasks, outcomeOf, plannedTaskIds, plannedWhen, planTask, PREP_PLACES, qtyText, readinessText, recipeOf, recipes, RULE_PLACES, RULE_WHEN, rulesOf, savedGroups, savedInfo, savedStart, savedTasks, seriesBlocks, setBlockDone, setOutcome, setStepOutcome, setTaskDone, shoppingItems, splitSeries, stepLen, stepsDoneOf, stepsOf, stepTimes, syncEventTasks, taskIssues, taskSpan, templates, travelTasks, trySetBlockDone, tryStep } from './model.js';
+import { alreadyPlanned, anchorIndex, anchorOffset, anchorTitle, applyTemplate, blocksOn, busyOn, checklistLeft, checklistOf, checkMealNow, deleteBlock, endSeries, ensureSeries, eventBlockOf, eventDate, eventOf, eventTasksOf, followParent, isCheckStep, isSeries, leadOf, mealRecipes, mealTitle, mealTypes, newBlock, nextBlockOf, nextPlanned, offsetDue, offsetText, openTasks, outcomeOf, plannedTaskIds, plannedWhen, planTask, PREP_PLACES, qtyText, readinessText, recipeOf, recipes, RULE_PLACES, RULE_WHEN, rulesOf, savedGroups, savedInfo, savedStart, saveEvent, savedTasks, seriesBlocks, setBlockDone, setOutcome, setStepOutcome, setTaskDone, shoppingItems, splitSeries, stepLen, stepsDoneOf, stepsOf, stepTimes, syncEventTasks, taskIssues, taskSpan, templates, travelTasks, trySetBlockDone, tryStep } from './model.js';
 import { addDays, fmtDur, fmtTime, formatTemplateLines, freeSlot, groupTasks, IMPORTANCE, importanceOf, isDate, nowMinutes, parseDate, parseTemplateLines, parseTime, quickAdd, REPEATS, sortTasks, today } from './plan.js';
 import { AUTO_SPANS, partOfDay, placeGhosts, planEventTasks, planSoon, suggestSlot, trayTasks, tripItems, warnConflicts } from './planning.js';
 import { pantryCoverage } from './recipe-tools.js';
@@ -17,7 +17,7 @@ import { applyTravel, hereNow, isTravelStep, ownMinutes, realSteps, scheduleTrav
 import { MODE_ICON, MODES as TRAVEL_MODES } from './travel.js';
 import { impBadge } from './views/planner.js';
 import { remindDefault, remindLabel, REMINDS } from './views/settings.js';
-import { SHOPS, shopsList, tripRowsHtml } from './views/shop.js';
+import { SHOPS, shopAdd, shopsList, tripRowsHtml } from './views/shop.js';
 import { fixOcc, skipOcc, slotOptions } from './weekpick.js';
 import { pullCandidate, pullUp, runningBlock, shiftAfter, startBlock, startTask, stopTimer, timeHistory, undoShift } from './timer.js';
 import { cleanWindows, dateBox, dayShort, durField, lines, openModal, placeLink, plannedIso, readDur, readWindows, repeatText, searchBox, TIME24, windowsEditor, windowsText } from './widgets.js';
@@ -263,19 +263,48 @@ export function openTaskAdd(date) {
 
 // The + sheet: one field (the quick-add shortcuts), what it understood as chips, and three endings.
 // Enter adds it and keeps the sheet open for the next one.
-export function openQuickTask({ saved = false } = {}) {
+// (v52) What the + adds on each tab: a task on Today and To do, a saved task on Saved, an item on
+// Shopping, an event on Events. The chips on top switch it (Meal opens the meal editor).
+export function plusKind() {
+  const r = route(); const sub = ui.tasksTab || state.settings.tasksTab || 'todo';
+  if (r.name === 'events') return 'event';
+  if (r.name === 'shop' || (r.name === 'tasks' && sub === 'shop')) return 'shop';
+  if (r.name === 'tasks' && sub === 'saved') return 'saved';
+  return 'todo';
+}
+export function openQuickTask({ saved = false, kind = saved ? 'saved' : 'todo', text = '' } = {}) {
+  const isTask = kind === 'todo' || kind === 'saved';
+  saved = kind === 'saved';
+  const chip = (k) => `<button class="kind-chip${k === kind ? ' on' : ''}" value="kind:${k}" formnovalidate aria-pressed="${k === kind}">${esc(t(`kind_${k}`))}</button>`;
+  const ph = kind === 'shop' ? t('shopAddPh') : kind === 'event' ? t('addEventPh') : t('addTaskPh');
+  const go = kind === 'shop' ? `<button class="btn primary big" value="shop-add"><b>+ ${esc(t('addToList'))}</b><small id="quick-slot">${esc(t('enterKeepsOpen'))}</small></button>`
+    : kind === 'event' ? `<button class="btn primary big" value="event-add"><b>${esc(t('addEventBtn'))}</b><small id="quick-slot"></small></button>
+      <button class="linkish" value="more">${esc(t('moreDetails'))}</button>`
+    : saved ? `<button class="btn primary big" value="add"><b>${esc(t('addSavedBtn'))}</b><small id="quick-slot">${esc(t('addSavedSub'))}</small></button>
+      <button class="linkish" value="more">${esc(t('moreDetails'))}</button>`
+    : `<button class="btn primary big" value="plan"><b>${esc(t('addAndPlan'))}</b><small id="quick-slot"></small></button>
+      <div class="two-btn"><button class="btn" value="add">${esc(t('justAdd'))}</button><button class="btn" value="when">${esc(t('chooseWhen'))}</button></div>
+      <button class="linkish" value="more">${esc(t('moreDetails'))}</button>`;
   openModal(`
-    <h2>${esc(t(saved ? 'quickTitleSaved' : 'quickTitle'))}</h2>
-    <input id="quick-q" class="quick-q" name="q" autocomplete="off" enterkeyhint="done" placeholder="${esc(t('addTaskPh'))}" aria-label="${esc(t('quickTitle'))}">
+    <div class="kind-chips" role="group" aria-label="${esc(t('addMenuFab'))}">${['todo', 'event', 'saved', 'meal', 'shop'].map(chip).join('')}</div>
+    <input id="quick-q" class="quick-q" name="q" autocomplete="off" enterkeyhint="done" placeholder="${esc(ph)}" aria-label="${esc(t(`kind_${kind}`))}" value="${esc(text)}">
     <div class="quick-chips" id="quick-chips"></div>
-    <p class="hint" id="quick-hint">${esc(t('quickHint'))}</p>
+    <p class="hint" id="quick-hint">${esc(kind === 'shop' ? t('shopQuickHint') : kind === 'event' ? t('eventQuickHint') : t('quickHint'))}</p>
     <p class="quick-done" id="quick-done" aria-live="polite"></p>
-    <div class="quick-go">
-      ${saved ? `<button class="btn primary big" value="add"><b>${esc(t('addSavedBtn'))}</b><small id="quick-slot">${esc(t('addSavedSub'))}</small></button>` : `<button class="btn primary big" value="plan"><b>${esc(t('addAndPlan'))}</b><small id="quick-slot"></small></button>
-      <div class="two-btn"><button class="btn" value="add">${esc(t('justAdd'))}</button><button class="btn" value="when">${esc(t('chooseWhen'))}</button></div>`}
-      <button class="linkish" value="more">${esc(t('moreDetails'))}</button>
-    </div>
+    <div class="quick-go">${go}</div>
     <div class="button-row"><button class="btn ghost" value="cancel" formnovalidate>${esc(t('close'))}</button></div>`, (form, action, e) => {
+    if (action.startsWith('kind:')) {
+      e.preventDefault();
+      const k = action.slice(5); const txt = form.q.value;
+      if (k === 'meal') { setTimeout(() => { ui.mealDate = today(); openMeal(null); }, 0); return; }
+      openQuickTask({ kind: k, text: txt }); return;
+    }
+    if (kind === 'shop') { e.preventDefault(); addShopLine(); return; }
+    if (kind === 'event') {
+      if (action === 'more') { const d = eventDraft(form.q.value); setTimeout(() => openTask(null, null, { event: true, draft: d }), 0); return; }
+      if (!addEvent(form.q.value)) { e.preventDefault(); form.q.focus(); }
+      return;
+    }
     if (action === 'more') { const q0 = quickAdd(form.q.value); setTimeout(() => openTask(null, { ...quickFields(q0), ...(saved ? { kind: 'saved' } : {}) }), 0); return; }
     const r = makeQuick(form.q.value, saved);
     if (!r) { e.preventDefault(); form.q.focus(); return; }
@@ -286,26 +315,36 @@ export function openQuickTask({ saved = false } = {}) {
     afterAdd(x, block, { tried: action === 'plan' });
   }, { cls: 'sheet quick' });
   const input = modal.querySelector('#quick-q');
+  const done = [];
+  const showDone = (name) => { done.push(name); modal.querySelector('#quick-done').textContent = `✓ ${t('addedList', done.slice(-4).join(', '))}`; };
+  const addShopLine = () => { const v = input.value.trim(); if (!v) return; shopAdd(v); showDone(v); input.value = ''; update(); changed(); input.focus(); };
   const update = () => {
     const q = quickAdd(input.value);
     const chips = [];
-    if (q.minutes) chips.push(fmtDur(q.minutes));
-    for (const c of [q.category, ...(q.moreCats || [])].map(findCategory).filter(Boolean)) chips.push(`<i style="--c:${esc(catColor(c))}"></i>${esc(catName(get('categories', c)))}`);
-    if (q.due) chips.push(esc(q.time != null ? `${relDay(q.due)} ${fmtTime(q.time)}` : t('dueChip', relDay(q.due))));
-    if (q.importance) chips.push(esc(t(`imp_${q.importance}`)));
-    if (q.place) chips.push(`📍 ${esc(q.place)}`);
-    if (q.repeat) chips.push('↻');
+    if (isTask || kind === 'event') {
+      if (q.minutes) chips.push(fmtDur(q.minutes));
+      for (const c of [q.category, ...(q.moreCats || [])].map(findCategory).filter(Boolean)) chips.push(`<i style="--c:${esc(catColor(c))}"></i>${esc(catName(get('categories', c)))}`);
+      if (q.due) chips.push(esc(q.time != null ? `${relDay(q.due)} ${fmtTime(q.time)}` : kind === 'event' ? relDay(q.due) : t('dueChip', relDay(q.due))));
+      if (q.importance && isTask) chips.push(esc(t(`imp_${q.importance}`)));
+      if (q.place) chips.push(`📍 ${esc(q.place)}`);
+      if (q.repeat) chips.push('↻');
+    }
     modal.querySelector('#quick-chips').innerHTML = q.title ? chips.map((c) => `<span class="qc">${c}</span>`).join('') : '';
-    modal.querySelector('#quick-hint').hidden = Boolean(q.title);
+    modal.querySelector('#quick-hint').hidden = Boolean(input.value.trim());
+    const slotEl = modal.querySelector('#quick-slot');
+    if (kind === 'event') slotEl.textContent = q.title ? (q.due ? (q.time != null ? t('atTime', relDay(q.due), fmtTime(q.time)) : t('allDayOn', relDay(q.due))) : t('eventNoDate')) : '';
+    if (kind !== 'todo') return;
     let slot = '';
     if (q.due && q.time != null && !q.repeat) slot = t('atTime', relDay(q.due), fmtTime(q.time));
-    else if (q.title && !saved) { const s = suggestSlot({ title: q.title, minutes: q.minutes, due: q.due, importance: q.importance, priority: q.priority }); slot = s ? t('firstFree', relDay(s.date), fmtTime(s.start)) : t('noFreeWeek'); }
-    if (!saved) modal.querySelector('#quick-slot').textContent = slot;
+    else if (q.title) { const s = suggestSlot({ title: q.title, minutes: q.minutes, due: q.due, importance: q.importance, priority: q.priority }); slot = s ? t('firstFree', relDay(s.date), fmtTime(s.start)) : t('noFreeWeek'); }
+    slotEl.textContent = slot;
   };
   input.addEventListener('input', update);
   input.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Enter' || ev.isComposing) return;
     ev.preventDefault();
+    if (kind === 'shop') { addShopLine(); return; }
+    if (kind === 'event') { const v = input.value; if (addEvent(v, { keepOpen: true })) { showDone(quickAdd(v).title); input.value = ''; update(); } return; }
     const r = makeQuick(input.value, saved);
     if (!r) return;
     const { x, q } = r;
@@ -317,6 +356,21 @@ export function openQuickTask({ saved = false } = {}) {
   });
   update();
   input.focus();
+  if (text) input.setSelectionRange(text.length, text.length);
+}
+// An event from one line ("Concert 20 May 21:00 @Arena"); without a date the editor asks for it.
+function eventDraft(text) {
+  const q = quickAdd(text || '');
+  return { kind: 'event', title: q.title, minutes: q.minutes || 120, category: findCategory(q.category), place: q.place || '', notes: '', done: false, planDate: q.due || '', planTime: q.time, allDay: q.time == null };
+}
+function addEvent(text, { keepOpen = false } = {}) {
+  const d = eventDraft(text);
+  if (!d.title) return false;
+  if (!d.planDate) { setTimeout(() => openTask(null, null, { event: true, draft: d }), 0); if (keepOpen) modal.close(); return false; }
+  saveEvent(d);
+  toast(t('eventAdded', relDay(d.planDate)));
+  changed();
+  return true;
 }
 function makeQuick(text, saved = false) {
   const q = quickAdd(text || '');

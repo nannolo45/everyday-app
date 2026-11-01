@@ -116,10 +116,11 @@ export function render() {
   for (const a of document.querySelectorAll('nav a')) a.classList.toggle('active', a.dataset.tab === (TAB_OF[r.name] || 'today'));
   $('#gear')?.classList.toggle('active', r.name === 'settings');
   document.body.classList.toggle('compact', Boolean(state.settings.compact));
+  document.body.dataset.route = r.name === 'shop' ? 'tasks' : r.name; // (v52) list styles shared by To do, Saved, Shopping
   // The + button: on Oggi, Eventi and Attività (the shopping list and the Planner have their own).
   const fab = $('#fab');
   if (fab) {
-    fab.hidden = !(['today', 'events', 'tasks'].includes(r.name) && !(r.name === 'tasks' && (ui.tasksTab || state.settings.tasksTab) === 'shop'));
+    fab.hidden = !['today', 'events', 'tasks', 'shop'].includes(r.name); // (the Planner has + Add)
     fab.setAttribute('aria-label', t('addMenuFab')); fab.title = t('addMenuFab');
   }
   updateShopCount();

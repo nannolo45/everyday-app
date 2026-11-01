@@ -1,16 +1,18 @@
 // views/tasks.js: moved from app.js (v36). See app.js for how the modules fit together.
-import { advancedOn, categories, catName, catsOf, esc, hint, relDay, ui } from '../core.js';
+import { advancedOn, categories, catName, catsOf, esc, hint, modal, relDay, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { isMealType, isSaved, isStep, isTodo } from '../kinds.js';
 import { alreadyPlanned, eventOf, nextPlanned, offsetText, openTasks, prepOf, prereqsOf, savedGroups, savedInfo, taskIssues, templates, timesDone } from '../model.js';
 import { addDays, fmtDur, fmtTime, groupTasks, importanceOf, sortTasks, today } from '../plan.js';
+import { isRoutine, legend, routineGroups, routineRow, routines, weekHeader } from '../routines.js';
 import { fold, matchesQ } from '../shoplist.js';
-import { get, live, state } from '../store.js';
+import { get, live, saveSettings, state } from '../store.js';
+import { render } from '../shell.js';
 import { bufferOf, realSteps } from '../travel-plan.js';
 import { MODE_ICON } from '../travel.js';
-import { impBadge, issueBadge } from './planner.js';
+import { impBadge, issueBadge, weekStart } from './planner.js';
 import { SH, viewShop } from './shop.js';
-import { grip, repeatText, searchBox, windowsText } from '../widgets.js';
+import { grip, openModal, repeatText, searchBox, windowsText } from '../widgets.js';
 import { daysLabel } from './settings.js';
 
 // ---------- view: tasks ----------
@@ -90,6 +92,55 @@ export function filterBar() {
   </div>`;
 }
 function filterCount() { const f = taskFilter(); return ['fix', 'recurring', 'place', 'cat'].filter((k) => f[k]).length; }
+// (v52) One toolbar for the three lists: search, one ⇅ button (sort and filters in a sheet), and the
+// filters that are on as chips you can take off.
+// A saved task's row (v52: the same shape as a to-do row, with ▶ to plan it).
+const savedRow = (tp) => `<li><button class="task-main" type="button" data-action="task-edit" data-id="${esc(tp.id)}"><span class="item-text">${isMealType(tp) ? '🍽 ' : ''}${esc(tp.title)}<small>${esc(savedInfo(tp))}</small></span>${impBadge(tp) ? `<span class="imp-r">${impBadge(tp)}</span>` : ''}</button><button class="icon saved-plan" type="button" data-action="saved-plan" data-id="${esc(tp.id)}" aria-label="${esc(t('planSaved', tp.title))}" title="${esc(t('planSaved', tp.title))}">▶</button></li>`;
+function toolBar(search, label, tab) {
+  const f = taskFilter(); const n = filterCount();
+  const on = [['fix', `⚠ ${t('f_fix')}`], ['recurring', `↻ ${t('f_recurring')}`], ['place', `📍 ${t('f_place')}`]].filter(([k]) => f[k]);
+  const cat = f.cat && get('categories', f.cat);
+  const chips = [...on.map(([k, l]) => `<button type="button" class="sl-chip on" data-action="filter-off" data-id="${k}">${esc(l)} ✕</button>`),
+    cat ? `<button type="button" class="sl-chip on" data-action="filter-off" data-id="cat"><span class="chip-dot" style="--c:${esc(cat.color)}"></span>${esc(catName(cat))} ✕</button>` : ''].join('');
+  return `<div class="task-tools">${search}<button class="btn small tools-btn${n ? ' on' : ''}" type="button" data-action="task-tools" data-id="${tab}">${esc(label)}${n ? ` · ${n}` : ''}</button></div>
+  ${chips ? `<div class="sl-chips active-filters">${chips}</div>` : ''}`;
+}
+// The ⇅ sheet: sorting (To do), compact rows, the filters. Changes show behind it at once.
+export function openTaskTools(tab = 'todo') {
+  const mode = state.settings.taskSort || 'smart';
+  openModal(`
+    <h2>⇅ ${esc(t('sortFilter'))}</h2>
+    ${tab === 'todo' ? `<label>${esc(t('sortBy'))}${sortPicker('task-sort', mode)}</label>
+    <label class="check"><input type="checkbox" name="compact" ${state.settings.compact ? 'checked' : ''}> <span>≡ ${esc(t('compact'))}</span></label>` : ''}
+    <div class="field-label">${esc(t('filters'))}</div>
+    ${filterBar()}
+    <div class="button-row"><button class="btn primary" value="cancel">${esc(t('doneBtn'))}</button></div>`, () => {}, { cls: 'sheet' });
+  const form = modal.querySelector('form');
+  form.addEventListener('change', (e) => {
+    if (e.target.id === 'task-sort') saveSettings({ taskSort: e.target.value });
+    if (e.target.name === 'compact') saveSettings({ compact: e.target.checked });
+    render();
+  });
+  form.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-action]'); if (!b) return;
+    e.preventDefault();
+    const f = taskFilter(); const id = b.dataset.id;
+    if (b.dataset.action === 'filter') saveSettings({ taskFilter: { ...f, [id]: !f[id] } });
+    if (b.dataset.action === 'filter-cat') saveSettings({ taskFilter: { ...f, cat: f.cat === id ? '' : id } });
+    if (b.dataset.action === 'filter-clear') saveSettings({ taskFilter: { fix: false, recurring: false, place: false, cat: '' } });
+    render(); openTaskTools(tab);
+  });
+}
+// (v53) Day templates and preparations, in Settings → Advanced (they used to sit under Saved).
+export function advancedListsHtml() {
+  const helpers = live('tasks').filter((x) => isStep(x)).sort((a, b) => a.title.localeCompare(b.title));
+  const tpls = templates();
+  return `<h3>🧩 ${esc(t('rtTemplatesPreps'))}</h3>
+  <h4>${esc(t('templates'))}</h4>${hint('templatesHint')}
+  <ul class="list">${tpls.map((tp) => `<li><button class="task-main" type="button" data-action="tpl-edit" data-id="${esc(tp.id)}"><span class="item-text">${esc(tp.name)}<small>${esc(t('nBlocks', (tp.blocks || []).length))}${tp.days?.length ? ` · ${esc(t('autoOn', daysLabel(tp.days)))}` : ''}</small></span></button></li>`).join('') || `<li class="pad"><span class="hint">${esc(t('noTemplates'))}</span></li>`}</ul>
+  <button class="btn small" type="button" data-action="tpl-new">+ ${esc(t('newTemplate'))}</button>
+  <h4>${esc(t('preparations'))}</h4>${hint('prepsHint')}${helpers.length ? `<ul class="list preps">${helpers.map(prepRow).join('')}</ul>` : `${hint('noPreps')}`}`;
+}
 export function folded(key) { return (state.settings.folded ?? ['grp_done']).includes(key); }
 export function foldBtn(key, label, n, { open = !folded(key) } = {}) {
   return `<button class="fold" type="button" data-action="fold" data-id="${esc(key)}" aria-expanded="${open}"><span class="fold-ico">▸</span> ${esc(label)} <small>${n}</small></button>`;
@@ -106,33 +157,23 @@ export function viewTasks(force = null) {
   const switcher = `<div class="seg" role="tablist">${['todo', 'saved', 'shop'].map((k) => `<button type="button" role="tab" class="${k === tab ? 'on' : ''}" aria-selected="${k === tab}" data-action="tasks-tab" data-id="${k}">${esc(t(`tasksTab_${k}`))}${k === 'shop' && nShop ? ` <small>${nShop > 99 ? '99+' : nShop}</small>` : ''}</button>`).join('')}</div>`;
   if (tab === 'shop') return `${switcher}${viewShop()}`;
   if (tab === 'saved') {
-    const helpers = all.filter((x) => isStep(x) && hit(x)).sort((a, b) => a.title.localeCompare(b.title));
-    const tpls = templates().filter((tp) => !q || matchesQ(fold(tp.name), q));
-    const freshS = [...(ui.justAdded || [])].map((id) => get('tasks', id)).filter((x) => x && isSaved(x) && !x.deleted);
-    const groups = savedGroups().map(([cat, list]) => [cat, list.filter((x) => hit(x) && !freshS.includes(x))]).filter(([, list]) => list.length);
-    const nSaved = groups.reduce((n, [, l]) => n + l.length, 0);
+    // (v53) Routine: what comes back, read by the week (routines.js).
+    const ws = ui.routineWeek || weekStart(td);
+    const freshS = [...(ui.justAdded || [])].map((id) => get('tasks', id)).filter((x) => x && isRoutine(x));
+    const list = routines().filter((x) => hit(x) && !freshS.includes(x));
+    const groups = routineGroups(list);
     return `${switcher}
-    <div class="task-tools">${search}</div>
-    ${filterBar()}
-    ${freshS.length ? `<section class="just-added"><h2 class="part-h ja-h">${esc(t('justAdded'))} <small>${freshS.length}</small></h2><ul class="list saved fresh">${freshS.map((tp) => `<li><button class="task-main" type="button" data-action="task-edit" data-id="${esc(tp.id)}"><span class="item-text">${esc(tp.title)}<small>${esc(savedInfo(tp))}</small></span></button></li>`).join('')}</ul></section>` : ''}
-    ${q && !nSaved && !tpls.length && !helpers.length ? `<p class="empty">${esc(t('noMatch'))}</p>` : ''}
-    <section class="fold-sec first">
-      ${foldBtn('saved', t('savedTasks'), nSaved, { open: !isFolded('saved') })}
-      ${isFolded('saved') ? '' : `${hint('savedHint')}
-      ${groups.map(([cat, list]) => `<div class="sub">${esc(cat ? catName(cat) : t('noCategory'))}</div>
-      <ul class="list saved">${list.map((tp) => `<li><button class="task-main" type="button" data-action="task-edit" data-id="${esc(tp.id)}"><span class="item-text">${isMealType(tp) ? '🍽 ' : ''}${impBadge(tp) ? `${impBadge(tp)} ` : ''}${esc(tp.title)}<small>${esc(savedInfo(tp))}</small></span></button></li>`).join('')}</ul>`).join('')}
-      <button class="btn small" type="button" data-action="saved-new">+ ${esc(t('newSaved'))}</button>`}
-    </section>
-    ${advancedOn() ? `<section class="fold-sec">
-      ${foldBtn('templates', t('templates'), tpls.length, { open: !isFolded('templates') })}
-      ${isFolded('templates') ? '' : `${hint('templatesHint')}
-      <ul class="list">${tpls.map((tp) => `<li><button class="task-main" type="button" data-action="tpl-edit" data-id="${esc(tp.id)}"><span class="item-text">${esc(tp.name)}<small>${esc(t('nBlocks', (tp.blocks || []).length))}${tp.days?.length ? ` · ${esc(t('autoOn', daysLabel(tp.days)))}` : ''}</small></span></button></li>`).join('') || `<li class="pad"><span class="hint">${esc(t('noTemplates'))}</span></li>`}</ul>
-      <button class="btn small" type="button" data-action="tpl-new">+ ${esc(t('newTemplate'))}</button>`}
-    </section>
-    <section class="fold-sec">
-      ${foldBtn('preps', t('preparations'), helpers.length, { open: !isFolded('preps') })}
-      ${isFolded('preps') ? '' : `${hint('prepsHint')}${helpers.length ? `<ul class="list preps">${helpers.map(prepRow).join('')}</ul>` : `${hint('noPreps')}`}`}
-    </section>` : ''}`;
+    ${toolBar(search, `⇅ ${t('filtersSort')}`, 'saved')}
+    ${weekHeader(routines(), ws)}
+    ${freshS.length ? `<section class="just-added"><h2 class="part-h ja-h">${esc(t('justAdded'))} <small>${freshS.length}</small></h2><ul class="list saved routines fresh">${freshS.map((x) => routineRow(x, ws)).join('')}</ul></section>` : ''}
+    ${q && !list.length ? `<p class="empty">${esc(t('noMatch'))}</p>` : ''}
+    ${!q && !list.length && !freshS.length ? `<p class="empty">${esc(t('rtEmpty'))}</p>` : ''}
+    ${groups.map((g) => `<section class="fold-sec rt-sec">
+      <div class="rt-gh">${foldBtn(g.key, g.label, g.list.length, { open: !isFolded(g.key) })}${g.from ? `<small class="rt-from">${esc(g.from)}</small>` : ''}</div>
+      ${isFolded(g.key) ? '' : `<ul class="list saved routines">${g.list.map((x) => routineRow(x, ws)).join('')}</ul>`}
+    </section>`).join('')}
+    ${list.length ? legend() : ''}
+    <button class="btn small" type="button" data-action="saved-new">+ ${esc(t('newSaved'))}</button>`;
   }
   // Just added (from the + sheet): on top, highlighted, until you leave the tab.
   const fresh = [...(ui.justAdded || [])].map((id) => get('tasks', id)).filter((x) => x && isTodo(x) && !x.done && !x.deleted);
@@ -160,17 +201,13 @@ export function viewTasks(force = null) {
   };
   const open = openList.length;
   // Adding lives in the + button (all tabs); sorting, compact and the filters fold behind one button.
-  const nF = filterCount();
-  const toolsOpen = Boolean(state.settings.taskTools) || nF > 0;
   return `${switcher}
-  <div class="task-tools">${search}<button class="btn small tools-btn${toolsOpen ? ' on' : ''}" type="button" data-action="task-tools" aria-expanded="${toolsOpen}">${esc(t('filtersSort'))}${nF ? ` · ${nF}` : ''}</button></div>
-  ${toolsOpen ? `<div class="task-tools more">${sortPicker('task-sort', mode)}<button class="btn small${state.settings.compact ? ' on' : ''}" type="button" data-action="compact" aria-pressed="${Boolean(state.settings.compact)}" title="${esc(t('compactHint'))}">≡ ${esc(t('compact'))}</button></div>
-  ${filterBar()}` : ''}
+  ${toolBar(search, `⇅ ${t(`sort_${mode}`)}`, 'todo')}
   ${fresh.length ? `<section class="just-added"><h2 class="part-h ja-h">${esc(t('justAdded'))} <small>${fresh.length}</small></h2><ul class="list tasks fresh">${fresh.map((x) => taskRow(x)).join('')}</ul></section>` : ''}
   ${manual && !q ? `${hint('manualHint')}` : ''}
   ${open || fresh.length || g.done.length ? '' : `<p class="empty">${esc(q || filterActive() ? t('noMatch') : t('noTasks'))}</p>`}
   ${part('part_toplan', t('partToPlan'), toPlan, dateBuckets(toPlan, (x) => x.due, td), (l) => sortTaskList(l, mode))}
-  ${part('part_planned', t('partPlanned'), planned, dateBuckets(planned, (x) => nextPlanned(x.id)?.date, td), byWhen, t('partPlannedHint'))}
+  ${part('part_planned', t('partPlanned'), planned, dateBuckets(planned, (x) => nextPlanned(x.id)?.date, td), byWhen)}
   ${g.done.length ? `<section class="fold-sec grp-sec">${foldBtn('grp_done', t('grp_done'), g.done.length, { open: !isFolded('grp_done') })}
     ${isFolded('grp_done') ? '' : `<ul class="list tasks done">${g.done.slice(0, 50).map(taskRow).join('')}</ul>
     <button class="btn small ghost" type="button" data-action="clear-done">${esc(t('clearDone'))}</button>`}</section>` : ''}`;
@@ -234,7 +271,7 @@ export function taskRow(x, { drag = false } = {}) {
     ${drag ? grip(`th-${x.id}`, x.title) : ''}
     ${isStep(x) ? '<span class="helper-dot">↳</span>' : `<input type="checkbox" data-action="task-done" data-id="${esc(x.id)}" ${x.done || (x.repeat === 'times' && timesDone(x, td) >= (x.timesN || 1)) ? 'checked' : ''} aria-label="${esc(t('markDone'))}">`}
     <button class="task-main" type="button" data-action="task-edit" data-id="${esc(x.id)}">
-      <span class="item-text">${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}<small>${bits.join(' · ')}</small></span>
+      <span class="item-text">${esc(x.title)}<small>${bits.join(' · ')}</small></span>${impBadge(x) ? `<span class="imp-r">${impBadge(x)}</span>` : ''}
     </button>
     ${issueBadge(x)}
   </li>`;

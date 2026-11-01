@@ -105,7 +105,7 @@ export function weekCardHtml({ rows, title, key = null }) {
   }).join('');
   const any = rows.some((r) => (r.options || r.placements || []).length);
   return `<section class="week-card"><div class="wc-head"><b>${esc(title)}</b><small>${rows.length}</small></div>${body}
-    <div class="button-row left">${any ? `<button class="btn primary" type="button" data-action="fix-week">${esc(t('fixHighlighted'))}</button>` : ''}${key ? `<button class="btn" type="button" data-action="week-later" data-id="${esc(key)}">${esc(t('laterBtn'))}</button>` : ''}</div></section>`;
+    <div class="button-row left">${any ? `<button class="btn primary" type="button" data-action="fix-week">${esc(t('fixHighlighted'))}</button>` : ''}${key ? `<button class="btn" type="button" data-action="routine-review" data-id="${esc(cardWeek())}">${esc(t('rtReview'))}</button><button class="btn" type="button" data-action="week-later" data-id="${esc(key)}">${esc(t('laterBtn'))}</button>` : ''}</div></section>`;
 }
 // Accepting every highlighted suggestion of a card (the first slot of each day; all the placements).
 export function fixAll(rows) {
