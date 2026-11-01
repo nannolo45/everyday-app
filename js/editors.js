@@ -2,7 +2,7 @@
 import { advancedOn, catChips, catColor, catName, esc, findCategory, fmtDay, hint, kitchen, modal, PALETTE, planSettings, quickFields, range, reasonText, relDay, route, small, toast, ui, weekdayNames } from './core.js';
 import { getLang, t } from './i18n.js';
 import { isEvent, isMealType, isSaved, isStep, withKind } from './kinds.js';
-import { alreadyPlanned, anchorIndex, anchorOffset, anchorTitle, applyTemplate, blocksOn, busyOn, checklistLeft, checklistOf, checkMealNow, deleteBlock, endSeries, ensureSeries, eventDate, eventOf, eventTasksOf, followParent, isCheckStep, isSeries, leadOf, mealRecipes, mealTitle, mealTypes, newBlock, nextBlockOf, nextPlanned, offsetDue, offsetText, openTasks, outcomeOf, plannedTaskIds, plannedWhen, planTask, PREP_PLACES, qtyText, readinessText, recipeOf, recipes, RULE_PLACES, RULE_WHEN, rulesOf, savedGroups, savedInfo, savedStart, savedTasks, seriesBlocks, setBlockDone, setOutcome, setStepOutcome, setTaskDone, shoppingItems, splitSeries, stepLen, stepsOf, stepTimes, syncEventTasks, taskIssues, templates, travelTasks, trySetBlockDone, tryStep } from './model.js';
+import { alreadyPlanned, anchorIndex, anchorOffset, anchorTitle, applyTemplate, blocksOn, busyOn, checklistLeft, checklistOf, checkMealNow, deleteBlock, endSeries, ensureSeries, eventBlockOf, eventDate, eventOf, eventTasksOf, followParent, isCheckStep, isSeries, leadOf, mealRecipes, mealTitle, mealTypes, newBlock, nextBlockOf, nextPlanned, offsetDue, offsetText, openTasks, outcomeOf, plannedTaskIds, plannedWhen, planTask, PREP_PLACES, qtyText, readinessText, recipeOf, recipes, RULE_PLACES, RULE_WHEN, rulesOf, savedGroups, savedInfo, savedStart, savedTasks, seriesBlocks, setBlockDone, setOutcome, setStepOutcome, setTaskDone, shoppingItems, splitSeries, stepLen, stepsOf, stepTimes, syncEventTasks, taskIssues, templates, travelTasks, trySetBlockDone, tryStep } from './model.js';
 import { addDays, fmtDur, fmtTime, formatTemplateLines, freeSlot, groupTasks, IMPORTANCE, importanceOf, isDate, nowMinutes, parseDate, parseTemplateLines, parseTime, quickAdd, REPEATS, sortTasks, today } from './plan.js';
 import { AUTO_SPANS, partOfDay, placeGhosts, planEventTasks, trayTasks, tripItems, warnConflicts } from './planning.js';
 import { pantryCoverage } from './recipe-tools.js';
@@ -724,7 +724,8 @@ export function openTask(task, draft = null, opts = {}) {
   void routine; // saved tasks get the same editor as to-dos (they only live in another list)
   // When a to-do is on the plan, its date and time show here and can be changed (or cleared to unplan).
   if (!helper && x.planDate === undefined) {
-    const nb = x.id ? nextBlockOf(x.id) : null;
+    // (an event with no time to come still has its block: the one it happened in)
+    const nb = x.id ? (evMode && !x.repeat ? eventBlockOf(x.id) : nextBlockOf(x.id)) : null;
     x.planDate = nb?.date || '';
     x.planTime = nb ? nb.start + anchorOffset(nb) : null;
     x.planBlockId = nb?.id || null;
@@ -975,7 +976,9 @@ export function openTask(task, draft = null, opts = {}) {
     if (action === 'delete') {
       if (!confirm(t('confirmDeleteTask'))) { e.preventDefault(); return; }
       remove('tasks', x.id);
-      for (const b of live('blocks').filter((y) => y.taskId === x.id && !y.done && y.date >= today())) deleteBlock(b);
+      // A one-off event goes from the plan entirely (past days too); a task keeps what was done.
+      const oneOffEvent = evMode && !x.repeat;
+      for (const b of live('blocks').filter((y) => y.taskId === x.id && (oneOffEvent || (!y.done && y.date >= today())))) deleteBlock(b);
       changed();
       return;
     }
@@ -1296,7 +1299,12 @@ export function openBlock(block, defaults = {}) {
     if (action === 'fail') { setOutcome(get('blocks', b.id), 'failed'); changed(); return; }
     if (action === 'reset') { setOutcome(get('blocks', b.id), null); changed(); return; }
     if (action === 'dup') {
-      newBlock({ ...b, id: uid(), start: Math.min(b.start + b.minutes, 1440 - b.minutes), done: false, outcome: null, templateId: null, checked: [], groceryId: null, sourceId: null });
+      const at = Math.min(b.start + b.minutes, 1440 - b.minutes);
+      // A one-off event is one block: its copy is an event of its own (same details, its own tasks later).
+      const evTask = b.taskId && get('tasks', b.taskId);
+      const copyOf = isEvent(evTask) && !evTask.repeat && !evTask.allDay
+        ? upsert('tasks', { ...evTask, id: uid(), createdAt: Date.now(), due: b.date, eventTime: at + anchorOffset(b), done: false, doneAt: null }, { silent: true }) : null;
+      newBlock({ ...b, id: uid(), start: at, done: false, outcome: null, templateId: null, checked: [], groceryId: null, sourceId: null, ...(copyOf ? { taskId: copyOf.id, stepState: {} } : {}) });
       changed();
       return;
     }

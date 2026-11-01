@@ -80,11 +80,29 @@ export function offsetText(off) {
   const unit = d % 7 === 0 ? t(n === 1 ? 'week1' : 'weeksN', n) : t(n === 1 ? 'day1' : 'daysN', n);
   return t(off?.when === 'after' ? 'afterEvent' : 'beforeEvent', unit);
 }
+// A one-off event with a time is one block on the plan. These are that block and any extra copies
+// (older versions could add a copy on the event's old date: see tidyEventBlocks).
+const byWhen = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.start - b.start);
+export const eventBlocks = (id) => live('blocks').filter((b) => b.taskId === id && !b.kind && !b.stepId && !b.seriesId && !b.parentId).sort(byWhen);
+// The event's block: the next open one, else the latest it had (past or ticked), so that editing an
+// event that already happened moves that block instead of planning it a second time.
+export function eventBlockOf(id) { return nextBlockOf(id) || eventBlocks(id).at(-1) || null; }
+// Copies on another date: up to v40, saving an event whose block was past or ticked planned it again on
+// the event's old date. Such a copy (not ticked, on the old date, while another block sits on a
+// different date) is removed; the block you moved stays. Copies on the same day are left alone.
+export function tidyEventBlocks(ev) {
+  const list = eventBlocks(ev.id);
+  if (list.length < 2) return false;
+  const extra = list.filter((b) => b.date === ev.due && !outcomeOf(b) && list.some((k) => k.date !== ev.due));
+  for (const b of extra) deleteBlock(b);
+  return extra.length > 0;
+}
 // Keep dates in step: an event's `due` follows its block; an attached task's due follows the event.
 export function syncEventTasks() {
   let any = false;
   for (const ev of ownEvents().filter((x) => !x.allDay && !x.repeat)) {
-    const b = nextBlockOf(ev.id);
+    if (tidyEventBlocks(ev)) any = true;
+    const b = eventBlockOf(ev.id);
     if (b && b.date !== ev.due) { upsert('tasks', { ...ev, due: b.date }, { silent: true }); any = true; }
   }
   for (const x of live('tasks').filter((y) => y.eventId && !y.done)) {
