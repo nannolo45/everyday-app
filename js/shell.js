@@ -5,7 +5,8 @@ import { ensureAllSeries, migrateBlocksToEvents, normalizeKinds } from './model.
 import { isDate, nowMinutes, today } from './plan.js';
 import { isDragging } from './sortable.js';
 import { applySharedSettings, get, live, seedSharedSettings, state } from './store.js';
-import { isConfigured, isSyncing, syncNow } from './sync.js';
+import { isConfigured, isSyncing, ricetteConfigured, syncNow } from './sync.js';
+import { setUserFoods } from './foods.js';
 import { scheduleTravelRefresh } from './travel-plan.js';
 import { SH } from './views/shop.js';
 import { gcalNow } from './connections.js';
@@ -92,7 +93,19 @@ export function currentDate() {
   return r.name === 'plan' && isDate(r.id) ? r.id : today();
 }
 
+// Ricette's corrections (data/foods.json: the user's own foods, extra names): the dictionary takes them in at
+// start and whenever a sync brings a new copy. Without Ricette connected there are none.
+const NO_FOODS = [];
+let foodsSeen = null;
+export function applyUserFoods() {
+  const list = ricetteConfigured() ? state.r_foods : NO_FOODS;
+  if (list === foodsSeen) return;
+  foodsSeen = list;
+  setUserFoods(list);
+}
+
 export function render() {
+  applyUserFoods();
   const r = route();
   const active = document.activeElement;
   const focusId = active && active.id;

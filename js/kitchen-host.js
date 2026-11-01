@@ -1,5 +1,5 @@
 // Everyday's side of the kitchen rules. The rules themselves are Ricette's shared kitchen.js (copied
-// unchanged, v39): finding a pantry product, adding to the list, what a recipe needs, cooking, put away.
+// unchanged, v40): finding a pantry product, adding to the list, what a recipe needs, cooking, put away.
 // This file maps Everyday's collections onto it and keeps the few things only Everyday does:
 //  - pantryAfter / missingFor: the pantry as it will be by a meal (the list bought, earlier meals cooked);
 //  - setChecked: ticking at the shop (older records "stocked" on the spot are taken back out on untick);
@@ -16,18 +16,17 @@ export function makeKitchen(store, names = { pantry: 'pantry', shopping: 'shoppi
   const P = names.pantry; const S = names.shopping;
   const col = (c) => (c === 'pantry' ? P : c === 'shopping' ? S : c);
   // kitchen.js speaks of 'pantry' and 'shopping'; here they are Everyday's collection names.
-  const shared = (pantry = null) => createKitchen({
-    live: (c) => (pantry && c === 'pantry' ? pantry : live(col(c))),
-    get: (c, id) => (pantry && c === 'pantry' ? pantry.find((p) => p.id === id) : get(col(c), id)),
+  const k = createKitchen({
+    live: (c) => live(col(c)),
+    get: (c, id) => get(col(c), id),
     upsert: (c, r) => upsert(col(c), r),
     remove: (c, id) => remove(col(c), id),
     uid,
   });
-  const k = shared();
 
   // What a recipe for n people needs, against the pantry now or a pantry as it will be (pantryAfter).
   function planForRecipe(r, n, pantry = null) {
-    return (pantry ? shared(pantry) : k).planForRecipe(r, n, true).map((x) => ({ ...x, tracked: Boolean(x.have) }));
+    return k.planForRecipe(r, n, pantry || true).map((x) => ({ ...x, tracked: Boolean(x.have) }));
   }
 
   // Pantry as it will be by the time of a meal: what's there now, plus what's already on the
@@ -40,7 +39,7 @@ export function makeKitchen(store, names = { pantry: 'pantry', shopping: 'shoppi
       const p = findPantryItem(it, pantry);
       if (p && isLevel(p)) { p.level = 'ok'; continue; } // on the list: bought by then
       if (it.qty == null) continue;
-      if (!p) { pantry.push({ id: `list_${it.id}`, name: it.name, qty: it.qty, unit: it.unit || '' }); continue; }
+      if (!p) { pantry.push({ id: `list_${it.id}`, name: it.name, qty: it.qty, unit: it.unit || '', ...(it.food ? { food: it.food } : {}), ...(it.foodPinned ? { foodPinned: true } : {}) }); continue; }
       const add = convert(it.qty, it.unit, p.unit);
       if (add != null) p.qty = round((num(p.qty) || 0) + add);
     }

@@ -16,10 +16,12 @@ export const SHARDED = { blocks: 'date', events: 'date' }; // collection -> fiel
 export const RICETTE = {
   r_recipes: 'data/recipes.json', r_folders: 'data/folders.json', r_tagdefs: 'data/tags.json', r_prefs: 'data/prefs.json',
   r_pantry: 'data/pantry.json', r_shopping: 'data/shopping.json', r_shops: 'data/shops.json',
+  // the user's own foods and extra names for built-in ones (Ricette v40): Ricette writes it, Everyday reads it
+  r_foods: 'data/foods.json',
 };
-// Written only by others: Ricette's recipes, and the Google Calendar sync (events + its status).
+// Written only by others: Ricette's recipes and foods, and the Google Calendar sync (events + its status).
 // (Ricette's prefs are shared both ways: list view and department order, one record per setting.)
-export const READ_ONLY = new Set(['r_recipes', 'r_folders', 'r_tagdefs', 'events', 'gcal']);
+export const READ_ONLY = new Set(['r_recipes', 'r_folders', 'r_tagdefs', 'r_foods', 'events', 'gcal']);
 // Data contract with Ricette (its prefs record {id: 'contract', value}). Everyday follows version 1;
 // when Ricette's data says a higher one, Everyday keeps reading the shared files but stops writing them
 // (and asks to update the app), so an older Everyday never damages data it doesn't understand.
@@ -72,7 +74,7 @@ export async function kvSet(key, value) {
 
 const DEFAULT_SETTINGS = { dayStart: 6, dayEnd: 23, snap: 15, buffer: 5, maxLoad: 8 };
 export const state = {
-  tasks: [], blocks: [], templates: [], categories: [], events: [], gcal: [], shopping: [], shops: [], config: [], r_recipes: [], r_folders: [], r_tagdefs: [], r_prefs: [], r_pantry: [], r_shopping: [], r_shops: [],
+  tasks: [], blocks: [], templates: [], categories: [], events: [], gcal: [], shopping: [], shops: [], config: [], r_recipes: [], r_folders: [], r_tagdefs: [], r_prefs: [], r_pantry: [], r_shopping: [], r_shops: [], r_foods: [],
   settings: {
     lang: '', owner: '', repo: '', branch: 'main', token: '',
     dayStart: 6, dayEnd: 23, snap: 15, buffer: 5, maxLoad: 8, ricetteRepo: '',

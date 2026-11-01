@@ -3,6 +3,7 @@
 // unchanged; this file supplies the labels, the formatting and what each action does.
 import { esc, hint, kitchen, kitchenOwn, modal, relDay, toast, ui } from '../core.js';
 import { DEPT_IDS, DEPTS, deptIcon, deptOf, NONFOOD } from '../depts.js';
+import { refood } from '../foods.js';
 import { getLang, t } from '../i18n.js';
 import { qtyText } from '../model.js';
 import { parseIngredient } from '../parse.js';
@@ -328,7 +329,9 @@ export function openShopItem(it) {
     const cur = get(SH(), it.id);
     if (!cur) return;
     const q = form.qty.value.trim().replace(',', '.');
-    const next = { ...cur, name: form.elements.namedItem('name').value.trim() || cur.name, qty: q === '' ? null : Number(q) || null, unit: form.unit.value, note: form.note.value.trim(), shops: [...picked] };
+    const name = form.elements.namedItem('name').value.trim() || cur.name;
+    // a new name: the food again from it, unless a person pinned it in Ricette
+    const next = { ...(name !== cur.name ? refood(cur, name) : cur), name, qty: q === '' ? null : Number(q) || null, unit: form.unit.value, note: form.note.value.trim(), shops: [...picked] };
     if (form.cat.value !== cat0) next.cat = form.cat.value;
     upsert(SH(), next, { silent: true });
     changed();

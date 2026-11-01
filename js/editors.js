@@ -6,6 +6,7 @@ import { alreadyPlanned, anchorIndex, anchorOffset, anchorTitle, applyTemplate, 
 import { addDays, fmtDur, fmtTime, formatTemplateLines, freeSlot, groupTasks, IMPORTANCE, importanceOf, isDate, nowMinutes, parseDate, parseTemplateLines, parseTime, quickAdd, REPEATS, sortTasks, today } from './plan.js';
 import { AUTO_SPANS, partOfDay, placeGhosts, planEventTasks, trayTasks, tripItems, warnConflicts } from './planning.js';
 import { pantryCoverage } from './recipe-tools.js';
+import { ingredientsOf } from './kitchen.js';
 import { filterRecipes, folderOfRecipe, folderTree, minutesOf, originLabel, tagCounts, tagLabel, tagsOf, timeParts } from './recipes.js';
 import { changed, currentDate, render } from './shell.js';
 import { fold } from './shoplist.js';
@@ -620,6 +621,10 @@ export function openPicker({ people = 2, selected = [], onDone, onBack }) {
 
   const drawPreview = (r) => {
     const plan = kitchen.planForRecipe(r, people, live('r_pantry'));
+    // ingredient groups (Ricette v41): a heading wherever the group changes
+    const ings = ingredientsOf(r);
+    const groupOf = (p) => (p ? String(ings[p.idx]?.group || '').trim() : '');
+    const groupHead = (p, prev) => (groupOf(p) && groupOf(p) !== groupOf(prev) ? `<li class="ing-group">${esc(groupOf(p))}</li>` : '');
     const m = minutesOf(r);
     const steps = (r.steps || []).map((x) => (typeof x === 'string' ? x : x.text || '')).filter(Boolean);
     const on = st.sel.includes(r.id);
@@ -630,7 +635,7 @@ export function openPicker({ people = 2, selected = [], onDone, onBack }) {
       </div>
       ${coverOf(r) ? `<div class="rec-hero">${photoTag(coverOf(r))}</div>` : ''}
       <p class="hint">${[m ? `⏱ ${fmtDur(m)}` : '', t('forPeople', people), fname(folderOfRecipe(r, folders)) ? `📁 ${fname(folderOfRecipe(r, folders))}` : '', ...tagsOf(r, defs).map(tagName)].filter(Boolean).map(esc).join(' · ')}</p>
-      <ul class="list ing">${plan.map((p) => `<li class="${p.covered ? 'have' : p.need == null && !p.tracked ? '' : 'need'}"><span class="q">${esc(qtyText(p.need, p.unit))}</span><span class="item-text">${esc(p.name)}${!p.covered && p.buy ? `<small>${esc(t('buyAmount', qtyText(p.buy, p.unit)))}</small>` : ''}</span><span class="mark">${p.covered ? '✓' : p.need == null && !p.tracked ? '' : '✕'}</span></li>`).join('')}</ul>
+      <ul class="list ing">${plan.map((p, i) => `${groupHead(p, plan[i - 1])}<li class="${p.covered ? 'have' : p.need == null && !p.tracked ? '' : 'need'}"><span class="q">${esc(qtyText(p.need, p.unit))}</span><span class="item-text">${esc(p.name)}${!p.covered && p.buy ? `<small>${esc(t('buyAmount', qtyText(p.buy, p.unit)))}</small>` : ''}</span><span class="mark">${p.covered ? '✓' : p.need == null && !p.tracked ? '' : '✕'}</span></li>`).join('')}</ul>
       ${steps.length ? `<details class="steps-box"><summary>${esc(t('stepsN', steps.length))}</summary><ol>${steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></details>` : ''}
       <div class="pk-foot">
         <button class="btn ${on ? '' : 'primary'}" value="tog:${esc(r.id)}" formnovalidate>${esc(on ? t('unselect') : t('select'))}</button>

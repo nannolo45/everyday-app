@@ -562,7 +562,7 @@ export function runCheck(step, { auto = false } = {}) {
   if (!meal || !ricetteConfigured() || !mealRecipes(meal).length) { setOutcome(step, 'done'); return; }
   const missing = missingForMeal(meal);
   if (!missing.length) { setOutcome(step, 'done'); if (!auto) toast(t('allInPantry')); return; }
-  for (const m of missing) kitchen.addToShopping({ name: m.name, qty: m.buy, unit: m.unit, note: m.note }, meal.title);
+  for (const m of missing) kitchen.addToShopping(mealItem(m), meal.title);
   const b = upsert('blocks', { ...get('blocks', step.id), missing: missing.map((m) => [qtyText(m.buy, m.unit), m.name].filter(Boolean).join(' ')) }, { silent: true });
   setOutcome(b, 'failed');
   toast(t('checkMissing', missing.length, meal.title));
@@ -688,6 +688,9 @@ export function missingForMeal(meal) {
   return out;
 }
 
+// A missing ingredient as a list item, with the food the recipe says it is (Ricette v40).
+const mealItem = (m) => ({ name: m.name, qty: m.buy, unit: m.unit, note: m.note, ...(m.food ? { food: m.food } : {}), ...(m.foodPinned ? { foodPinned: true } : {}) });
+
 export function qtyText(qty, unit) {
   if (qty == null) return '';
   return [formatQty(qty, unit), unit === 'pcs' ? '' : unit].filter(Boolean).join(' ');
@@ -711,7 +714,7 @@ export function checkMealNow(meal) {
     </div>`, (form) => {
     const picked = [...form.querySelectorAll('input[name=m]:checked')].map((i) => missing[Number(i.value)]);
     if (!picked.length) return;
-    for (const m of picked) kitchen.addToShopping({ name: m.name, qty: m.buy, unit: m.unit, note: m.note }, meal.title);
+    for (const m of picked) kitchen.addToShopping(mealItem(m), meal.title);
       const g = ensureGroceries(get('blocks', meal.id));
     toast(t('groceriesPlanned', relDay(g.date), fmtTime(g.start)));
     changed();

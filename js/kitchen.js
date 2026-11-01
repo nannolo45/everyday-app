@@ -9,7 +9,7 @@
 //   all(collection) → records including deleted ones (optional; only ensureLowItems uses it)
 // Nothing here touches the screen; the host shows messages and saves.
 import { parseIngredient, convert, scaleQty, addQuantities, stepFor, normalizeName } from './parse.js';
-import { sameFood } from './foods.js';
+import { sameFood, foodFields } from './foods.js';
 
 export const num = (v) => { if (v === '' || v == null) return null; const n = parseFloat(String(v).replace(',', '.')); return Number.isFinite(n) ? n : null; };
 export const round = (x) => Math.round(x * 1000) / 1000;
@@ -24,7 +24,8 @@ export const atHome = (p) => (isLevel(p) ? levelOf(p) !== 'out' : (num(p?.qty) |
 
 /** A recipe's ingredients, parsed when they were stored as text only. */
 export function ingredientsOf(r) {
-  return (r?.ingredients || []).map((i) => (i.name == null ? parseIngredient(i.raw || '') : i));
+  // stored as text only (older imports): parsed here, keeping the other fields (group, food)
+  return (r?.ingredients || []).map((i) => (i.name == null ? { ...i, ...parseIngredient(i.raw || '') } : i));
 }
 
 /** Running low? { buy } = how much to buy (null for staples), or null. */
@@ -44,17 +45,21 @@ const codesOf = (p) => [...new Set([...(p.barcodes || []), ...(p.barcode ? [p.ba
 export function createKitchen({ live, get, upsert, remove, uid, all }) {
   const silent = { silent: true };
 
-  /** The pantry product for a name or an item: the same name first, else the same food. */
-  function findPantry(nameOrItem) {
+  /**
+   * The pantry product for a name or an item: the same name first, else the same food.
+   * `pantry`: optional list to search instead of the stored pantry (Everyday: the pantry by a meal's time).
+   */
+  function findPantry(nameOrItem, pantry = live('pantry')) {
     const name = typeof nameOrItem === 'string' ? nameOrItem : nameOrItem?.name;
-    const pantry = live('pantry');
     const n = normalizeName(name);
     return pantry.find((p) => normalizeName(p.name) === n) || pantry.find((p) => sameFood(p, nameOrItem)) || null;
   }
 
   /**
    * Add to the shopping list, merging into an open item of the same food when the units add up.
-   * item: { name, qty, unit, note, shops, cat }  (cat only when a person chose it). Returns the stored record.
+   * item: { name, qty, unit, note, shops, cat, food, foodPinned }  (cat only when a person chose it; food/foodPinned
+   * when the source has them, e.g. a recipe ingredient, else resolved from the name). Returns the stored record.
+   * A merge keeps the existing item's food.
    */
   function addToShopping(item, source) {
     const { name, qty, unit, note, shops } = item;
@@ -72,6 +77,7 @@ export function createKitchen({ live, get, upsert, remove, uid, all }) {
     return upsert('shopping', {
       id: uid(), name, qty: qty == null ? null : round(qty), unit: unit || '', note: note || '',
       checked: false, sources: source ? [source] : [], addedAt: Date.now(), ...(cat ? { cat } : {}), ...(shops && shops.length ? { shops } : {}),
+      ...foodFields(name, item),
     }, silent);
   }
 
@@ -85,7 +91,7 @@ export function createKitchen({ live, get, upsert, remove, uid, all }) {
       const unit = low && low.buy == null ? '' : p.unit || '';
       if (low) {
         if (!cur) {
-          upsert('shopping', { id, name: p.name, qty: low.buy, unit, checked: false, auto: true, pantryId: p.id, sources: [], addedAt: Date.now(), ...(p.cat ? { cat: p.cat } : {}) }, silent);
+          upsert('shopping', { id, name: p.name, qty: low.buy, unit, checked: false, auto: true, pantryId: p.id, sources: [], addedAt: Date.now(), ...(p.cat ? { cat: p.cat } : {}), ...foodFields(p.name, p) }, silent);
         } else if ((!cur.checked && (cur.qty ?? null) !== low.buy) || cur.name !== p.name || cur.unit !== unit) {
           upsert('shopping', { ...cur, name: p.name, qty: low.buy, unit }, silent);
         }
@@ -100,14 +106,18 @@ export function createKitchen({ live, get, upsert, remove, uid, all }) {
     }
   }
 
-  /** What a recipe needs for n people: [{ idx, name, unit, note, need, buy, covered, have }]. */
+  /**
+   * What a recipe needs for n people: [{ idx, name, unit, note, food, foodPinned, need, buy, covered, have }].
+   * usePantry: false, true (the stored pantry) or an array of pantry products to plan against.
+   */
   function planForRecipe(r, n, usePantry) {
     const base = r.servings || 4;
+    const pantry = Array.isArray(usePantry) ? usePantry : usePantry ? live('pantry') : null;
     return ingredientsOf(r).map((ing, idx) => {
       const need = scaleQty(ing.qty, base, n);
       let buy = need; let covered = false; let have = null;
-      if (usePantry) {
-        const p = findPantry(ing);
+      if (pantry) {
+        const p = findPantry(ing, pantry);
         if (p && isLevel(p)) {
           have = p;
           covered = atHome(p);
@@ -122,7 +132,7 @@ export function createKitchen({ live, get, upsert, remove, uid, all }) {
           }
         }
       }
-      return { idx, name: ing.name, unit: ing.unit, note: ing.note, need, buy, covered, have };
+      return { idx, name: ing.name, unit: ing.unit, note: ing.note, ...(ing.food ? { food: ing.food } : {}), ...(ing.foodPinned ? { foodPinned: true } : {}), need, buy, covered, have };
     });
   }
 
@@ -152,8 +162,9 @@ export function createKitchen({ live, get, upsert, remove, uid, all }) {
   }
 
   /**
-   * Put one bought item away. row: { name, qty, unit, expires, pantryId?, barcode?, brand?, packQty?, packUnit?, cat?, stocked? }
-   * Tops up the product (or creates it); a staple goes back to 'ok' and keeps its qty. Returns the pantry record.
+   * Put one bought item away. row: { name, qty, unit, expires, pantryId?, barcode?, brand?, packQty?, packUnit?, cat?, stocked?, food?, foodPinned? }
+   * Tops up the product (or creates it, copying food/foodPinned from the row); a staple goes back to 'ok' and keeps
+   * its qty. An existing product keeps its own food. Returns the pantry record.
    */
   function putAwayRow(row) {
     const tg = pantryTarget(row);
@@ -187,6 +198,7 @@ export function createKitchen({ live, get, upsert, remove, uid, all }) {
       id: uid(), name: String(row.name || '').trim(), qty: qty ?? 1, unit, expires: row.expires || null, min: null, target: null, addedAt: Date.now(),
       ...(row.barcode ? { barcode: row.barcode, barcodes: [row.barcode] } : {}), brand: row.brand || '', packQty: row.packQty || null, packUnit: row.packUnit || null,
       cat: row.cat || null, ...(row.lookupPending ? { lookupPending: true } : {}), ...(row.nameFromCode ? { nameFromCode: true } : {}),
+      ...foodFields(row.name, row),
     }, silent);
   }
 

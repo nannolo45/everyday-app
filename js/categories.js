@@ -60,6 +60,13 @@ export function categorize(name, offCategory) {
   return 'other';
 }
 
+/** The keyword rules alone (no Open Food Facts, no dictionary). */
+export function keywordCategory(name) {
+  const n = ` ${normalizeName(name)}`;
+  for (const [id, rx] of RULES) if (rx.test(n)) return id;
+  return 'other';
+}
+
 export const categoryOf = (item) => (item.cat && CATEGORY_IDS.includes(item.cat) ? item.cat : categorize(item.name));
 
 // Open Food Facts categories_tags → department

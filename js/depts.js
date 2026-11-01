@@ -2,7 +2,7 @@
 // from Ricette, in supermarket order) plus two for things that aren't food: household
 // (cleaning supplies, paper, bags…) and personal care. Ricette doesn't know these two, so it
 // shows such items under "Other".
-import { CATEGORIES, categorize } from './categories.js';
+import { CATEGORIES, categorize, keywordCategory } from './categories.js';
 import { normalizeName } from './parse.js';
 import { foodDept } from './foods.js';
 
@@ -32,4 +32,11 @@ export function deptOf(item) {
   const n = ` ${normalizeName(item.name || '')}`;
   for (const [id, , rx] of EXTRA) if (rx.test(n)) return id;
   return categorize(item.name || '');
+}
+
+/** The department the keyword rules alone give a name (no dictionary): what Ricette ≤ v38 and Everyday ≤ v38 stored. */
+export function keywordDept(name) {
+  const n = ` ${normalizeName(name || '')}`;
+  for (const [id, , rx] of EXTRA) if (rx.test(n)) return id;
+  return keywordCategory(name || '');
 }

@@ -628,11 +628,15 @@ export function foodOf(name) {
   return out;
 }
 
-/** An item's food: its stored `food` when known, else from its name. */
+/**
+ * An item's food: its stored `food` when known, else from its name.
+ * `foodPinned: true` with no `food` = a person said it's none of the dictionary's foods.
+ */
 export function foodOfItem(x) {
   if (!x) return null;
   if (typeof x === 'string') return foodOf(x);
   if (x.food && food(x.food)) return food(x.food).id;
+  if (x.foodPinned && !x.food) return null;
   return foodOf(x.name || x.raw || '');
 }
 
@@ -671,6 +675,48 @@ export function foodDept(nameOrItem) {
   if (FROZEN.test(s)) return 'frozen';
   if (d && CANNED.test(s) && (d === 'produce' || d === 'meatfish')) return 'staples';
   return d;
+}
+
+/**
+ * The `food` / `foodPinned` fields for a new record (v40 contract): copied from a source that has them
+ * (a recipe ingredient, a list item, a pantry product), else resolved from the name. {} when unknown.
+ */
+export function foodFields(name, from) {
+  if (from && (from.food || from.foodPinned)) return { ...(from.food ? { food: from.food } : {}), ...(from.foodPinned ? { foodPinned: true } : {}) };
+  const id = foodOf(name);
+  return id ? { food: id } : {};
+}
+
+/**
+ * After a rename: the record with `food` resolved again from the new name, unless a person pinned it.
+ */
+export function refood(rec, newName) {
+  if (!rec || rec.foodPinned) return rec;
+  const id = foodOf(newName);
+  const out = { ...rec };
+  if (id) out.food = id; else delete out.food;
+  return out;
+}
+
+/** Every food, built-in and the user's own (records). */
+export function allFoods() { return [...FOOD.values()]; }
+
+/** Foods whose names contain the query (any language), best first: whole-name starts, then contains. */
+export function searchFoods(q, lang = 'it', limit = 30) {
+  const s = simple(q);
+  if (!s) return [];
+  const scored = [];
+  for (const r of FOOD.values()) {
+    const names = [r[lang], r.it, r.en, r.de, ...(r.alt || []), ...(r.userAlt || [])].filter(Boolean).map(simple);
+    let score = 0;
+    for (const n of names) {
+      if (n === s) { score = 3; break; }
+      if (n.startsWith(s)) score = Math.max(score, 2);
+      else if (n.includes(s)) score = Math.max(score, 1);
+    }
+    if (score) scored.push([score, r]);
+  }
+  return scored.sort((a, b) => b[0] - a[0] || foodName(a[1].id, lang).localeCompare(foodName(b[1].id, lang))).slice(0, limit).map(([, r]) => r);
 }
 
 /** Counts as always at home (salt, pepper, oil, water, ice). */
