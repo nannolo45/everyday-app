@@ -13,17 +13,18 @@
 // storage and sync in store.js and sync.js.
 import { $, findCategory, fmtDay, modal, PPM, quickFields, range, relDay, route, seedCategories, TAB_OF, TABS, toast, ui, view } from './core.js';
 import { setupDrag } from './drag.js';
-import { openAddMenu, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, openMeal, openPlanSaved, openSavedPicker, openShopRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
+import { doShift, finishTimer, openAddMenu, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, openMeal, openPlanSaved, openSavedPicker, openShopRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
 import { t } from './i18n.js';
 import { isEvent } from './kinds.js';
 import { anchorOffset, autoChecks, checklistLeft, checkMissed, conflictsOn, eventOf, followParent, migrateBlocksToEvents, normalizeKinds, planTask, saveEvent, seedMeals, setOutcome, setStepOutcome, setTaskDone, syncEventTasks, travelTasks, trySetBlockDone, tryStep } from './model.js';
 import { fmtTime, isDate, parseTime, quickAdd, today } from './plan.js';
 import { addGhosts, assignDrop, autoHoursFor, fixConflict, placeGhosts, planEventTasks, planGroceryTrips, spreadDays, trayTasks, undoReflow, warnConflicts } from './planning.js';
-import { changed, currentDate, positionNow, released, render, renderIfSafe, renderShell, runSync, scheduleSync, syncScheduled, typing, updateSyncBadge } from './shell.js';
+import { changed, currentDate, positionNow, released, render, renderIfSafe, renderShell, runSync, scheduleSync, scrollToGhost, syncScheduled, typing, updateSyncBadge } from './shell.js';
 import { applySharedSettings, COLLECTIONS, get, live, load, onChange, remove, RICETTE, saveSettings, seedSharedSettings, state, uid, upsert } from './store.js';
 import { isConfigured, isSyncing, removeCalendarData } from './sync.js';
 import { applyTravel, ensureLegTasks, LEGS, legTemplate, pruneCache, scheduleTravelRefresh, setLegTask, travelBusy, travelCache, travelCfg, travelTimer } from './travel-plan.js';
 import { setupTrayDrag } from './tray.js';
+import { elapsedText, pauseTimer, resumeTimer, runningBlock } from './timer.js';
 import { showSteps } from './views/planner.js';
 import { leaveShop, onSorted, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName, SHOPS } from './views/shop.js';
 import { taskFilter } from './views/tasks.js';
@@ -122,6 +123,7 @@ view.addEventListener('change', (e) => {
     return;
   }
   if (action === 'block-done') {
+    if (el.checked && runningBlock()?.id === id) { finishTimer(); return; } // ticking the running one stops its timer
     const ok = trySetBlockDone(get('blocks', id), el.checked);
     if (!ok) { el.checked = false; return; }
     changed();
@@ -196,7 +198,7 @@ view.addEventListener('click', (e) => {
     if (tl && !e.target.closest('.block')) {
       const g = tl.getBoundingClientRect();
       const step = Math.max(Number(tl.dataset.snap) || 15, 15);
-      const m = Number(tl.dataset.start) + (e.clientY - g.top) / PPM;
+      const m = Number(tl.dataset.start) + (e.clientY - g.top) / (Number(tl.dataset.ppm) || PPM);
       openTask(null, null, { event: true, date: tl.dataset.date, start: Math.max(0, Math.floor(m / step) * step) });
       return;
     }
@@ -229,12 +231,19 @@ view.addEventListener('click', (e) => {
     case 'tray-toggle': ui.assign.open = !ui.assign.open; render(); break;
     case 'tray-planned': e.preventDefault(); ui.assign.showPlanned = !ui.assign.showPlanned; render(); break;
     case 'tray-why': e.preventDefault(); ui.assign.showWhy = !ui.assign.showWhy; render(); break;
+    case 'why-day': ui.view = 'day'; ui.scrolledFor = null; location.hash = `#/plan/${id}`; requestAnimationFrame(() => requestAnimationFrame(scrollToGhost)); break;
     case 'filter': saveSettings({ taskFilter: { ...taskFilter(), [id]: !taskFilter()[id] } }); render(); break;
     case 'filter-cat': saveSettings({ taskFilter: { ...taskFilter(), cat: taskFilter().cat === id ? '' : id } }); render(); break;
     case 'wipe-local': if (confirm(t('wipeLocalConfirm'))) { wipeLocalData().then(() => { toast(t('wipedLocal')); changed(); }); } break;
     case 'filter-clear': saveSettings({ taskFilter: { fix: false, recurring: false, place: false, cat: '' } }); render(); break;
     case 'compact': saveSettings({ compact: !state.settings.compact }); render(); break;
     case 'import': openImport(); break;
+    case 'timer-pause': pauseTimer(runningBlock()); changed(); break;
+    case 'timer-resume': resumeTimer(runningBlock()); changed(); break;
+    case 'timer-stop': finishTimer(); break;
+    case 'shift-rest': doShift(id); break;
+    case 'shift-keep': ui.lateStart = null; changed(); break;
+    case 'task-tools': saveSettings({ taskTools: !(state.settings.taskTools) }); render(); break;
     case 'assign-close': if (ui.assign) { ui.assign.ghosts = []; ui.assign.sel.clear(); ui.assign.open = false; } render(); break;
     case 'assign-opts': ui.assign.opts = !ui.assign.opts; render(); break;
     case 'assign-all': for (const x of trayTasks()) ui.assign.sel.add(x.id); render(); break;
@@ -274,7 +283,7 @@ view.addEventListener('click', (e) => {
     case 'event-plan': { const ev = eventOf(id); if (ev) planEventTasks(ev); break; }
     case 'open-block': { const b = get('blocks', id); if (b) openBlock(b); break; }
     case 'now-left': { const b = get('blocks', id); if (b) { setStepOutcome(b, btn.dataset.step, 'done'); toast(t('goodTrip')); changed(); } break; }
-    case 'now-done': { const b = get('blocks', id); if (b) { trySetBlockDone(b, true); changed(); } break; }
+    case 'now-done': { const b = get('blocks', id); if (b && runningBlock()?.id === id) finishTimer(); else if (b) { trySetBlockDone(b, true); changed(); } break; }
     case 'now-move': { const b = get('blocks', id); if (b) openBlock(b); break; }
     case 'reflow-undo': undoReflow(); break;
     case 'reflow-ok': ui.reflow = null; render(); break;
@@ -389,6 +398,7 @@ setupDrag(view, {
 });
 
 // The app name in the corner takes you back to the plan.
+$('#fab').addEventListener('click', () => openAddMenu({ fab: true }));
 $('#app-title').addEventListener('click', () => {
   if (route().name === 'today') window.scrollTo({ top: 0, behavior: 'smooth' }); else location.hash = '#/today';
 });
@@ -479,6 +489,7 @@ async function boot() {
     if (tab === 'plan' && lastTab !== 'plan') ui.scrolledFor = null; // back on the planner: jump to now again
     // Back to today from another day (the "Today" button): show now again.
     if (tab === 'plan' && currentDate() === today() && ui.shownDate && ui.shownDate !== today()) ui.scrolledFor = null;
+    if (lastTab === 'tasks' && tab !== 'tasks') ui.justAdded?.clear(); // "Just added" lasts until you leave the tab
     lastTab = tab;
     render();
     if (tab !== 'plan') window.scrollTo(0, 0);
@@ -489,6 +500,8 @@ async function boot() {
   $('#sync').addEventListener('click', runSync);
   handleShortcut();
   runSync();
+  // A running timer's clock, between redraws.
+  setInterval(() => { const el = document.getElementById('run-time'); const b = runningBlock(); if (el && b) el.textContent = elapsedText(b); }, 15000);
   // Every minute: move the "now" line, and pick up changes from other devices.
   let day = today();
   setInterval(() => {

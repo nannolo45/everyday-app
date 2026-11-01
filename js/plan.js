@@ -123,7 +123,7 @@ export function quickAdd(text, todayStr = today()) {
     else if (out.time == null && TIME_PREP.includes(lw) && words[i + 1] && (m = words[i + 1].match(/^(\d{1,2})(?:[:.](\d{2}))?$/)) && Number(m[1]) < 24) { out.time = Number(m[1]) * 60 + Number(m[2] || 0); i++; }
     else if (out.minutes == null && /^\d/.test(w) && /[hm]|min/i.test(w) && parseDuration(w) != null) out.minutes = parseDuration(w);
     else if (!out.importance && (m = w.match(/^!([1-5])$/))) { out.importance = 6 - Number(m[1]); out.priority = Number(m[1]) <= 3 ? Number(m[1]) : 0; }
-    else if (!out.category && (m = w.match(/^#(\S+)$/))) out.category = m[1];
+    else if ((m = w.match(/^#(\S+)$/))) { if (!out.category) out.category = m[1]; else (out.moreCats ||= []).push(m[1]); }
     else if (!out.repeat && ['ogni', 'every', 'jeden'].includes(lw) && words[i + 1] && dayIndex(words[i + 1]) >= 0) { const wd = dayIndex(words[i + 1]); out.repeat = 'weekly'; out.repeatDays = [((wd + 6) % 7) + 1]; out.due = out.due || (weekday(todayStr) === wd ? todayStr : nextWeekday(todayStr, wd)); i++; }
     else if (!out.due && ['entro', 'by', 'bis'].includes(lw) && words[i + 1] && (dayIndex(words[i + 1]) >= 0 || REL_DAYS[words[i + 1].toLowerCase()] != null)) { const n = words[i + 1].toLowerCase(); out.due = REL_DAYS[n] != null ? addDays(todayStr, REL_DAYS[n]) : nextWeekday(todayStr, dayIndex(n)); i++; }
     else if (!out.due && REL_DAYS[lw] != null) out.due = addDays(todayStr, REL_DAYS[lw]);

@@ -10,7 +10,7 @@ import { get, live, remove, saveSettings, state, upsert } from './store.js';
 import { SH, shopName, shopsList } from './views/shop.js';
 import { manualOrder, passesFilter, sortTaskList } from './views/tasks.js';
 import { currentView, ghostsOn, weekStart } from './views/planner.js';
-import { changed, currentDate, render } from './shell.js';
+import { changed, currentDate, render, scrollToGhost } from './shell.js';
 
 // Plan the event's open, unplanned tasks over the days up to their due dates (after-the-event ones from
 // the event on), the way the planner would.
@@ -135,6 +135,20 @@ export function planPlacements(ids, dates) {
   const { items } = planningItems(tasks, dates);
   const dayInfo = (d) => ({ date: d, blocks: busyOn(d).filter((b) => !b.allowOverlap), from: Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((now + 5) / 5) * 5 : 0), to: autoHoursFor(d)[1] });
   return spreadWithSplit(items, dates.map(dayInfo), s).placed;
+}
+// Where a new task would go "as soon as possible" over the next week (nothing stored; for the + sheet).
+export function suggestSlot(x) {
+  const s = planSettings(); const td = today(); const now = nowMinutes();
+  const dates = Array.from({ length: 7 }, (_, i) => addDays(td, i));
+  const dayInfo = (d) => ({ date: d, blocks: busyOn(d).filter((b) => !b.allowOverlap), from: Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((now + 5) / 5) * 5 : 0), to: autoHoursFor(d)[1] });
+  const item = { id: 'new', taskId: 'new', title: x.title || '', minutes: x.minutes || 30, due: x.due || null, importance: x.importance || 3, priority: x.priority || 0, createdAt: Date.now() };
+  return spreadTasks({ tasks: [item], days: dates.map(dayInfo), settings: s }).placed[0] || null;
+}
+// Plan a stored task as soon as possible (the planner's rules, the next 7 days); the first block or null.
+export function planSoon(x) {
+  const td = today();
+  const blocks = planPlacements([x.id], Array.from({ length: 7 }, (_, i) => addDays(td, i))).map((p) => placeBlock(get('tasks', x.id), p));
+  return blocks[0] || null;
 }
 const leadOfItem = (it) => (it.stepId && !(it.prep || []).length ? 0 : leadOf(get('tasks', it.taskId)));
 // Step items for a task, one after another (the first one keeps the task's prerequisites and prep).
@@ -361,14 +375,24 @@ export function placeGhosts(ids, dates, minute = null) {
   if (skipped.length) toast(skipNote(skipped), 6000);
   else if (placed.length) toast(t('spreadPreview', placed.length));
   render();
+  if (placed.length && minute == null) requestAnimationFrame(scrollToGhost);
 }
 // Why some tasks weren't placed, in one line: "Meldebescheinigung waits for SPID livello 3 · Call: no free window".
 export function skipNote(skipped) {
-  const seen = new Set(); const parts = [];
+  // One part per reason; past three tasks for a reason: the first two and "and N more".
+  const seen = new Set(); const byWhy = new Map(); const parts = [];
   for (const x of skipped) {
     const title = get('tasks', x.taskId)?.title || '';
     if (seen.has(x.taskId)) continue; seen.add(x.taskId);
-    parts.push(x.why === 'needs' ? t('whyNeeds', title, x.name) : x.why === 'window' ? t('whyWindow', title) : x.why === 'toolong' ? t('whyLong', title) : x.why === 'waiting' ? t('whyWaiting', title) : t('whyFull', title));
+    if (x.why === 'needs') { parts.push(t('whyNeeds', title, x.name)); continue; }
+    const k = ['window', 'toolong', 'waiting'].includes(x.why) ? x.why : 'full';
+    if (!byWhy.has(k)) byWhy.set(k, []);
+    byWhy.get(k).push(title);
+  }
+  const KEY = { window: 'whyWindow', toolong: 'whyLong', waiting: 'whyWaiting', full: 'whyFull' };
+  for (const [k, titles] of byWhy) {
+    const names = titles.length > 3 ? t('andMore', titles.slice(0, 2).join(', '), titles.length - 2) : titles.join(', ');
+    parts.push(t(KEY[k], names));
   }
   return parts.join(' · ');
 }

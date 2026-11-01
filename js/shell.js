@@ -11,6 +11,7 @@ import { scheduleTravelRefresh } from './travel-plan.js';
 import { SH } from './views/shop.js';
 import { gcalNow } from './connections.js';
 import { hydratePhotos } from './editors.js';
+import { lateBannerHtml, timerBarHtml } from './timer.js';
 import { viewSettings } from './views/settings.js';
 import { viewTasks } from './views/tasks.js';
 import { currentView, viewPlan } from './views/planner.js';
@@ -113,6 +114,12 @@ export function render() {
   for (const a of document.querySelectorAll('nav a')) a.classList.toggle('active', a.dataset.tab === (TAB_OF[r.name] || 'today'));
   $('#gear')?.classList.toggle('active', r.name === 'settings');
   document.body.classList.toggle('compact', Boolean(state.settings.compact));
+  // The + button: on Oggi, Eventi and Attività (the shopping list and the Planner have their own).
+  const fab = $('#fab');
+  if (fab) {
+    fab.hidden = !(['today', 'events', 'tasks'].includes(r.name) && !(r.name === 'tasks' && (ui.tasksTab || state.settings.tasksTab) === 'shop'));
+    fab.setAttribute('aria-label', t('addMenuFab')); fab.title = t('addMenuFab');
+  }
   updateShopCount();
   let html;
   switch (r.name) {
@@ -123,6 +130,8 @@ export function render() {
     case 'plan': html = viewPlan(currentDate()); break;
     default: html = viewToday();
   }
+  // A running timer shows on every tab (not Settings); a late start's offer on Today.
+  if (r.name !== 'settings') html = timerBarHtml() + (r.name === 'today' ? lateBannerHtml() : '') + html;
   // Nothing changed (e.g. a sync that found no news): leave the page alone. Replacing it
   // anyway is what made the screen flicker and fields lose what you were typing.
   if (html === ui.lastHtml && view.childElementCount) { positionNow(); settleScroll(r); return; }
@@ -160,13 +169,20 @@ export function positionNow() {
   const line = $('#now-line');
   const tl = line?.closest('.timeline');
   if (!line || !tl) return;
-  const start = Number(tl.dataset.start);
-  const end = start + tl.offsetHeight / PPM;
+  const start = Number(tl.dataset.start); const ppm = Number(tl.dataset.ppm) || PPM;
+  const end = start + tl.offsetHeight / ppm;
   const now = nowMinutes();
   line.hidden = now < start || now > end;
-  line.style.top = `${(now - start) * PPM}px`;
+  line.style.top = `${(now - start) * ppm}px`;
 }
 
+// Previews just placed: bring the first one on screen into view (above the drawer).
+export function scrollToGhost() {
+  const g = [...document.querySelectorAll('.timeline .block.ghost.assign')].sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0];
+  if (!g) return;
+  const y = g.getBoundingClientRect().top + window.scrollY - window.innerHeight * 0.25;
+  window.scrollTo(0, Math.max(0, y));
+}
 // On opening a day: scroll to "now" (today) or the first block (other days).
 export function scrollTimeline() {
   const nowLine = $('#now-line');

@@ -1,5 +1,5 @@
 // views/tasks.js: moved from app.js (v36). See app.js for how the modules fit together.
-import { advancedOn, categories, catName, esc, hint, relDay, ui } from '../core.js';
+import { advancedOn, categories, catName, catsOf, esc, hint, relDay, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { isMealType, isSaved, isStep, isTodo } from '../kinds.js';
 import { alreadyPlanned, eventOf, nextPlanned, offsetText, openTasks, prepOf, prereqsOf, savedGroups, savedInfo, taskIssues, templates, timesDone } from '../model.js';
@@ -47,8 +47,7 @@ export function sortPicker(id, mode) {
 // Search: case and accents don't matter; every word must appear in the title, notes, place, category, steps,
 // checklist or rule names.
 export function taskHay(x) {
-  const cat = get('categories', x.category);
-  return fold([x.title, x.notes, x.place, cat ? catName(cat) : '', ...(x.steps || []).map((y) => y.title), ...(x.checklist || []).map((c) => c.text || c.title || c), ...(x.rules || []).map((r) => r.title)].join(' '));
+  return fold([x.title, x.notes, x.place, ...catsOf(x).map((c) => catName(get('categories', c))), ...(x.steps || []).map((y) => y.title), ...(x.checklist || []).map((c) => c.text || c.title || c), ...(x.rules || []).map((r) => r.title)].join(' '));
 }
 // Groups by date in the task list (Settings → Task list): today, tomorrow and "soon" can be switched
 // on or off; a group that's off hands its tasks to the next one that's on ("later" is always there).
@@ -78,7 +77,7 @@ export function passesFilter(x) {
   if (f.fix && !taskIssues(x).length) return false;
   if (f.recurring && !(x.repeat)) return false;
   if (f.place && !x.place) return false;
-  if (f.cat && (x.category || '') !== f.cat) return false;
+  if (f.cat && !catsOf(x).includes(f.cat)) return false;
   return true;
 }
 export function filterBar() {
@@ -90,6 +89,7 @@ export function filterBar() {
     ${filterActive() ? `<button type="button" class="fchip clear" data-action="filter-clear">✕ ${esc(t('clearFilters'))}</button>` : ''}
   </div>`;
 }
+function filterCount() { const f = taskFilter(); return ['fix', 'recurring', 'place', 'cat'].filter((k) => f[k]).length; }
 export function folded(key) { return (state.settings.folded ?? ['grp_done']).includes(key); }
 export function foldBtn(key, label, n, { open = !folded(key) } = {}) {
   return `<button class="fold" type="button" data-action="fold" data-id="${esc(key)}" aria-expanded="${open}"><span class="fold-ico">▸</span> ${esc(label)} <small>${n}</small></button>`;
@@ -132,7 +132,10 @@ export function viewTasks(force = null) {
       ${isFolded('preps') ? '' : `${hint('prepsHint')}${helpers.length ? `<ul class="list preps">${helpers.map(prepRow).join('')}</ul>` : `${hint('noPreps')}`}`}
     </section>` : ''}`;
   }
-  const g = groupTasks(all.filter((x) => isTodo(x) && hit(x)), td);
+  // Just added (from the + sheet): on top, highlighted, until you leave the tab.
+  const fresh = [...(ui.justAdded || [])].map((id) => get('tasks', id)).filter((x) => x && isTodo(x) && !x.done && !x.deleted);
+  const freshIds = new Set(fresh.map((x) => x.id));
+  const g = groupTasks(all.filter((x) => isTodo(x) && hit(x) && !freshIds.has(x.id)), td);
   const mode = state.settings.taskSort || 'smart';
   const manual = mode === 'manual' && !q; // no dragging while the list is filtered
   // Two parts: to plan (grouped by due date) and already planned (grouped by the day they're on).
@@ -154,16 +157,16 @@ export function viewTasks(force = null) {
     </section>`;
   };
   const open = openList.length;
+  // Adding lives in the + button (all tabs); sorting, compact and the filters fold behind one button.
+  const nF = filterCount();
+  const toolsOpen = Boolean(state.settings.taskTools) || nF > 0;
   return `${switcher}
-  <form id="task-add" class="row">
-    <input id="task-input" name="title" autocomplete="off" placeholder="${esc(t('addTaskPh'))}">
-    <button class="btn primary">${esc(t('add'))}</button>
-  </form>
-  ${hint('quickHint')}
-  <div class="task-tools">${search}${sortPicker('task-sort', mode)}<button class="btn small${state.settings.compact ? ' on' : ''}" type="button" data-action="compact" aria-pressed="${Boolean(state.settings.compact)}" title="${esc(t('compactHint'))}">≡ ${esc(t('compact'))}</button><button class="btn small" type="button" data-action="import">⤓ ${esc(t('importTasks'))}</button></div>
-  ${filterBar()}
+  <div class="task-tools">${search}<button class="btn small tools-btn${toolsOpen ? ' on' : ''}" type="button" data-action="task-tools" aria-expanded="${toolsOpen}">${esc(t('filtersSort'))}${nF ? ` · ${nF}` : ''}</button></div>
+  ${toolsOpen ? `<div class="task-tools more">${sortPicker('task-sort', mode)}<button class="btn small${state.settings.compact ? ' on' : ''}" type="button" data-action="compact" aria-pressed="${Boolean(state.settings.compact)}" title="${esc(t('compactHint'))}">≡ ${esc(t('compact'))}</button></div>
+  ${filterBar()}` : ''}
+  ${fresh.length ? `<section class="just-added"><h2 class="part-h ja-h">${esc(t('justAdded'))} <small>${fresh.length}</small></h2><ul class="list tasks fresh">${fresh.map((x) => taskRow(x)).join('')}</ul></section>` : ''}
   ${manual && !q ? `${hint('manualHint')}` : ''}
-  ${open || g.done.length ? '' : `<p class="empty">${esc(q || filterActive() ? t('noMatch') : t('noTasks'))}</p>`}
+  ${open || fresh.length || g.done.length ? '' : `<p class="empty">${esc(q || filterActive() ? t('noMatch') : t('noTasks'))}</p>`}
   ${part('part_toplan', t('partToPlan'), toPlan, dateBuckets(toPlan, (x) => x.due, td), (l) => sortTaskList(l, mode))}
   ${part('part_planned', t('partPlanned'), planned, dateBuckets(planned, (x) => nextPlanned(x.id)?.date, td), byWhen, t('partPlannedHint'))}
   ${g.done.length ? `<section class="fold-sec grp-sec">${foldBtn('grp_done', t('grp_done'), g.done.length, { open: !isFolded('grp_done') })}
@@ -222,8 +225,7 @@ export function taskRow(x, { drag = false } = {}) {
   for (const y of (x.steps || []).filter((z) => z.travel && z.lookup !== false)) bits.push(`${MODE_ICON[y.mode] || '🚌'} ${y.known ? esc(fmtDur(y.minutes)) : '?'}`);
   if (bufferOf(x) > 0 && (x.steps || []).some((z) => z.buffer)) bits.push(`⏳ ${esc(fmtDur(bufferOf(x)))}`);
   if (x.prep?.length) bits.push(`↳ ${esc(prepOf(x).map((p) => p.task.title).join(', '))}`);
-  const cat = get('categories', x.category);
-  if (cat) bits.push(`<span class="cat" style="--c:${esc(cat.color)}">${esc(catName(cat))}</span>`);
+  for (const c of catsOf(x).map((id) => get('categories', id))) bits.push(`<span class="cat" style="--c:${esc(c.color)}">${esc(catName(c))}</span>`);
   const planned = live('blocks').filter((b) => b.taskId === x.id && !b.done && b.date >= td && b.kind !== 'prep').sort((a, b) => ((a.date + a.start) < (b.date + b.start) ? -1 : 1))[0];
   if (planned && !x.done) bits.push(`<span class="badge">${esc(t('plannedAt', relDay(planned.date), fmtTime(planned.start)))}</span>`);
   return `<li class="imp-${importanceOf(x)}${taskIssues(x).length ? ' has-iss' : ''}" ${drag ? `data-sort-key="${esc(x.id)}"` : ''}>

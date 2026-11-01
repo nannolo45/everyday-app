@@ -1,4 +1,5 @@
 // views/today.js: moved from app.js (v36). See app.js for how the modules fit together.
+import { runningBlock } from '../timer.js';
 import { catColor, esc, fmtDay, planSettings, relDay, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { isEvent } from '../kinds.js';
@@ -38,7 +39,8 @@ export function viewToday() {
   const next = upcoming.find((b) => b.start > now);
   // The card: your own block that is running, or one you must leave for within 15 minutes (even during
   // an appointment); else whatever is on now, else the next thing of the day.
-  const curBlock = open.find((b) => b.start <= now && b.start + b.minutes > now);
+  const run = runningBlock(); // a timer running: that's the card, whatever else overlaps
+  const curBlock = (run && open.find((b) => b.id === run.id)) || open.find((b) => b.start <= now && b.start + b.minutes > now);
   const nextBlock = open.find((b) => b.start > now);
   const card = curBlock || (nextBlock && nextBlock.start - now <= 15 ? nextBlock : null) || current || next;
   const lg = card && !card.isEvent ? legTimes(card) : null;

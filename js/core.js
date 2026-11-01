@@ -6,7 +6,7 @@ import { addDays, fmtTime, parseDate, today } from './plan.js';
 import { get, has, live, remove, state, uid, upsert } from './store.js';
 
 // Shown under Settings; keep in step with VERSION in sw.js (a unit test checks).
-export const APP_VERSION = 'v47';
+export const APP_VERSION = 'v49';
 
 export const $ = (sel, root = document) => root.querySelector(sel);
 // Hints that were emptied in i18n (the guide explains instead) render nothing.
@@ -45,12 +45,19 @@ export const kitchenOwn = makeKitchen({
   remove: (c, id) => remove(c, id),
 }, { pantry: 'r_pantry', shopping: 'shopping' });
 
-export function toast(msg, ms = 3200) {
+// A short message at the bottom. With actions ([{label, run}]) it holds buttons (Cambia, Annulla…) and
+// stays a little longer.
+export function toast(msg, ms = 3200, actions = null) {
   const el = $('#toast');
-  el.textContent = msg;
+  const hide = () => { el.classList.remove('show', 'act'); el.onclick = null; };
+  if (actions?.length) {
+    el.innerHTML = `<span class="t-msg">${esc(msg)}</span>${actions.map((a, i) => `<button type="button" data-i="${i}">${esc(a.label)}</button>`).join('')}`;
+    el.classList.add('act');
+    el.onclick = (e) => { const b = e.target.closest('button[data-i]'); if (!b) return; hide(); actions[Number(b.dataset.i)].run(); };
+  } else { el.textContent = msg; el.classList.remove('act'); el.onclick = null; }
   el.classList.add('show');
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => el.classList.remove('show'), ms);
+  toast.timer = setTimeout(hide, actions?.length ? Math.max(ms, 8000) : ms);
 }
 
 export function route() {
@@ -85,11 +92,26 @@ export function planSettings() {
 export function categories() { return live('categories').sort((a, b) => (a.order ?? 99) - (b.order ?? 99) || catName(a).localeCompare(catName(b))); }
 export function catName(c) { return c ? (c.name || t(`cat_${c.key}`)) : ''; }
 export function catColor(id) { return get('categories', id)?.color || ''; }
+// A task's categories (v48): \`category\` is the main one (its colour, what blocks and Google get),
+// \`moreCats\` the others. Filters, search and the task list use them all.
+export const catsOf = (x) => [...new Set([x?.category, ...(x?.moreCats || [])].filter((c) => c && get('categories', c)))];
+// Category chips where several can be on; the main one is marked.
+export function catChipsMulti(x, name = 'cats') {
+  const on = catsOf(x);
+  const chip = (c) => `<label class="cat-chip" style="--c:${esc(c.color || 'var(--line)')}"><input type="checkbox" name="${name}" value="${esc(c.id)}" ${on.includes(c.id) ? 'checked' : ''}><span><i class="cat-dot"></i>${esc(catName(c))}${on[0] === c.id && on.length > 1 ? ` <small class="cat-main">${esc(t('catMain'))}</small>` : ''}</span></label>`;
+  return `<div class="cat-chips multi" role="group" aria-label="${esc(t('category'))}">${categories().map(chip).join('')}</div><small class="hint">${esc(t('catsHint'))}</small>`;
+}
+// Reads them back: the main one stays if still ticked, else the first ticked.
+export function readCats(form, x, name = 'cats') {
+  const picked = [...form.querySelectorAll(`input[name="${name}"]:checked`)].map((i) => i.value);
+  const main = picked.includes(x.category) ? x.category : picked[0] || null;
+  return { category: main, moreCats: picked.filter((c) => c !== main) };
+}
 // A task from what quick add parsed ("Dentist 1h !2 #health @Via Roma 12 fri").
 export function quickFields(q) {
   return {
     kind: 'todo', title: q.title, minutes: q.minutes || 30, lenSet: Boolean(q.minutes), priority: q.priority, importance: q.importance || 3,
-    category: findCategory(q.category), due: q.due || null, repeat: q.repeat || null, repeatDays: q.repeatDays || undefined, seriesFrom: q.repeat ? q.due : undefined,
+    category: findCategory(q.category), moreCats: [...new Set((q.moreCats || []).map(findCategory).filter(Boolean))], due: q.due || null, repeat: q.repeat || null, repeatDays: q.repeatDays || undefined, seriesFrom: q.repeat ? q.due : undefined,
     place: q.place || '', notes: '', done: false,
   };
 }

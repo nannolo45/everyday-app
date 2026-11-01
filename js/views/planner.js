@@ -129,13 +129,14 @@ export function viewDay(date) {
   const inConflict = new Set(conflictsOn(date).flatMap((c) => c.ids));
   const laid = layoutBlocks([...blocks, ...events]);
   const isToday = date === td;
+  P = scaleFor([...blocks, ...events, ...ghostsOn(date)]);
 
 
   return `
       ${conflictBanner(date)}
       ${allDay.length ? `<div class="allday">${allDay.map((e) => `<button class="allday-chip" type="button" data-action="event" data-id="${esc(e.id)}" style="--c:${esc(e.color)}">${esc(e.title)}</button>`).join('')}</div>` : ''}
-      <div class="timeline" data-start="${startMin}" data-ppm="${PPM}" data-snap="${s.snap}" data-date="${date}" style="height:${(endMin - startMin) * PPM}px">
-        ${hours.map((m) => `<div class="hour" style="top:${(m - startMin) * PPM}px"><span>${fmtTime(m)}</span></div>`).join('')}
+      <div class="timeline" data-start="${startMin}" data-ppm="${P}" data-snap="${s.snap}" data-date="${date}" style="height:${(endMin - startMin) * P}px">
+        ${hours.map((m) => `<div class="hour" style="top:${(m - startMin) * P}px"><span>${fmtTime(m)}</span></div>`).join('')}
         ${isToday ? '<div class="now" id="now-line" hidden></div>' : ''}
         ${laid.map((b) => (b.isEvent ? eventHtml(b, startMin, inConflict.has(b.id)) : blockHtml(b, startMin, inConflict.has(b.id)))).join('')}
         ${ghostsOn(date).map((g) => assignGhostHtml(g, startMin)).join('')}
@@ -145,6 +146,7 @@ export function viewDay(date) {
 
 // Week: seven day columns side by side. Blocks can be dragged within a day and across days.
 export function viewWeek(date) {
+  P = PPM;
   const td = today();
   const s = state.settings;
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart(date), i));
@@ -222,6 +224,11 @@ export function glance() { return new Set(state.settings.glance || GLANCE_DEFAUL
 
 
 
+// Pixels per minute of the time line being drawn: the Day view zooms in when short things are on it,
+// so a 15-minute block (or preview) is tall enough to read; the Week view keeps the base scale.
+let P = PPM;
+const SHORT_ZOOM = 1.8;
+export const scaleFor = (items) => (items.some((x) => (x.minutes || 0) + (x.lead || 0) < 30) ? SHORT_ZOOM : PPM);
 export const KIND_ICON = { prep: '↳ ', meal: '🍽 ', groceries: '🛒 ', followup: '↪ ' };
 
 
@@ -245,13 +252,13 @@ export function blockHtml(b, startMin, conflict, compact = false) {
   const stepsIn = st.length && showSteps() && b.cols === 1 && !compact && b.minutes >= 30;
   if (st.length && !stepsIn && status !== 'failed' && status !== 'partial') extra += `<span class="mini-badge">▤ ${status === 'done' ? st.length : st.filter((y) => y.state === 'done').length}/${st.length}</span>`;
   const stepsHtml = stepsIn ? `<div class="blk-steps">${st.map((y, i) => {
-    const hpx = (y.end - y.start) * PPM;
-    return `<div class="blk-step${i ? '' : ' first'}${hpx < 16 ? ' tight' : ''}${y.state ? ` ${y.state}` : status === 'done' ? ' done' : status === 'partial' ? ' later' : ''}" style="top:${(y.start - b.start) * PPM}px;height:${hpx}px">
+    const hpx = (y.end - y.start) * P;
+    return `<div class="blk-step${i ? '' : ' first'}${hpx < 16 ? ' tight' : ''}${y.state ? ` ${y.state}` : status === 'done' ? ' done' : status === 'partial' ? ' later' : ''}" style="top:${(y.start - b.start) * P}px;height:${hpx}px">
       ${hpx >= 11 ? `${stepCheck(b, y)}<span class="st-title${y.travel && !y.known ? ' unknown' : ''}">${y.travel ? `${MODE_ICON[y.mode] || '🚌'} ` : ''}${y.travel && !y.known ? '? ' : ''}${esc(y.title)}</span><span class="st-time">${fmtTime(y.start)}</span>` : ''}</div>`;
   }).join('')}</div>` : '';
   const isEv = Boolean(b.taskId && isEvent(get('tasks', b.taskId)));
   return `<div class="block${stepsIn ? ' with-steps' : ''}${status ? ` ${status}` : ''}${status === 'failed' ? ' done' : ''}${short ? ' short' : ''}${conflict ? ' conflict' : ''}${b.kind ? ` k-${b.kind}` : ''}${isEv ? ' own-event' : ''}" data-id="${esc(b.id)}" data-start="${b.start}" data-minutes="${b.minutes}"
-    style="--c:${esc(color)};top:${(b.start - startMin) * PPM}px;height:${Math.max(b.minutes * PPM, 16)}px;left:${left};width:${width}">
+    style="--c:${esc(color)};top:${(b.start - startMin) * P}px;height:${Math.max(b.minutes * P, 16)}px;left:${left};width:${width}">
     ${status === 'partial' ? `<span class="blk-check part" aria-label="${esc(t('partlyDone'))}" title="${esc(t('partlyDone'))}">◐</span>` : `<input type="checkbox" class="blk-check" data-action="block-done" data-id="${esc(b.id)}" ${status === 'done' ? 'checked' : ''} aria-label="${esc(t('markDone'))}">`}
     <div class="blk-body">
       <div class="blk-title">${conflict ? '<span class="warn-ico">⚠</span> ' : ''}${KIND_ICON[b.kind] || ''}${isEv ? '📅 ' : ''}${esc(b.title)}${b.seriesId ? ' <span class="series-ico" title="' + esc(t('recurring')) + '">↻</span>' : ''} ${extra}</div>
@@ -266,7 +273,7 @@ export function eventHtml(e, startMin, conflict) {
   const left = `calc(${(e.col / e.cols) * 100}% + 1px)`;
   const width = `calc(${100 / e.cols}% - 3px)`;
   return `<div class="block event${e.busy === false ? ' free' : ''}${e.minutes < 30 ? ' short' : ''}${conflict ? ' conflict' : ''}" data-id="${esc(e.id)}"
-    style="--c:${esc(e.color || '#6b7280')};top:${(e.start - startMin) * PPM}px;height:${Math.max(e.minutes * PPM, 16)}px;left:${left};width:${width}">
+    style="--c:${esc(e.color || '#6b7280')};top:${(e.start - startMin) * P}px;height:${Math.max(e.minutes * P, 16)}px;left:${left};width:${width}">
     <div class="blk-body"><div class="blk-title">${conflict ? '<span class="warn-ico">⚠</span> ' : ''}${esc(e.title)}</div>
     <div class="blk-time">${range(e.start, e.minutes)} · ${esc(e.calendar)}</div></div></div>`;
 }
@@ -346,8 +353,8 @@ export function trayHtml() {
     ${list.length ? `<div class="tray-list">${body}</div>` : `<p class="hint tray-hint">${esc(q ? t('noMatch') : a.ghosts.length ? t('trayAllPlaced') : t('trayEmpty'))}</p>`}
     ${hint ? `<p class="hint tray-hint">${esc(hint)}</p>` : ''}
     ${plannedList(planned, 'tray-planned', a.showPlanned)}` : ''}
-    ${a.ghosts.length ? `<details class="tray-planned tray-why"${a.showWhy ? ' open' : ''}><summary data-action="tray-why">✦ ${esc(t('whyThese'))} <small>${a.ghosts.length}</small></summary>
-      ${[...a.ghosts].sort((x, y) => (x.date === y.date ? x.start - y.start : x.date < y.date ? -1 : 1)).map((g) => `<a class="tp-planned" href="#/plan/${esc(g.date)}" style="--c:${esc(catColor(get('tasks', g.taskId)?.category) || 'var(--accent)')}"><span class="tp-dot"></span><span>${esc(ghostTitle(g))}<small class="why-line">${esc(ghostWhy(g) || t('noReason'))}</small></span><small>${esc(relDay(g.date))} ${esc(fmtTime(g.start))}</small></a>`).join('')}
+    ${a.ghosts.length ? `<details class="tray-planned tray-why"${a.showWhy ? ' open' : ''}><summary data-action="tray-why">✦ ${esc(t('previewList'))} <small>${a.ghosts.length}</small></summary>
+      <div class="why-list">${previewListHtml(a.ghosts)}</div>
     </details>` : ''}
     <div class="tray-actions">
       ${all.length && !a.ghosts.length ? (sel.length ? `<button class="btn primary spread" type="button" data-action="assign-spread">✦ ${esc(t('spreadSel', spreadLabel()))}</button>` : `<button class="btn primary spread" type="button" data-action="auto">✦ ${esc(t('planBtn'))}</button>`) : ''}
@@ -357,6 +364,14 @@ export function trayHtml() {
         <button class="btn primary" type="button" data-action="assign-add">${esc(t('addN', a.ghosts.length))}</button>` : ''}
     </div>
   </div>`;
+}
+// The previews as a list, by day: a day's name opens it in the Day view; ✕ takes one back.
+function previewListHtml(ghosts) {
+  const byDay = new Map();
+  ghosts.map((g, i) => ({ ...g, i })).sort((x, y) => (x.date === y.date ? x.start - y.start : x.date < y.date ? -1 : 1))
+    .forEach((g) => { if (!byDay.has(g.date)) byDay.set(g.date, []); byDay.get(g.date).push(g); });
+  return [...byDay].map(([date, gs]) => `<div class="why-day"><button type="button" class="linkish" data-action="why-day" data-id="${esc(date)}">${esc(relDay(date))}</button><small>${gs.length} · ${esc(fmtDur(gs.reduce((n, g) => n + g.minutes, 0)))}</small></div>
+    ${gs.map((g) => `<div class="why-row" style="--c:${esc(catColor(get('tasks', g.taskId)?.category) || 'var(--accent)')}"><span class="why-time">${esc(fmtTime(g.start))}</span><span class="why-main"><span class="why-title">${esc(ghostTitle(g))}</span><small class="why-line">${esc([fmtDur(g.minutes), ghostWhy(g)].filter(Boolean).join(' · '))}</small></span><button type="button" class="icon why-x" data-action="ghost-rm" data-i="${g.i}" aria-label="${esc(t('takeBack', ghostTitle(g)))}">✕</button></div>`).join('')}`).join('');
 }
 export function ghostTitle(g) {
   const task = get('tasks', g.taskId);
@@ -369,6 +384,8 @@ export function ghostWhy(g) { return g.reasons?.length ? reasonText(g.reasons) :
 export function ghostTip(g) { return [ghostWhy(g), t('ghostTap')].filter(Boolean).join(' — '); }
 export function assignGhostHtml(g, startMin) {
   const task = get('tasks', g.taskId);
-  return `<div class="block ghost assign" data-action="ghost-rm" data-i="${g.i}" data-start="${g.start - (g.lead || 0)}" data-minutes="${g.minutes + (g.lead || 0)}" title="${esc(ghostTip(g))}" style="--c:${esc(catColor(task?.category) || 'var(--accent)')};top:${(g.start - (g.lead || 0) - startMin) * PPM}px;height:${Math.max((g.minutes + (g.lead || 0)) * PPM, 16)}px;left:1px;right:3px">
-    <div class="blk-body"><div class="blk-title">${esc(ghostTitle(g))} <span class="ghost-x">✕</span></div><div class="blk-time">${range(g.start, g.minutes)}</div>${ghostWhy(g) ? `<div class="blk-why">✦ ${esc(ghostWhy(g))}</div>` : ''}</div></div>`;
+  // Under 45 minutes: one line (title, time), the reason only in the list and the tooltip.
+  const short = (g.minutes + (g.lead || 0)) * P < 54;
+  return `<div class="block ghost assign${short ? ' short' : ''}" data-action="ghost-rm" data-i="${g.i}" data-start="${g.start - (g.lead || 0)}" data-minutes="${g.minutes + (g.lead || 0)}" title="${esc(ghostTip(g))}" style="--c:${esc(catColor(task?.category) || 'var(--accent)')};top:${(g.start - (g.lead || 0) - startMin) * P}px;height:${Math.max((g.minutes + (g.lead || 0)) * P, 16)}px;left:1px;right:3px">
+    <div class="blk-body"><div class="blk-title">${esc(ghostTitle(g))} <span class="ghost-x">✕</span></div><div class="blk-time">${range(g.start, g.minutes)}</div>${ghostWhy(g) && !short ? `<div class="blk-why">✦ ${esc(ghostWhy(g))}</div>` : ''}</div></div>`;
 }
