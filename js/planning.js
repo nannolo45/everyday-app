@@ -2,7 +2,7 @@
 import { fmtDay, GROCERY_MINUTES, planSettings, relDay, toast, ui } from './core.js';
 import { t } from './i18n.js';
 import { isTodo } from './kinds.js';
-import { busyOn, conflictsOn, conflictText, eventTasksOf, followParent, itemById, leadOf, leaveTrace, minutesLeft, newBlock, openTasks, outcomeOf, partsLeft, periodKey, plannedTaskIds, planTask, prereqsOf, splitsSteps, stepLen, timesLeft } from './model.js';
+import { busyOn, conflictsOn, conflictText, eventTasksOf, followParent, itemById, leadOf, leaveTrace, maySplit, minutesLeft, newBlock, openTasks, outcomeOf, partsLeft, periodKey, plannedTaskIds, planTask, prereqsOf, splitsSteps, stepLen, timesLeft } from './model.js';
 import { addDays, fmtTime, freeSlot, importanceOf, nowMinutes, parseDate, today } from './plan.js';
 import { assignItems, planTrips, shopsFor } from './shops.js';
 import { nearestSlot, placeGroceries, placePrep, scoreTask, spreadTasks, WINDOWS } from './smart.js';
@@ -133,9 +133,53 @@ export function planPlacements(ids, dates) {
   const s = planSettings(); const td = today(); const now = nowMinutes();
   const tasks = ids.map((id) => get('tasks', id)).filter(Boolean);
   const { items } = planningItems(tasks, dates);
-  const leadOfItem = (it) => (it.stepId && !(it.prep || []).length ? 0 : leadOf(get('tasks', it.taskId)));
   const dayInfo = (d) => ({ date: d, blocks: busyOn(d).filter((b) => !b.allowOverlap), from: Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((now + 5) / 5) * 5 : 0), to: autoHoursFor(d)[1] });
-  return spreadTasks({ tasks: items, days: dates.map(dayInfo), settings: s, leadOf: leadOfItem }).placed;
+  return spreadWithSplit(items, dates.map(dayInfo), s).placed;
+}
+const leadOfItem = (it) => (it.stepId && !(it.prep || []).length ? 0 : leadOf(get('tasks', it.taskId)));
+// Step items for a task, one after another (the first one keeps the task's prerequisites and prep).
+function stepItems(x, base) {
+  const out = []; let prev = null;
+  for (const y of partsLeft(x)) {
+    const id = `${x.id}~${y.id}`;
+    out.push({ ...base, id, stepId: y.id, title: `${x.title} · ${y.title}`, minutes: stepLen({}, y), prep: prev ? [] : x.prep, after: prev ? [prev] : [], afterTasks: prev ? [] : base.afterTasks, notBefore: prev ? null : base.notBefore });
+    prev = id;
+  }
+  return out;
+}
+// spreadTasks, and then a second go for whole tasks that fit nowhere but have steps: planned step by
+// step over the days instead (unless kept together), with the tasks that were waiting for them.
+export function spreadWithSplit(items, days, settings) {
+  const r = spreadTasks({ tasks: items, days, settings, leadOf: leadOfItem });
+  const NOFIT = new Set(['nofit', 'full', 'toolong']);
+  const split = r.skipped.filter((k) => k.key === k.taskId && NOFIT.has(k.why) && maySplit(get('tasks', k.taskId)));
+  if (!split.length) return r;
+  const lastOf = new Map(); const again = [];
+  for (const k of split) {
+    const it = items.find((i) => i.id === k.key);
+    const steps = stepItems(get('tasks', k.taskId), { ...it, after: [], afterTasks: [] });
+    steps[0].after = [...(it.after || [])];
+    again.push(...steps); lastOf.set(k.key, steps[steps.length - 1].id);
+  }
+  const waitingKeys = new Set(r.skipped.filter((k) => k.why === 'waiting').map((k) => k.key));
+  again.push(...items.filter((i) => waitingKeys.has(i.id)));
+  // What came before in the first go: its end becomes a "not before", since it's not in this run.
+  const endOf = new Map(r.placed.map((p) => [p.key, { date: p.date, minute: p.start + p.minutes }]));
+  const later = (a, b) => (!a ? b : !b ? a : (b.date > a.date || (b.date === a.date && b.minute > a.minute)) ? b : a);
+  const run = again.map((i) => {
+    let nb = i.notBefore || null; const after = [];
+    for (const a of i.after || []) { if (endOf.has(a)) nb = later(nb, endOf.get(a)); else after.push(lastOf.get(a) || a); }
+    return { ...i, after, notBefore: nb };
+  });
+  const placedDays = days.map((d) => ({ ...d, blocks: [...d.blocks, ...r.placed.filter((p) => p.date === d.date).map((p) => ({ start: p.start - (p.lead || 0), minutes: p.minutes + (p.lead || 0) }))] }));
+  const r2 = spreadTasks({ tasks: run, days: placedDays, settings, leadOf: leadOfItem });
+  const splitIds = new Set(split.map((k) => k.taskId));
+  const placed2 = r2.placed.map((p) => (splitIds.has(p.taskId) ? { ...p, reasons: [...(p.reasons || []), { k: 'r_split' }] } : p));
+  const done = new Set(r2.placed.map((p) => p.taskId)); const keys2 = new Set(r2.placed.map((p) => p.key));
+  // A split task with at least one step placed isn't "skipped": the steps left stay in the drawer.
+  const skipped = r.skipped.filter((k) => !(splitIds.has(k.taskId) && done.has(k.taskId)) && !(waitingKeys.has(k.key) && keys2.has(k.key)));
+  const placed = [...r.placed, ...placed2].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.start - b.start));
+  return { placed, skipped };
 }
 export function tripMode() { return get('config', 'shopping')?.value?.tripMode || 'perShop'; }
 export function tripTitle(ids) {
@@ -194,11 +238,12 @@ export function tripItems(b) {
 export function trayTasks() {
   const planned = plannedTaskIds();
   const ghosted = new Set((ui.assign?.ghosts || []).map((g) => g.taskId));
+  const stepGhosted = new Set((ui.assign?.ghosts || []).filter((g) => g.stepId).map((g) => g.taskId));
   const td = today();
   return sortTaskList(openTasks().filter((x) => {
     if (!passesFilter(x)) return false;
     if (x.repeat === 'times') return timesLeft(x, td) > 0;
-    if (splitsSteps(x)) return partsLeft(x).length > 0;
+    if (splitsSteps(x) || stepGhosted.has(x.id)) return partsLeft(x).length > 0;
     return !planned.has(x.id) && !ghosted.has(x.id);
   }), state.settings.traySort || 'smart');
 }
@@ -229,13 +274,9 @@ export function planningItems(tasks, dates) {
         for (let k = 0; k < n; k++) items.push({ ...base, id: `${x.id}#${pk}#${k}`, days: ds, group: per === 'day' ? null : `${x.id}#${pk}`, afterTasks, notBefore });
       }
     } else if (splitsSteps(x)) {
-      let prev = null;
-      for (const y of partsLeft(x)) {
-        const id = `${x.id}~${y.id}`;
-        items.push({ ...base, id, stepId: y.id, title: `${x.title} · ${y.title}`, minutes: stepLen({}, y), prep: prev ? [] : x.prep, after: prev ? [prev] : [], afterTasks: prev ? [] : afterTasks, notBefore: prev ? null : notBefore });
-        prev = id;
-      }
-      if (prev) lastItem.set(x.id, prev);
+      const steps = stepItems(x, { ...base, afterTasks, notBefore });
+      items.push(...steps);
+      if (steps.length) lastItem.set(x.id, steps[steps.length - 1].id);
       continue;
     } else items.push({ ...base, id: x.id, afterTasks, notBefore });
     lastItem.set(x.id, items[items.length - 1]?.id);
@@ -283,7 +324,6 @@ export function placeGhosts(ids, dates, minute = null) {
   const s = planSettings(); const td = today(); const now = nowMinutes();
   const tasks = ids.map((id) => get('tasks', id)).filter(Boolean);
   const { items, skipped: blocked } = planningItems(tasks, dates);
-  const leadOfItem = (it) => (it.stepId && !(it.prep || []).length ? 0 : leadOf(get('tasks', it.taskId)));
   const dayInfo = (d) => ({
     date: d,
     blocks: [...busyOn(d).filter((b) => !b.allowOverlap), ...ghostsOn(d).map((g) => ({ start: g.start - (g.lead || 0), minutes: g.minutes + (g.lead || 0) }))],
@@ -311,7 +351,7 @@ export function placeGhosts(ids, dates, minute = null) {
   } else {
     // Dropping on a single day you chose: its limit is a guide, not a wall.
     const settings = dates.length === 1 ? { ...s, maxLoad: 1440 } : s;
-    ({ placed, skipped } = spreadTasks({ tasks: items, days: dates.map(dayInfo), settings, leadOf: leadOfItem }));
+    ({ placed, skipped } = spreadWithSplit(items, dates.map(dayInfo), settings));
   }
   skipped = [...blocked, ...skipped];
   if (placed.length && !state.settings.trayHintSeen) saveSettings({ trayHintSeen: true });

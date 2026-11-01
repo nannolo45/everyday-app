@@ -886,12 +886,19 @@ export function timesDone(x, date) {
   const inP = (d) => periodKey(d, per) === pk;
   return live('blocks').filter((b) => b.taskId === x.id && b.kind !== 'prep' && inP(b.date) && outcomeOf(b) === 'done').length + (x.doneLog || []).filter(inP).length;
 }
-// Steps planned as their own blocks: when asked to, or when the whole is longer than a day's limit.
+// Steps planned as their own blocks: when asked to, once a step has its own block, or (unless the
+// task is kept together) when the whole is longer than a day's limit or than "split tasks over".
 export function splitsSteps(x) {
   const steps = (x.steps || []).filter((y) => y.title);
   if (steps.length < 2 || isMealType(x)) return false;
-  return Boolean(x.splitSteps) || steps.reduce((n, y) => n + stepLen({}, y), 0) > planSettings().maxLoad
-    || live('blocks').some((b) => b.taskId === x.id && b.stepId);
+  if (x.splitSteps || live('blocks').some((b) => b.taskId === x.id && b.stepId)) return true;
+  if (x.keepTogether) return false;
+  const total = steps.reduce((n, y) => n + stepLen({}, y), 0); const s = planSettings();
+  return total > s.maxLoad || (s.splitOver > 0 && total > s.splitOver);
+}
+// The planner may still split it by its steps when no single gap fits the whole (see placeWithSplit).
+export function maySplit(x) {
+  return !splitsSteps(x) && !x.keepTogether && !isMealType(x) && x.repeat !== 'times' && stepsLeftOf(x).length > 1;
 }
 // Steps that don't have a block (or a preview) yet.
 export function partsLeft(x) {

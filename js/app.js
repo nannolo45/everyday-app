@@ -27,7 +27,7 @@ import { setupTrayDrag } from './tray.js';
 import { showSteps } from './views/planner.js';
 import { leaveShop, onSorted, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName, SHOPS } from './views/shop.js';
 import { taskFilter } from './views/tasks.js';
-import { clearSearch, tidyTime } from './widgets.js';
+import { clearSearch, syncDateText, tidyTime } from './widgets.js';
 import { applyLang, exportData, gcalNow, handleShortcut, saveGithub, saveRicette, showUpdateBar, wipeLocalData } from './connections.js';
 
 view.addEventListener('focusout', () => setTimeout(() => {
@@ -63,6 +63,8 @@ document.addEventListener('input', (e) => {
   el.value = digits.length > 2 ? `${digits.slice(0, digits.length - 2)}:${digits.slice(-2)}` : digits;
 });
 document.addEventListener('focusout', (e) => { if (e.target.classList?.contains('time24')) tidyTime(e.target); }, true);
+// Date fields show their date in the app's language (widgets.js dateBox): keep the text in step.
+for (const type of ['input', 'change']) document.addEventListener(type, (e) => { if (e.target.parentElement?.classList.contains('date-field')) syncDateText(e.target); }, true);
 
 // ---------- events ----------
 
@@ -164,7 +166,7 @@ view.addEventListener('change', (e) => {
     // "Breathing room" is one number: the margin after each task and the gap the planner keeps between blocks.
     const breath = Number(f.taskBuffer) || 0;
     saveSettings({
-      dayStart, dayEnd: Math.max(dayEnd, dayStart + 1), buffer: Math.min(breath, 15), taskBuffer: breath, maxLoad: Number(f.maxLoad), defaultView: f.defaultView, freeWeekends: el.form.freeWeekends.checked,
+      dayStart, dayEnd: Math.max(dayEnd, dayStart + 1), buffer: Math.min(breath, 15), taskBuffer: breath, maxLoad: Number(f.maxLoad), splitOver: Number(f.splitOver ?? 4), defaultView: f.defaultView, freeWeekends: el.form.freeWeekends.checked,
       autoHours: { wd: hr('ahWdF', 'ahWdT', autoHoursFor('2026-11-02')), we: hr('ahWeF', 'ahWeT', autoHoursFor('2026-11-07')) },
     });
     if (el.name === 'defaultView') ui.view = null;
@@ -376,6 +378,12 @@ setupDrag(view, {
     if (task) { b = planTask(task, d, start); toast(t('plannedToast', relDay(d), fmtTime(start))); }
     changed();
     if (b) warnConflicts(get('blocks', b.id));
+  },
+  // A preview moved by hand: it keeps its lead time before it, and says it was you.
+  moveGhost: (i, start, date) => {
+    const g = ui.assign?.ghosts[i];
+    if (g) Object.assign(g, { date: date || g.date, start: start + (g.lead || 0), reasons: [{ k: 'r_byHand' }] });
+    render();
   },
   redraw: () => render(),
 });

@@ -45,6 +45,14 @@ export const durOptions = (sel, list = [5, 10, 15, 20, 30, 45, 60, 75, 90, 120, 
 
 // Times are typed as 24-hour hh:mm whatever the phone's language (the browser's own time picker
 // would show AM/PM on an English phone). "1900", "930" and "9" work too.
+// A date field that reads in the app's language: the native field (its picker, its ISO value) with the
+// text over it, so it doesn't follow the phone's language and format. app.js keeps the text in step.
+export const dateText = (v) => (v ? fmtDay(v, { weekday: 'short', day: 'numeric', month: 'short', ...(v.slice(0, 4) !== today().slice(0, 4) ? { year: 'numeric' } : {}) }) : '—');
+export const dateBox = (input, v) => `<span class="date-field">${input}<span class="date-text${v ? '' : ' empty'}" aria-hidden="true">${esc(dateText(v))}</span></span>`;
+export function syncDateText(input) {
+  const el = input.parentElement?.querySelector('.date-text'); if (!el) return;
+  el.textContent = dateText(input.value); el.classList.toggle('empty', !input.value);
+}
 export const TIME24 = 'type="text" inputmode="numeric" class="time24" maxlength="5" placeholder="hh:mm" autocomplete="off" pattern="([01]?[0-9]|2[0-3])[:.]?[0-5][0-9]|[0-9]{1,2}"';
 export function tidyTime(el) {
   const v = el.value.trim();
@@ -83,7 +91,7 @@ export function windowsText(wins) {
 export function windowsEditor(prefix, wins) {
   return `<div class="wins">${(wins || []).map((w, k) => `<div class="win-row">
       <div class="days mini${w.date ? ' off' : ''}">${[1, 2, 3, 4, 5, 6, 7].map((d) => `<label class="day-pill"><input type="checkbox" name="${prefix}d${k}" value="${d}" ${(w.days || []).includes(d) ? 'checked' : ''}><span>${esc(dayShort(d))}</span></label>`).join('')}</div>
-      <label class="win-date">${esc(t('orOnDate'))}<input type="date" name="${prefix}x${k}" value="${esc(w.date || '')}"></label>
+      <label class="win-date">${esc(t('orOnDate'))}${dateBox(`<input type="date" name="${prefix}x${k}" value="${esc(w.date || '')}">`, w.date || '')}</label>
       <span class="win-times"><input name="${prefix}f${k}" ${TIME24} value="${w.from != null ? fmtTime(w.from) : ''}" aria-label="${esc(t('from'))}"> – <input name="${prefix}t${k}" ${TIME24} value="${w.to != null ? fmtTime(w.to) : ''}" aria-label="${esc(t('to'))}">
       <button class="icon" value="${prefix}rm:${k}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></span></div>`).join('')}
     <button class="btn small ghost" value="${prefix}add" formnovalidate>+ ${esc(t('addWindow'))}</button></div>`;

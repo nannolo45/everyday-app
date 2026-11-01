@@ -18,9 +18,15 @@ import { MODE_ICON, MODES as TRAVEL_MODES } from './travel.js';
 import { impBadge } from './views/planner.js';
 import { remindDefault, remindLabel, REMINDS } from './views/settings.js';
 import { SHOPS, shopsList, tripRowsHtml } from './views/shop.js';
-import { cleanWindows, dayShort, durField, lines, openModal, placeLink, plannedIso, readDur, readWindows, repeatText, searchBox, TIME24, windowsEditor, windowsText } from './widgets.js';
+import { cleanWindows, dateBox, dayShort, durField, lines, openModal, placeLink, plannedIso, readDur, readWindows, repeatText, searchBox, TIME24, windowsEditor, windowsText } from './widgets.js';
 
 // "+ To do before / after": a task attached to an event, due so many days or weeks around it.
+// How the planner treats the steps: on its own judgement, always in one block, or one block each.
+function stepsPlanPills(x) {
+  const v = x.splitSteps ? 'each' : x.keepTogether ? 'together' : 'auto';
+  const pill = (k) => `<label class="day-pill"><input type="radio" name="stepsPlan" value="${k}" ${v === k ? 'checked' : ''}><span>${esc(t(`stepsPlan_${k}`))}</span></label>`;
+  return `<div class="field-label">${esc(t('stepsPlan'))}</div><div class="pills steps-plan">${['auto', 'together', 'each'].map(pill).join('')}</div><small class="hint">${esc(t(`stepsPlanHint_${v}`))}</small>`;
+}
 export function openEventTaskAdd(ev, { back = false } = {}) {
   const d = eventDate(ev);
   openModal(`
@@ -112,7 +118,7 @@ export function openAutoPlanner() {
     <p class="hint">${esc(t('planFlowIntro', sel.length, cards.length))}</p>
     <div class="days spans">${AUTO_SPANS.map((k) => `<label class="day-pill"><input type="radio" name="span" value="${k}" ${k === last.span ? 'checked' : ''}><span>${esc(t(`span_${k}`))}</span></label>`).join('')}</div>
     <div class="two">
-      <label>${esc(t('fromDay'))}<input type="date" name="from" value="${esc(from0)}" min="${esc(td)}"></label>
+      <label>${esc(t('fromDay'))}${dateBox(`<input type="date" name="from" value="${esc(from0)}" min="${esc(td)}">`, from0)}</label>
       <label>${esc(t('spanN'))}<input type="number" name="n" min="1" max="90" value="${esc(last.n || 5)}"></label>
     </div>
     ${cards.length ? `<div class="field-label">${esc(t('fixFirstTitle'))}</div>${noHome ? `<label>${esc(t('homeAddress'))}<input name="home" value="${esc(travelCfg().home)}" placeholder="${esc(t('homePh'))}" autocomplete="street-address"></label>` : ''}${cards.join('')}<small class="hint">${esc(t('fixSkipHint'))}</small>` : ''}
@@ -126,7 +132,7 @@ export function openAutoPlanner() {
       const patch = {};
       if (len) { const v = Number(form.querySelector(`input[name="len_${x.id}"]:checked`)?.value); if (v) { patch.minutes = v; patch.lenSet = true; } }
       if (pl && pl.value.trim() !== (x.place || '')) patch.place = pl.value.trim();
-      if (lg) patch.splitSteps = form.querySelector(`input[name="long_${x.id}"]:checked`)?.value === 'split' && (x.steps || []).filter((y) => y.title && !isTravelStep(y)).length > 1;
+      if (lg) { patch.splitSteps = form.querySelector(`input[name="long_${x.id}"]:checked`)?.value === 'split' && (x.steps || []).filter((y) => y.title && !isTravelStep(y)).length > 1; patch.keepTogether = !patch.splitSteps; }
       if (Object.keys(patch).length) applyTravel(upsert('tasks', { ...x, ...patch }, { silent: true }), { prev: x });
     }
     if (form.home && form.home.value.trim() !== travelCfg().home) { saveSettings({ travel: { ...travelCfg(), home: form.home.value.trim() } }); for (const x of travelTasks()) applyTravel(x); }
@@ -165,7 +171,7 @@ export function openImport(draft = null) {
     <h2>⤓ ${esc(t('importTasks'))}</h2>
     ${hint('importHint')}
     <label><textarea name="text" rows="7" placeholder="${esc(t('importPh'))}" aria-label="${esc(t('importTasks'))}">${esc(x.text)}</textarea></label>
-    <label>${esc(t('due'))}<input type="date" name="due" value="${esc(x.due || '')}"></label>
+    <label>${esc(t('due'))}${dateBox(`<input type="date" name="due" value="${esc(x.due || '')}">`, x.due || '')}</label>
     <div class="field-label">${esc(t('category'))}</div>${catChips(x.category)}
     ${items.length ? `<div class="field-label">${esc(t('importPreview', items.length))}</div>
     <ul class="list import-list">${items.map((q, i) => `<li><label class="check"><input type="checkbox" name="pick" value="${i}" ${/:$/.test(q.title) ? '' : 'checked'}><span>${impBadge(q) ? `${impBadge(q)} ` : ''}${esc(q.title)}<small>${esc([q.minutes ? fmtDur(q.minutes) : '', q.category ? `#${q.category}` : ''].filter(Boolean).join(' · '))}</small></span></label></li>`).join('')}</ul>` : ''}
@@ -296,7 +302,7 @@ export function openPlanSaved(x, date) {
     <h2>${esc(t('planSaved', x.title))}</h2>
     ${(x.steps || []).length ? `<p class="hint">▤ ${esc(x.steps.map((y) => `${y.title} ${fmtDur(y.minutes)}`).join(' → '))}</p>` : ''}
     <div class="three">
-      <label>${esc(t('date'))}<input name="date" type="date" required value="${esc(date)}"></label>
+      <label>${esc(t('date'))}${dateBox(`<input name="date" type="date" required value="${esc(date)}">`, date)}</label>
       <label>${esc(anchorTitle(x) ? t('anchorAt', anchorTitle(x)) : t('start'))}<input name="start" ${TIME24} required value="${fmtTime(savedStart(x, date) + anchorOffset(null, x))}"></label>
       <label>${esc(t('duration'))}${durField('minutes', x.minutes || 30)}</label>
     </div>
@@ -422,11 +428,11 @@ export function openMeal(block, draft = null) {
     <div class="days meal-types">${types.map((tp) => `<label class="day-pill"><input type="radio" name="type" value="${esc(tp.id)}" ${tp.id === type.id ? 'checked' : ''}><span>${esc(tp.title)}</span></label>`).join('')}</div>
     ${plan ? `
     <div class="two">
-      <label>${esc(t('date'))}<input name="date" type="date" required value="${esc(x.date)}"></label>
+      <label>${esc(t('date'))}${dateBox(`<input name="date" type="date" required value="${esc(x.date)}">`, x.date)}</label>
       <label>${esc(plan.anchorTitle ? t('anchorAt', plan.anchorTitle) : t('endsAt'))}<input name="start" ${TIME24} required value="${fmtTime(x.anchorAt)}"></label>
     </div>` : `
     <div class="three">
-      <label>${esc(t('date'))}<input name="date" type="date" required value="${esc(x.date)}"></label>
+      <label>${esc(t('date'))}${dateBox(`<input name="date" type="date" required value="${esc(x.date)}">`, x.date)}</label>
       <label>${esc(t('start'))}<input name="start" ${TIME24} required value="${fmtTime(x.start)}"></label>
       <label>${esc(t('duration'))}${durField('minutes', x.minutes)}</label>
     </div>`}
@@ -832,7 +838,7 @@ export function openTask(task, draft = null, opts = {}) {
     </div>` : '';
   const whenBody = evMode ? `
     <div class="two">
-      <label>${esc(t('date'))}<input name="planDate" type="date" required value="${esc(x.planDate || '')}"></label>
+      <label>${esc(t('date'))}${dateBox(`<input name="planDate" type="date" required value="${esc(x.planDate || '')}">`, x.planDate || '')}</label>
       <label>${esc(timeLabel)}<input name="planTime" ${TIME24} value="${x.planTime != null ? fmtTime(x.planTime) : ''}"></label>
     </div>
     <small class="hint">${esc(t('eventWhenHint'))}</small>
@@ -842,7 +848,7 @@ export function openTask(task, draft = null, opts = {}) {
     ${REPEATS.includes(x.repeat) ? `<div class="recur-box">
       ${x.repeat !== 'weekdays' ? `<div class="times-row"><span>${esc(t('every'))}</span><input name="every" type="number" min="1" max="52" step="1" value="${esc(x.every || 1)}" aria-label="${esc(t('every'))}"><span>${esc(t(`unit_${x.repeat}`, Number(x.every) || 1))}</span></div>` : ''}
       ${x.repeat === 'weekly' ? `<div class="days mini">${[1, 2, 3, 4, 5, 6, 7].map((d) => `<label class="day-pill"><input type="checkbox" name="repeatDays" value="${d}" ${((x.repeatDays || []).length ? x.repeatDays : [plannedIso(x)]).includes(d) ? 'checked' : ''}><span>${esc(dayShort(d))}</span></label>`).join('')}</div>` : ''}
-      <label>${esc(t('repeatUntil'))}<input name="repeatUntil" type="date" value="${esc(x.repeatUntil || '')}"></label>
+      <label>${esc(t('repeatUntil'))}${dateBox(`<input name="repeatUntil" type="date" value="${esc(x.repeatUntil || '')}">`, x.repeatUntil || '')}</label>
       ${x.planTime == null ? `<small class="hint">${esc(t('repeatNeedsTime'))}</small>` : ''}
       ${x.fromOcc && (x.seriesFrom || x.due) && x.fromOcc > (x.seriesFrom || x.due) ? `<div class="field-label">${esc(t('applyTo'))}</div>
       <div class="days"><label class="day-pill"><input type="radio" name="scope" value="following" ${x.scope !== 'all' ? 'checked' : ''}><span>${esc(t('scopeFollowing', relDay(x.fromOcc)))}</span></label>
@@ -850,13 +856,13 @@ export function openTask(task, draft = null, opts = {}) {
     </div>` : ''}
     ${remindField(x)}` : !helper ? `
     <div class="two">
-      <label>${esc(t('date'))}<input name="planDate" type="date" value="${esc(x.planDate || '')}"></label>
+      <label>${esc(t('date'))}${dateBox(`<input name="planDate" type="date" value="${esc(x.planDate || '')}">`, x.planDate || '')}</label>
       <label>${esc(timeLabel)}<input name="planTime" ${TIME24} value="${x.planTime != null ? fmtTime(x.planTime) : ''}"></label>
     </div>
     <small class="hint">${esc(t(x.planBlockId ? 'whenPlannedHint' : 'whenHint'))}</small>
     ${evLine}
     <div class="two">
-      ${linkedEvent ? `<label>${esc(t('due'))}<span class="static">${esc(x.due ? relDay(x.due) : '—')}</span></label>` : `<label>${esc(t('due'))}<input name="due" type="date" value="${esc(x.due || '')}"></label>`}
+      ${linkedEvent ? `<label>${esc(t('due'))}<span class="static">${esc(x.due ? relDay(x.due) : '—')}</span></label>` : `<label>${esc(t('due'))}${dateBox(`<input name="due" type="date" value="${esc(x.due || '')}">`, x.due || '')}</label>`}
       <label>${esc(t('repeat'))}<select name="repeat" data-rerender="1"><option value="">${esc(t('rep_none'))}</option>${[...REPEATS, 'times'].map((r) => `<option value="${r}" ${r === x.repeat ? 'selected' : ''}>${esc(t(`rep_${r}`))}</option>`).join('')}</select></label>
     </div>
     ${x.repeat === 'times' ? `<div class="times-row"><input name="timesN" type="number" min="1" max="99" step="1" value="${esc(x.timesN || 3)}" aria-label="${esc(t('timesN'))}"><span>${esc(t('timesPer'))}</span>
@@ -865,7 +871,7 @@ export function openTask(task, draft = null, opts = {}) {
     ${REPEATS.includes(x.repeat) ? `<div class="recur-box">
       ${x.repeat !== 'weekdays' ? `<div class="times-row"><span>${esc(t('every'))}</span><input name="every" type="number" min="1" max="52" step="1" value="${esc(x.every || 1)}" aria-label="${esc(t('every'))}"><span>${esc(t(`unit_${x.repeat}`, Number(x.every) || 1))}</span></div>` : ''}
       ${x.repeat === 'weekly' ? `<div class="days mini">${[1, 2, 3, 4, 5, 6, 7].map((d) => `<label class="day-pill"><input type="checkbox" name="repeatDays" value="${d}" ${((x.repeatDays || []).length ? x.repeatDays : [plannedIso(x)]).includes(d) ? 'checked' : ''}><span>${esc(dayShort(d))}</span></label>`).join('')}</div>` : ''}
-      <label>${esc(t('repeatUntil'))}<input name="repeatUntil" type="date" value="${esc(x.repeatUntil || '')}"></label>
+      <label>${esc(t('repeatUntil'))}${dateBox(`<input name="repeatUntil" type="date" value="${esc(x.repeatUntil || '')}">`, x.repeatUntil || '')}</label>
       <small class="hint">${esc(x.seriesTime != null ? t('seriesHint', fmtTime(x.seriesTime)) : t('recurHint'))}</small>
       ${x.fromOcc && (x.seriesFrom || x.due) && x.fromOcc > (x.seriesFrom || x.due) ? `<div class="field-label">${esc(t('applyTo'))}</div>
       <div class="days"><label class="day-pill"><input type="radio" name="scope" value="following" ${x.scope !== 'all' ? 'checked' : ''}><span>${esc(t('scopeFollowing', relDay(x.fromOcc)))}</span></label>
@@ -908,7 +914,7 @@ export function openTask(task, draft = null, opts = {}) {
     ${stepCards ? `<ol class="steps-edit">${stepCards}</ol>` : ''}
     ${x.steps.length > 1 && ai > 0 && anchor ? `<p class="hint anchor-hint">⚓ ${esc(t('anchorHintGen', anchor.title || '…', x.steps.slice(0, ai).map((y) => y.title).filter(Boolean).join(', ')))}</p>` : ''}
     <button class="btn small" value="add-step" formnovalidate>+ ${esc(t('addStep'))}</button>
-    ${x.steps.length > 1 && !isMealType(x) && !helper ? `<label class="check"><input type="checkbox" name="splitSteps" ${x.splitSteps ? 'checked' : ''}> <span>${esc(t('splitSteps'))}${small('splitStepsHint')}</span></label>` : ''}`;
+    ${x.steps.length > 1 && !isMealType(x) && !helper ? stepsPlanPills(x) : ''}`;
   const rulesBody = `
     <p class="hint">${esc(t(helper ? 'rulesHint' : 'rulesHintPrep'))}</p>
     ${taskRules.map(([r, i]) => ruleCard(r, i)).join('')}
@@ -1082,7 +1088,7 @@ export function openTask(task, draft = null, opts = {}) {
     if (form.tvThere) x.travel = { there: form.tvThere.checked, back: form.tvBack.checked, mode: form.tvMode.value || 'default' };
     if (form.buffer) x.buffer = form.buffer.value === '' ? null : Number(form.buffer.value) || 0;
     if (form.querySelector('[value="w_add"]')) x.windows = readWindows(form, 'w_', (x.windows || []).length);
-    if (form.splitSteps) x.splitSteps = form.splitSteps.checked;
+    if (form.stepsPlan) { const v = form.stepsPlan.value; x.splitSteps = v === 'each'; x.keepTogether = v === 'together'; }
     if (form.routine) x.kind = form.routine.checked ? (isMealType(x) ? 'meal' : 'saved') : 'todo';
     if (form.evDays) {
       const when = form.evWhen.value;
@@ -1291,7 +1297,7 @@ export function openBlock(block, defaults = {}) {
       <label>${esc(t('title'))}<input name="title" value="${esc(b.title)}" autocomplete="off"></label>`}
       ${isEvent(task) ? `<p class="hint">📅 ${esc(t('blockOfEvent'))}</p>` : ''}
     <div class="three">
-      <label>${esc(t('date'))}<input name="date" type="date" required value="${esc(b.date)}"></label>
+      <label>${esc(t('date'))}${dateBox(`<input name="date" type="date" required value="${esc(b.date)}">`, b.date)}</label>
       <label>${esc(anchorName ? t('anchorAt', anchorName) : t('start'))}<input name="start" ${TIME24} required value="${fmtTime(b.start + off)}"></label>
       <label>${esc(t('duration'))}${durField('minutes', b.minutes)}</label>
     </div>

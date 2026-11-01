@@ -2,7 +2,8 @@
 // - Mouse/pen: press and move.
 // - Finger: press and hold for a moment, then move (so normal scrolling still works).
 //   The resize handle at the bottom of a block reacts immediately.
-// Kinds: 'move' a block, 'resize' a block, 'task' = drop a task chip onto the timeline.
+// Kinds: 'move' a block, 'resize' a block, 'task' = drop a task chip onto the timeline, 'ghost' = move a
+// preview of the planner (to another time or, in the week view, another day).
 
 const HOLD_MS = 320;
 
@@ -21,13 +22,14 @@ export function setupDrag(root, hooks) {
     if (e.button !== 0 || d) return;
     if (e.target.closest('input, button.blk-btn, a')) return;
     const handle = e.target.closest('.resize');
-    const block = e.target.closest('.block:not(.event):not(.ghost)'); // calendar events (and previews) can't be moved here
+    const block = e.target.closest('.block:not(.event):not(.ghost)'); // calendar events can't be moved here
+    const preview = !block && e.target.closest('.block.ghost.assign');
     const chip = e.target.closest('.chip[data-task]');
-    if (!handle && !block && !chip) return;
-    const el = handle ? handle.closest('.block') : (block || chip);
+    if (!handle && !block && !preview && !chip) return;
+    const el = handle ? handle.closest('.block') : (block || preview || chip);
     d = {
-      kind: handle ? 'resize' : block ? 'move' : 'task',
-      el, id: el.dataset.id, pointerId: e.pointerId, touch: e.pointerType === 'touch',
+      kind: handle ? 'resize' : block ? 'move' : preview ? 'ghost' : 'task',
+      el, id: preview ? el.dataset.i : el.dataset.id, pointerId: e.pointerId, touch: e.pointerType === 'touch',
       x0: e.clientX, y0: e.clientY, sy0: window.scrollY, x: e.clientX, y: e.clientY,
       armed: !(e.pointerType === 'touch') || Boolean(handle), started: false,
       start: Number(el.dataset.start), minutes: Number(el.dataset.minutes),
@@ -99,13 +101,13 @@ export function setupDrag(root, hooks) {
       const col = columnAt(d.cols, d.x, d.kind === 'task' ? null : d.g);
       if (col && col !== d.g) {
         d.g = col; d.date = col.date;
-        if (d.kind === 'move') { col.tl.appendChild(d.el); d.el.style.left = '1px'; d.el.style.width = 'calc(100% - 4px)'; }
+        if (d.kind === 'move' || d.kind === 'ghost') { col.tl.appendChild(d.el); d.el.style.left = '1px'; d.el.style.width = 'calc(100% - 4px)'; }
         else if (d.ghost) col.tl.appendChild(d.ghost);
       }
     }
     const g = d.g; const snap = g.snap;
     const dy = (d.y + window.scrollY) - (d.y0 + d.sy0);
-    if (d.kind === 'move') {
+    if (d.kind === 'move' || d.kind === 'ghost') {
       d.newStart = clamp(Math.round((d.start + dy / g.ppm) / snap) * snap, 0, 1440 - d.minutes);
       d.el.style.top = `${(d.newStart - g.rangeStart) * g.ppm}px`;
       d.el.querySelector('.blk-time').textContent = hooks.label(d.newStart, d.minutes);
@@ -142,6 +144,7 @@ export function setupDrag(root, hooks) {
     end();
     const movedDay = g.date && g.date !== g.el.dataset.date0;
     if (g.kind === 'move' && g.newStart != null && (g.newStart !== g.start || movedDay)) hooks.move(g.id, g.newStart, g.date);
+    else if (g.kind === 'ghost' && g.newStart != null && (g.newStart !== g.start || movedDay)) hooks.moveGhost(Number(g.id), g.newStart, g.date);
     else if (g.kind === 'resize' && g.newMinutes != null && g.newMinutes !== g.minutes) hooks.resize(g.id, g.newMinutes);
     else if (g.kind === 'task' && g.newStart != null) hooks.dropTask(g.id, g.newStart, g.date);
     else hooks.redraw();

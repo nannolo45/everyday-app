@@ -369,6 +369,6 @@ export function ghostWhy(g) { return g.reasons?.length ? reasonText(g.reasons) :
 export function ghostTip(g) { return [ghostWhy(g), t('ghostTap')].filter(Boolean).join(' — '); }
 export function assignGhostHtml(g, startMin) {
   const task = get('tasks', g.taskId);
-  return `<div class="block ghost assign" data-action="ghost-rm" data-i="${g.i}" title="${esc(ghostTip(g))}" style="--c:${esc(catColor(task?.category) || 'var(--accent)')};top:${(g.start - (g.lead || 0) - startMin) * PPM}px;height:${Math.max((g.minutes + (g.lead || 0)) * PPM, 16)}px;left:1px;right:3px">
+  return `<div class="block ghost assign" data-action="ghost-rm" data-i="${g.i}" data-start="${g.start - (g.lead || 0)}" data-minutes="${g.minutes + (g.lead || 0)}" title="${esc(ghostTip(g))}" style="--c:${esc(catColor(task?.category) || 'var(--accent)')};top:${(g.start - (g.lead || 0) - startMin) * PPM}px;height:${Math.max((g.minutes + (g.lead || 0)) * PPM, 16)}px;left:1px;right:3px">
     <div class="blk-body"><div class="blk-title">${esc(ghostTitle(g))} <span class="ghost-x">✕</span></div><div class="blk-time">${range(g.start, g.minutes)}</div>${ghostWhy(g) ? `<div class="blk-why">✦ ${esc(ghostWhy(g))}</div>` : ''}</div></div>`;
 }

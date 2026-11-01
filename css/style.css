@@ -1134,3 +1134,13 @@ label.check.tall { align-items: flex-start; }
 .blk-time .mini-badge { margin-left: 2px; }
 .mini-badge.day { background: transparent; border: 1px solid color-mix(in srgb, var(--c) 50%, var(--line)); }
 .mini-badge.part { background: color-mix(in srgb, var(--c) 30%, var(--surface)); }
+
+/* v47: date fields read in the app's language: the native field stays (its picker, its value), its own text hidden */
+.date-field { position: relative; display: block; }
+.date-field input[type=date] { width: 100%; color: transparent; }
+.date-field input[type=date]::-webkit-datetime-edit { color: transparent; }
+.date-field input[type=date]:focus::-webkit-datetime-edit { color: transparent; }
+.date-field .date-text { position: absolute; left: 14px; right: 40px; top: calc(50% + 2.5px); transform: translateY(-50%); text-align: left; font-weight: 400; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font: inherit; }
+.date-field .date-text.empty { color: var(--muted); }
+.pills.steps-plan { flex-wrap: wrap; overflow: visible; }
+.steps-plan .day-pill span { text-transform: none; min-width: 0; }

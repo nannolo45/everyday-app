@@ -45,6 +45,7 @@ export function settingsHtml(s, msg) {
       <label>${esc(t('maxLoad'))}<select name="maxLoad">${opts([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14], s.maxLoad ?? 8, (h) => `${h} h`)}</select></label>
       <label>${esc(t('breathing'))}<select name="taskBuffer">${opts([0, 5, 10, 15, 30], s.taskBuffer ?? 0, (m) => (m ? `${m} min` : t('none')))}</select></label>
     </div>
+    <label>${esc(t('splitOver'))}<select name="splitOver">${opts([0, 2, 3, 4, 5, 6], s.splitOver ?? 4, (h) => (h ? t('splitOverH', h) : t('splitNever')))}</select>${why('splitOverWhy')}</label>
     <label class="check"><input type="checkbox" name="freeWeekends" ${s.freeWeekends ? 'checked' : ''}> <span>${esc(t('freeWeekends'))}</span></label>
     <label>${esc(t('defaultView'))}<select name="defaultView">${VIEWS.map((v) => `<option value="${v}" ${v === currentViewDefault() ? 'selected' : ''}>${esc(t(`v_${v}`))}</option>`).join('')}</select></label>
   </form>`;

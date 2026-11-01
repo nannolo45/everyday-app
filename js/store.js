@@ -77,7 +77,7 @@ export const state = {
   tasks: [], blocks: [], templates: [], categories: [], events: [], gcal: [], shopping: [], shops: [], config: [], r_recipes: [], r_folders: [], r_tagdefs: [], r_prefs: [], r_pantry: [], r_shopping: [], r_shops: [], r_foods: [],
   settings: {
     lang: '', owner: '', repo: '', branch: 'main', token: '',
-    dayStart: 6, dayEnd: 23, snap: 15, buffer: 5, maxLoad: 8, ricetteRepo: '',
+    dayStart: 6, dayEnd: 23, snap: 15, buffer: 5, maxLoad: 8, splitOver: 4, ricetteRepo: '',
   },
   // dirtyShards: {"blocks/2026-10": stamp} = months edited here and not yet uploaded
   // syncedShards: {"blocks/2026-10": time} = months this device has downloaded at least once
@@ -165,7 +165,7 @@ export async function replaceCollection(collection, items) {
 // Settings that describe how you plan (not this device) travel with your data: each is one record in
 // `config` ({id: 'set:<key>', value}), so the newest change on any device wins, per setting. The token,
 // the repositories, the language, view toggles and what is folded stay on the device.
-export const SHARED_SETTINGS = ['dayStart', 'dayEnd', 'buffer', 'taskBuffer', 'maxLoad', 'defaultView', 'freeWeekends', 'autoHours',
+export const SHARED_SETTINGS = ['dayStart', 'dayEnd', 'buffer', 'taskBuffer', 'maxLoad', 'splitOver', 'defaultView', 'freeWeekends', 'autoHours',
   'travel', 'snap', 'longUnits', 'advancedFeatures', 'glance', 'taskGroups'];
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 export async function saveSettings(patch) {
