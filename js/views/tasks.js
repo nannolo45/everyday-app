@@ -108,11 +108,13 @@ export function viewTasks(force = null) {
   if (tab === 'saved') {
     const helpers = all.filter((x) => isStep(x) && hit(x)).sort((a, b) => a.title.localeCompare(b.title));
     const tpls = templates().filter((tp) => !q || matchesQ(fold(tp.name), q));
-    const groups = savedGroups().map(([cat, list]) => [cat, list.filter(hit)]).filter(([, list]) => list.length);
+    const freshS = [...(ui.justAdded || [])].map((id) => get('tasks', id)).filter((x) => x && isSaved(x) && !x.deleted);
+    const groups = savedGroups().map(([cat, list]) => [cat, list.filter((x) => hit(x) && !freshS.includes(x))]).filter(([, list]) => list.length);
     const nSaved = groups.reduce((n, [, l]) => n + l.length, 0);
     return `${switcher}
     <div class="task-tools">${search}</div>
     ${filterBar()}
+    ${freshS.length ? `<section class="just-added"><h2 class="part-h ja-h">${esc(t('justAdded'))} <small>${freshS.length}</small></h2><ul class="list saved fresh">${freshS.map((tp) => `<li><button class="task-main" type="button" data-action="task-edit" data-id="${esc(tp.id)}"><span class="item-text">${esc(tp.title)}<small>${esc(savedInfo(tp))}</small></span></button></li>`).join('')}</ul></section>` : ''}
     ${q && !nSaved && !tpls.length && !helpers.length ? `<p class="empty">${esc(t('noMatch'))}</p>` : ''}
     <section class="fold-sec first">
       ${foldBtn('saved', t('savedTasks'), nSaved, { open: !isFolded('saved') })}

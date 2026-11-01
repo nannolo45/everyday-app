@@ -13,7 +13,7 @@
 // storage and sync in store.js and sync.js.
 import { $, findCategory, fmtDay, modal, PPM, quickFields, range, relDay, route, seedCategories, TAB_OF, TABS, toast, ui, view } from './core.js';
 import { setupDrag } from './drag.js';
-import { doShift, finishTimer, openAddMenu, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, openMeal, openPlanSaved, openSavedPicker, openShopRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
+import { doShift, finishTimer, openAddMenu, openPickSheet, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, openMeal, openPlanSaved, openSavedPicker, openShopRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
 import { t } from './i18n.js';
 import { isEvent } from './kinds.js';
 import { anchorOffset, autoChecks, checklistLeft, checkMissed, conflictsOn, eventOf, followParent, migrateBlocksToEvents, normalizeKinds, planTask, saveEvent, seedMeals, setOutcome, setStepOutcome, setTaskDone, syncEventTasks, travelTasks, trySetBlockDone, tryStep } from './model.js';
@@ -25,6 +25,7 @@ import { isConfigured, isSyncing, removeCalendarData } from './sync.js';
 import { applyTravel, ensureLegTasks, LEGS, legTemplate, pruneCache, scheduleTravelRefresh, setLegTask, travelBusy, travelCache, travelCfg, travelTimer } from './travel-plan.js';
 import { setupTrayDrag } from './tray.js';
 import { elapsedText, pauseTimer, resumeTimer, runningBlock } from './timer.js';
+import { fixAll, fixOcc, fixTimes, laterWeek, skipOcc } from './weekpick.js';
 import { showSteps } from './views/planner.js';
 import { leaveShop, onSorted, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName, SHOPS } from './views/shop.js';
 import { taskFilter } from './views/tasks.js';
@@ -168,7 +169,7 @@ view.addEventListener('change', (e) => {
     // "Breathing room" is one number: the margin after each task and the gap the planner keeps between blocks.
     const breath = Number(f.taskBuffer) || 0;
     saveSettings({
-      dayStart, dayEnd: Math.max(dayEnd, dayStart + 1), buffer: Math.min(breath, 15), taskBuffer: breath, maxLoad: Number(f.maxLoad), splitOver: Number(f.splitOver ?? 4), defaultView: f.defaultView, freeWeekends: el.form.freeWeekends.checked,
+      dayStart, dayEnd: Math.max(dayEnd, dayStart + 1), buffer: Math.min(breath, 15), taskBuffer: breath, maxLoad: Number(f.maxLoad), splitOver: Number(f.splitOver ?? 4), weekCardDay: Number(f.weekCardDay ?? 0), weekCardHour: Number(f.weekCardHour ?? 18), defaultView: f.defaultView, freeWeekends: el.form.freeWeekends.checked,
       autoHours: { wd: hr('ahWdF', 'ahWdT', autoHoursFor('2026-11-02')), we: hr('ahWeF', 'ahWeT', autoHoursFor('2026-11-07')) },
     });
     if (el.name === 'defaultView') ui.view = null;
@@ -243,6 +244,12 @@ view.addEventListener('click', (e) => {
     case 'timer-stop': finishTimer(); break;
     case 'shift-rest': doShift(id); break;
     case 'shift-keep': ui.lateStart = null; changed(); break;
+    case 'fix-occ': { const x = get('tasks', id); if (x) { const b = fixOcc(x, btn.dataset.date, Number(btn.dataset.start)); toast(t('plannedToast', relDay(b.date), fmtTime(b.start + anchorOffset(b)))); changed(); } break; }
+    case 'fix-times': { const x = get('tasks', id); if (x) { fixTimes(x, { taskId: id, date: btn.dataset.date, start: Number(btn.dataset.start), minutes: Number(btn.dataset.minutes) }); changed(); } break; }
+    case 'occ-skip': { const x = get('tasks', id); if (x) { skipOcc(x, btn.dataset.date); toast(t('skippedOcc', relDay(btn.dataset.date))); changed(); } break; }
+    case 'occ-more': { const x = get('tasks', id); if (x) openPickSheet(x, btn.dataset.date); break; }
+    case 'fix-week': { const n = fixAll(ui.weekRows || []); toast(t('fixedN', n)); changed(); break; }
+    case 'week-later': laterWeek(id); render(); break;
     case 'task-tools': saveSettings({ taskTools: !(state.settings.taskTools) }); render(); break;
     case 'assign-close': if (ui.assign) { ui.assign.ghosts = []; ui.assign.sel.clear(); ui.assign.open = false; } render(); break;
     case 'assign-opts': ui.assign.opts = !ui.assign.opts; render(); break;

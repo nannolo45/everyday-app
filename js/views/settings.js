@@ -1,8 +1,8 @@
 // views/settings.js: moved from app.js (v36). See app.js for how the modules fit together.
-import { advancedOn, APP_VERSION, categories, catName, esc, route, ui, weekdayNames } from '../core.js';
+import { advancedOn, APP_VERSION, categories, catName, esc, fmtDay, route, ui, weekdayNames } from '../core.js';
 import { getLang, LANGS, t } from '../i18n.js';
 import { kindOf } from '../kinds.js';
-import { fmtDur, fmtTime } from '../plan.js';
+import { addDays, fmtDur, fmtTime } from '../plan.js';
 import { autoHoursFor, tripMode } from '../planning.js';
 import { changed } from '../shell.js';
 import { contractTooNew, get, live, state } from '../store.js';
@@ -47,6 +47,11 @@ export function settingsHtml(s, msg) {
     </div>
     <label>${esc(t('splitOver'))}<select name="splitOver">${opts([0, 2, 3, 4, 5, 6], s.splitOver ?? 4, (h) => (h ? t('splitOverH', h) : t('splitNever')))}</select>${why('splitOverWhy')}</label>
     <label class="check"><input type="checkbox" name="freeWeekends" ${s.freeWeekends ? 'checked' : ''}> <span>${esc(t('freeWeekends'))}</span></label>
+    <div class="field-label">${esc(t('weekCardSet'))}</div>
+    <div class="two">
+      <label>${esc(t('weekCardDay'))}<select name="weekCardDay">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<option value="${d}" ${d === Number(s.weekCardDay ?? 0) ? 'selected' : ''}>${esc(fmtDay(addDays('2026-11-01', d), { weekday: 'long' }))}</option>`).join('')}</select></label>
+      <label>${esc(t('weekCardHour'))}<select name="weekCardHour">${hourOpts(s.weekCardHour ?? 18, 0, 23)}</select></label>
+    </div>${why('weekCardWhy')}
     <label>${esc(t('defaultView'))}<select name="defaultView">${VIEWS.map((v) => `<option value="${v}" ${v === currentViewDefault() ? 'selected' : ''}>${esc(t(`v_${v}`))}</option>`).join('')}</select></label>
   </form>`;
   const travelCard = `

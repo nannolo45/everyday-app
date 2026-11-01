@@ -96,7 +96,7 @@ export function morningReflow() {
   reflowing = true;
   try {
     // (steps planned on their own come back too: a step block left undone moves like a task)
-    const left = live('blocks').filter((b) => b.date < td && b.taskId && !outcomeOf(b) && !b.seriesId && b.kind !== 'prep'
+    const left = live('blocks').filter((b) => b.date < td && b.taskId && !outcomeOf(b) && !b.seriesId && !b.pickOcc && b.kind !== 'prep'
       && get('tasks', b.taskId) && !get('tasks', b.taskId).done && isTodo(get('tasks', b.taskId)));
     saveSettings({ lastReflow: td });
     if (!left.length) return;

@@ -1218,3 +1218,47 @@ dialog.quick h2 { margin-top: .4rem; }
 .time-hist li + li { border-top: 1px solid var(--line); }
 .time-hist small.ok { color: var(--green); } .time-hist small.warn { color: var(--warn); }
 dialog .start-now { width: 100%; }
+/* v51: the When part (once · repeats · whenever), the weekly "to fix" card, the pick sheet */
+.seg.when-mode { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; margin: 4px 0 12px; }
+.seg.when-mode label { margin: 0 !important; position: relative; }
+.seg.when-mode input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.seg.when-mode span { display: flex; align-items: center; justify-content: center; min-height: 40px; border-radius: 9px; font-weight: 600; color: var(--ink); cursor: pointer; text-align: center; font-size: .9rem; }
+.seg.when-mode input:checked + span { background: var(--accent); color: var(--accent-ink); }
+.seg.when-mode input:focus-visible + span { outline: 2px solid var(--accent); }
+.pills.day-chips, .pills.when-pills, .pills.rep-pills { flex-wrap: wrap; overflow: visible; gap: 8px; align-items: center; }
+.day-chip { min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
+.day-chip.on, .day-other.on .date-field input { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.day-other { margin: 0 !important; flex: 1 1 140px; min-width: 140px; }
+.day-other .date-field input { margin-top: 0 !important; }
+.when-pills .day-pill span, .rep-pills .day-pill span { text-transform: none; min-width: 0; padding: 8px 12px; }
+.at-time { display: flex !important; align-items: center; gap: 10px; }
+.at-time input { width: 110px !important; margin-top: 0 !important; }
+.week-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin: 10px 0; }
+.week-days .day-pill span { width: 100%; min-width: 0; padding: 10px 0; border-radius: 12px; }
+.add-due { display: inline-block; margin: 10px 0 4px; }
+label.choice { display: flex !important; gap: 12px; align-items: flex-start; padding: 12px 14px; margin: 8px 0 !important; border: 1px solid var(--line); border-radius: 12px; color: var(--ink) !important; font-weight: 400 !important; }
+label.choice.on { border-color: var(--accent); background: var(--accent-soft); }
+label.choice > input { width: auto; margin-top: 3px; accent-color: var(--accent); flex: none; }
+label.choice > span { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+label.choice small { color: var(--muted); font-size: .82rem; }
+label.choice .row.tight { display: flex; gap: 8px; margin-top: 6px; }
+label.choice .row.tight > * { flex: 1; min-width: 0; }
+.week-card { border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); border-radius: 16px; padding: 14px 16px; margin-bottom: 14px; }
+.wc-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 1rem; margin-bottom: 4px; }
+.wc-head small { color: var(--muted); }
+.occ-row { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.occ-row:last-of-type { border-bottom: 0; }
+.occ-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.occ-head small { color: var(--muted); white-space: nowrap; }
+.occ-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.occ-chip { min-height: 38px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
+.occ-chip.on { border: 1.5px solid var(--accent); background: var(--accent-soft); font-weight: 600; }
+.occ-chip[data-action=occ-more] { border-style: dashed; color: var(--muted); }
+.occ-chip[data-action=occ-skip] { border: 0; background: none; color: var(--muted); text-decoration: underline; }
+.week-card .button-row { margin-top: 10px; }
+.slot-opts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.slot-opt { margin: 0 !important; position: relative; }
+.slot-opt input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.slot-opt span { display: flex; flex-direction: column; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; font-weight: 400; }
+.slot-opt span small { color: var(--muted); }
+.slot-opt input:checked + span { border: 1.5px solid var(--accent); background: var(--accent-soft); }

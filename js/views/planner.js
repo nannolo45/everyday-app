@@ -1,4 +1,5 @@
 // views/planner.js: moved from app.js (v36). See app.js for how the modules fit together.
+import { cardRows, weekCardHtml } from '../weekpick.js';
 import { catColor, esc, fmtDay, hint, PPM, range, reasonText, relDay, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { isEvent } from '../kinds.js';
@@ -156,7 +157,10 @@ export function viewWeek(date) {
   const h = (endMin - startMin) * PPM;
   const allDay = days.map((d) => eventsOn(d).filter((e) => e.allDay));
   const wd = (d) => fmtDay(d, { weekday: 'short' });
-  return `
+  // (v51) this week's repeats that still need a time, from today on
+  const fixRows = days[6] >= td ? cardRows(days[0] > td ? days[0] : td, days[6]) : [];
+  ui.weekRows = fixRows;
+  return `${weekCardHtml({ rows: fixRows, title: t('toFixThisWeek') })}
   <div class="week">
     <div class="week-head"><div class="wk-gutter"></div>
       ${days.map((d) => `<button type="button" class="wk-day${d === td ? ' today' : ''}${inRange(d) ? ' in-range' : ''}" data-action="${selecting() ? 'assign-range' : 'view-day'}" data-id="${d}" data-drop="${d}"><span>${esc(wd(d))}</span><b>${parseDate(d).getDate()}</b>${loadBar(d)}</button>`).join('')}

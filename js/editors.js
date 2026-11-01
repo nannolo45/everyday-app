@@ -18,6 +18,7 @@ import { MODE_ICON, MODES as TRAVEL_MODES } from './travel.js';
 import { impBadge } from './views/planner.js';
 import { remindDefault, remindLabel, REMINDS } from './views/settings.js';
 import { SHOPS, shopsList, tripRowsHtml } from './views/shop.js';
+import { fixOcc, skipOcc, slotOptions } from './weekpick.js';
 import { pullCandidate, pullUp, runningBlock, shiftAfter, startBlock, startTask, stopTimer, timeHistory, undoShift } from './timer.js';
 import { cleanWindows, dateBox, dayShort, durField, lines, openModal, placeLink, plannedIso, readDur, readWindows, repeatText, searchBox, TIME24, windowsEditor, windowsText } from './widgets.js';
 
@@ -200,7 +201,13 @@ export function openImport(draft = null) {
   let tmr = null;
   modal.querySelector('textarea[name=text]').addEventListener('input', (ev) => {
     clearTimeout(tmr);
-    tmr = setTimeout(() => { if (!ev.target.isConnected || !modal.open) return; const f = ev.target.form; openImport({ text: f.text.value, due: f.due.value, category: f.category.value }); const ta = modal.querySelector('textarea[name=text]'); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 600);
+    // (the dialog is drawn again: the cursor goes back where it was, not to the end of the text)
+    tmr = setTimeout(() => {
+      const old = ev.target; if (!old.isConnected || !modal.open || document.activeElement !== old) return;
+      const f = old.form; const { selectionStart: a, selectionEnd: b, scrollTop } = old;
+      openImport({ text: f.text.value, due: f.due.value, category: f.category.value });
+      const ta = modal.querySelector('textarea[name=text]'); ta.focus(); ta.setSelectionRange(a, b); ta.scrollTop = scrollTop;
+    }, 600);
   });
 }
 
@@ -256,21 +263,21 @@ export function openTaskAdd(date) {
 
 // The + sheet: one field (the quick-add shortcuts), what it understood as chips, and three endings.
 // Enter adds it and keeps the sheet open for the next one.
-export function openQuickTask() {
+export function openQuickTask({ saved = false } = {}) {
   openModal(`
-    <h2>${esc(t('quickTitle'))}</h2>
+    <h2>${esc(t(saved ? 'quickTitleSaved' : 'quickTitle'))}</h2>
     <input id="quick-q" class="quick-q" name="q" autocomplete="off" enterkeyhint="done" placeholder="${esc(t('addTaskPh'))}" aria-label="${esc(t('quickTitle'))}">
     <div class="quick-chips" id="quick-chips"></div>
     <p class="hint" id="quick-hint">${esc(t('quickHint'))}</p>
     <p class="quick-done" id="quick-done" aria-live="polite"></p>
     <div class="quick-go">
-      <button class="btn primary big" value="plan"><b>${esc(t('addAndPlan'))}</b><small id="quick-slot"></small></button>
-      <div class="two-btn"><button class="btn" value="add">${esc(t('justAdd'))}</button><button class="btn" value="when">${esc(t('chooseWhen'))}</button></div>
+      ${saved ? `<button class="btn primary big" value="add"><b>${esc(t('addSavedBtn'))}</b><small id="quick-slot">${esc(t('addSavedSub'))}</small></button>` : `<button class="btn primary big" value="plan"><b>${esc(t('addAndPlan'))}</b><small id="quick-slot"></small></button>
+      <div class="two-btn"><button class="btn" value="add">${esc(t('justAdd'))}</button><button class="btn" value="when">${esc(t('chooseWhen'))}</button></div>`}
       <button class="linkish" value="more">${esc(t('moreDetails'))}</button>
     </div>
     <div class="button-row"><button class="btn ghost" value="cancel" formnovalidate>${esc(t('close'))}</button></div>`, (form, action, e) => {
-    if (action === 'more') { const q0 = quickAdd(form.q.value); setTimeout(() => openTask(null, { ...quickFields(q0) }), 0); return; }
-    const r = makeQuick(form.q.value);
+    if (action === 'more') { const q0 = quickAdd(form.q.value); setTimeout(() => openTask(null, { ...quickFields(q0), ...(saved ? { kind: 'saved' } : {}) }), 0); return; }
+    const r = makeQuick(form.q.value, saved);
     if (!r) { e.preventDefault(); form.q.focus(); return; }
     const { x, q } = r;
     const timed = q.due && q.time != null && !q.repeat;
@@ -292,14 +299,14 @@ export function openQuickTask() {
     modal.querySelector('#quick-hint').hidden = Boolean(q.title);
     let slot = '';
     if (q.due && q.time != null && !q.repeat) slot = t('atTime', relDay(q.due), fmtTime(q.time));
-    else if (q.title) { const s = suggestSlot({ title: q.title, minutes: q.minutes, due: q.due, importance: q.importance, priority: q.priority }); slot = s ? t('firstFree', relDay(s.date), fmtTime(s.start)) : t('noFreeWeek'); }
-    modal.querySelector('#quick-slot').textContent = slot;
+    else if (q.title && !saved) { const s = suggestSlot({ title: q.title, minutes: q.minutes, due: q.due, importance: q.importance, priority: q.priority }); slot = s ? t('firstFree', relDay(s.date), fmtTime(s.start)) : t('noFreeWeek'); }
+    if (!saved) modal.querySelector('#quick-slot').textContent = slot;
   };
   input.addEventListener('input', update);
   input.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Enter' || ev.isComposing) return;
     ev.preventDefault();
-    const r = makeQuick(input.value);
+    const r = makeQuick(input.value, saved);
     if (!r) return;
     const { x, q } = r;
     if (q.due && q.time != null && !q.repeat) planTask(x, q.due, Math.max(0, q.time - anchorOffset(null, x)));
@@ -311,29 +318,35 @@ export function openQuickTask() {
   update();
   input.focus();
 }
-function makeQuick(text) {
+function makeQuick(text, saved = false) {
   const q = quickAdd(text || '');
   if (!q.title) return null;
-  return { q, x: applyTravel(upsert('tasks', { id: uid(), createdAt: Date.now(), ...quickFields(q) }, { silent: true })) };
+  // a saved task keeps no due date (it's reused); a date and time typed in plan this one use
+  const f = saved ? { ...quickFields(q), kind: 'saved', due: null, repeat: null } : quickFields(q);
+  return { q, x: applyTravel(upsert('tasks', { id: uid(), createdAt: Date.now(), ...f }, { silent: true })) };
 }
 // After adding from the sheet: it shows on top of Da fare, and a bar says where it went (Change, Undo).
 export function afterAdd(x, block, { tried = false } = {}) {
   (ui.justAdded ||= new Set()).add(x.id);
   changed();
   const undo = { label: t('undo'), run: () => { for (const b of live('blocks').filter((y) => y.taskId === x.id)) remove('blocks', b.id); remove('tasks', x.id); ui.justAdded.delete(x.id); changed(); toast(t('undone')); } };
-  const show = route().name === 'tasks' ? [] : [{ label: t('show'), run: () => { ui.tasksTab = 'todo'; location.hash = '#/tasks'; } }];
+  const sv = x.kind === 'saved';
+  const here = route().name === 'tasks' && (ui.tasksTab || state.settings.tasksTab) === (sv ? 'saved' : 'todo');
+  const show = here ? [] : [{ label: t('show'), run: () => { ui.tasksTab = sv ? 'saved' : 'todo'; location.hash = '#/tasks'; render(); } }];
   if (block) toast(t('addedPlanned', relDay(block.date), fmtTime(block.start)), 8000, [{ label: t('change'), run: () => openBlock(get('blocks', block.id)) }, undo]);
-  else toast(tried ? t('addedNoSlot') : t('addedToList'), 8000, [...show, undo]);
+  else toast(sv ? t('addedSaved') : tried ? t('addedNoSlot') : t('addedToList'), 8000, [...show, undo]);
 }
 
 // "+ Add": things you put on the plan by hand.
 // From the + button (any tab): the same menu, about today; "Task" opens the quick sheet.
 export function openAddMenu({ fab = false } = {}) {
   const date = fab ? today() : currentDate();
+  const savedTab = fab && route().name === 'tasks' && (ui.tasksTab || state.settings.tasksTab) === 'saved'; // + on Saved: a saved task first
   const opt = (v, icon, label, hint) => `<button class="add-opt" value="${v}" formnovalidate><span class="add-ico">${icon}</span><span class="item-text">${esc(label)}<small>${esc(hint)}</small></span></button>`;
   openModal(`
     <h2>${esc(fab ? t('addMenuFab') : t('addMenuTitle', relDay(date)))}</h2>
     <div class="add-opts">
+      ${savedTab ? opt('saved-quick', '★', t('newSaved'), t('newSavedHint')) : ''}
       ${opt('task', '✓', t('addTaskOpt'), fab ? t('addTaskHintFab') : t('addTaskHint'))}
       ${opt('event', '📅', t('eventOpt'), t('addEventHint'))}
       ${opt('saved', '★', t('fromSaved'), t('addSavedHint'))}
@@ -346,6 +359,7 @@ export function openAddMenu({ fab = false } = {}) {
       if (action === 'saved') openSavedPicker(date);
       if (action === 'task') { if (fab) openQuickTask(); else openTaskAdd(date); }
       if (action === 'import') openImport();
+      if (action === 'saved-quick') openQuickTask({ saved: true });
       if (action === 'meal') { ui.mealDate = date; openMeal(null); }
       if (action === 'templates') openTemplatesMenu();
       if (action === 'event') {
@@ -798,6 +812,118 @@ export function rulesForEditor(task) {
 // The one editor for tasks and events (`opts.event`, or a task of kind 'event'): the same sections
 // in the same order; an event's "When" is a fixed date (a time is optional) and it has a section for
 // the tasks to do around it instead of due date, importance and prerequisites.
+// The "When" part of a task (v51): one choice first (once · repeats · whenever), then only what it needs.
+// A repeating task either goes on the plan at the same time every time, or you pick the time each week
+// (`pickTime`: the weekly "to fix" card on Today proposes free slots).
+// Reads the When part back (v51), for the mode chosen; fields of the other modes are left as they were.
+function collectWhen(form, x) {
+  const val = (n) => form.querySelector(`input[name="${n}"]:checked`)?.value;
+  const mode = val('whenMode') || whenModeOf(x);
+  const td = today();
+  x.whenMode = mode;
+  if (form.due) x.due = form.due.value || null;
+  if (mode === 'once') {
+    x.repeat = null; x.pickTime = null;
+    if (form.planDate) x.planDate = form.planDate.value || '';
+    if (form.planTime) x.planTime = form.planTime.value ? parseTime(form.planTime.value) : null;
+  } else if (mode === 'repeat') {
+    x.repeat = val('repeat') || (x.repeat === 'weekdays' ? 'weekly' : x.repeat) || 'weekly';
+    if (x.repeat === 'times') { if (form.timesN) { x.timesN = Math.max(1, Number(form.timesN.value) || 1); x.timesPer = form.timesPer.value || 'week'; } x.timesN ||= 3; x.timesPer ||= 'week'; }
+    if (form.every) x.every = Math.max(1, Number(form.every.value) || 1);
+    if (form.querySelector('input[name=repeatDays]')) x.repeatDays = [...form.querySelectorAll('input[name=repeatDays]:checked')].map((el) => Number(el.value));
+    else if (x.repeat === 'weekly' && !(x.repeatDays || []).length) x.repeatDays = [plannedIso(x)];
+    if (form.repeatUntil) x.repeatUntil = form.repeatUntil.value || null;
+    if (form.scope) x.scope = form.querySelector('input[name=scope]:checked')?.value || 'following';
+    const tm = val('timeMode') || (x.pickTime || (x.pickTime == null && x.planTime == null) ? 'pick' : 'fixed');
+    x.pickTime = x.repeat === 'times' || tm === 'pick';
+    if (x.pickTime) { x.planTime = null; x.planDate = ''; } else {
+      if (form.planTime) x.planTime = form.planTime.value ? parseTime(form.planTime.value) : null;
+      x.planDate = x.planTime != null ? (form.planDate?.value || x.planDate || td) : ''; // no time yet: not on the plan
+    }
+    if (!x.due) x.due = td; // where the repeats start counting from
+  } else {
+    x.repeat = null; x.pickTime = null; x.planDate = ''; x.planTime = null;
+  }
+}
+export const whenModeOf = (x) => x.whenMode || (x.repeat ? 'repeat' : isSaved(x) && !x.planDate && !x.due ? 'anytime' : 'once');
+function whenEditor(x, { routine, linkedEvent, evLine, timeLabel, anchorLabel }) {
+  const mode = whenModeOf(x);
+  const td = today();
+  const pill = (name, value, label, on, re = true) => `<label class="day-pill"><input type="radio" name="${name}" value="${esc(value)}" ${on ? 'checked' : ''} ${re ? 'data-rerender="1"' : ''}><span>${esc(label)}</span></label>`;
+  const whenPills = (labelKey) => `<div class="field-label">${esc(t(labelKey))}</div><div class="pills when-pills">${['', 'morning', 'afternoon', 'evening'].map((w) => pill('when', w, t(w ? `when_${w}` : (labelKey === 'atWhatTime' ? 'whenFirstFree' : 'when_any')), (x.when || '') === w, false)).join('')}</div>`;
+  const dueField = linkedEvent ? `<label>${esc(t('due'))}<span class="static">${esc(x.due ? relDay(x.due) : '—')}</span></label>`
+    : x.due || x.showDue ? `<label>${esc(t('dueBy'))}${dateBox(`<input name="due" type="date" value="${esc(x.due || '')}">`, x.due || '')}</label>`
+    : `<button class="linkish add-due" value="show-due" formnovalidate>+ ${esc(t('addDue'))}</button>`;
+  const tabs = `<div class="seg when-mode" role="radiogroup" aria-label="${esc(t('secWhen'))}">${['once', 'repeat', 'anytime'].map((m) => `<label class="${m === mode ? 'on' : ''}"><input type="radio" name="whenMode" value="${m}" ${m === mode ? 'checked' : ''} data-rerender="1"><span>${esc(t(`wm_${m}`))}</span></label>`).join('')}</div>`;
+  if (mode === 'once') {
+    const chips = [[td, t('today')], [addDays(td, 1), t('tomorrow')]];
+    return `${tabs}
+    <div class="field-label">${esc(t('whichDay'))}</div>
+    <div class="pills day-chips">${chips.map(([d, l]) => `<button class="day-chip${x.planDate === d ? ' on' : ''}" value="day:${d}" formnovalidate>${esc(l)}</button>`).join('')}
+      <label class="day-other${x.planDate && !chips.some(([d]) => d === x.planDate) ? ' on' : ''}">${dateBox(`<input name="planDate" type="date" value="${esc(x.planDate || '')}" aria-label="${esc(t('otherDay'))}">`, x.planDate || '')}</label></div>
+    ${whenPills('atWhatTime')}
+    <label class="at-time">${esc(timeLabel === t('startTime') ? t('atExact') : timeLabel)}<input name="planTime" ${TIME24} value="${x.planTime != null ? fmtTime(x.planTime) : ''}" aria-label="${esc(timeLabel)}"></label>
+    <small class="hint">${esc(t(x.planBlockId ? 'whenPlannedHint' : 'whenHint'))}</small>
+    ${evLine}
+    ${dueField}`;
+  }
+  if (mode === 'repeat') {
+    const rep = x.repeat === 'weekdays' ? 'weekly' : (x.repeat || 'weekly');
+    const days = x.repeat === 'weekdays' ? [1, 2, 3, 4, 5] : ((x.repeatDays || []).length ? x.repeatDays : [plannedIso(x)]);
+    const pick = rep === 'times' || x.pickTime || (x.pickTime == null && x.planTime == null);
+    return `${tabs}
+    <div class="pills rep-pills">${[['daily', 'rf_daily'], ['weekly', 'rf_days'], ['times', 'rf_times'], ['monthly', 'rf_monthly']].map(([v, k]) => pill('repeat', v, t(k), rep === v)).join('')}</div>
+    ${rep === 'weekly' ? `<div class="days week-days">${[1, 2, 3, 4, 5, 6, 7].map((d) => `<label class="day-pill"><input type="checkbox" name="repeatDays" value="${d}" ${days.includes(d) ? 'checked' : ''}><span>${esc(dayShort(d))}</span></label>`).join('')}</div>` : ''}
+    ${rep !== 'times' ? `<div class="times-row"><span>${esc(t('every'))}</span><input name="every" type="number" min="1" max="52" step="1" value="${esc(x.every || 1)}" aria-label="${esc(t('every'))}"><span>${esc(t(`unit_${rep}`, Number(x.every) || 1))}</span></div>`
+    : `<div class="times-row"><input name="timesN" type="number" min="1" max="99" step="1" value="${esc(x.timesN || 3)}" aria-label="${esc(t('timesN'))}"><span>${esc(t('timesPer'))}</span>
+      <select name="timesPer">${['day', 'week', 'month', 'year'].map((u) => `<option value="${u}" ${u === (x.timesPer || 'week') ? 'selected' : ''}>${esc(t(`per_${u}`))}</option>`).join('')}</select></div>`}
+    ${rep === 'times' ? `${hint('timesHint')}${whenPills('usuallyWhen')}` : `<div class="field-label">${esc(t('andTime'))}</div>
+    <label class="choice${!pick ? ' on' : ''}"><input type="radio" name="timeMode" value="fixed" ${!pick ? 'checked' : ''} data-rerender="1"><span><b>${esc(t('tmFixed'))}</b><small>${esc(t('tmFixedHint'))}</small>
+      ${!pick ? `<span class="row tight"><input name="planTime" ${TIME24} value="${x.planTime != null ? fmtTime(x.planTime) : ''}" aria-label="${esc(timeLabel)}">${dateBox(`<input name="planDate" type="date" value="${esc(x.planDate || td)}" aria-label="${esc(t('fromDay'))}">`, x.planDate || td)}</span>` : ''}</span></label>
+    <label class="choice${pick ? ' on' : ''}"><input type="radio" name="timeMode" value="pick" ${pick ? 'checked' : ''} data-rerender="1"><span><b>${esc(t('tmPick'))}</b><small>${esc(t('tmPickHint'))}</small></span></label>
+    ${pick ? whenPills('usuallyWhen') : ''}`}
+    <label>${esc(t('repeatUntil'))}${dateBox(`<input name="repeatUntil" type="date" value="${esc(x.repeatUntil || '')}">`, x.repeatUntil || '')}</label>
+    ${x.fromOcc && (x.seriesFrom || x.due) && x.fromOcc > (x.seriesFrom || x.due) ? `<div class="field-label">${esc(t('applyTo'))}</div>
+    <div class="days"><label class="day-pill"><input type="radio" name="scope" value="following" ${x.scope !== 'all' ? 'checked' : ''}><span>${esc(t('scopeFollowing', relDay(x.fromOcc)))}</span></label>
+    <label class="day-pill"><input type="radio" name="scope" value="all" ${x.scope === 'all' ? 'checked' : ''}><span>${esc(t('scopeAll'))}</span></label></div>` : ''}`;
+  }
+  return `${tabs}
+    <small class="hint">${esc(t(routine ? 'anytimeHintSaved' : 'anytimeHint'))}</small>
+    ${whenPills('usuallyWhen')}
+    ${routine ? `<label>${esc(anchorLabel)}<input name="defaultStart" ${TIME24} value="${x.defaultStart != null ? fmtTime(x.defaultStart) : ''}"></label>${hint('usualTimeHint')}` : ''}
+    ${dueField}`;
+}
+// (v51) "At what time, Monday?": the free slots with why, or any time; or skip the day. "Every time at
+// this time" turns the task into a fixed series from that day on.
+export function openPickSheet(x, date) {
+  const opts = slotOptions(x, date, 4);
+  const lead = leadOf(x);
+  const why = (o) => [t(`when_${o.part}`).toLowerCase(), o.part === x.when ? t('asUsual') : '', lead ? t('leaveAt', fmtTime(o.start - lead)) : t('slotFreeUntil', fmtTime(o.until))].filter(Boolean).join(' · ');
+  openModal(`
+    <h2>${esc(x.title)} · ${esc(relDay(date))}</h2>
+    <p class="hint">${esc(fmtDur(x.minutes || 30))}${lead ? ` · ${esc(t('plusTravel', fmtDur(lead)))}` : ''}</p>
+    ${opts.length ? `<div class="field-label">${esc(t('freeSlots'))}</div>
+    <div class="slot-opts">${opts.map((o, i) => `<label class="slot-opt"><input type="radio" name="slot" value="${o.start}" ${i === 0 ? 'checked' : ''}><span><b>${fmtTime(o.start)} – ${fmtTime(o.start + (x.minutes || 30))}</b><small>${esc(why(o))}</small></span></label>`).join('')}</div>` : `<p class="hint">${esc(t('noFreeSlotDay'))}</p>`}
+    <label class="at-time">${esc(t('orAt'))}<input name="other" ${TIME24} aria-label="${esc(t('orAt'))}"></label>
+    <label class="check"><input type="checkbox" name="always"> <span>${esc(t('alwaysThisTime'))}<small>${esc(t('alwaysThisTimeHint'))}</small></span></label>
+    <div class="button-row">
+      <button class="btn primary" value="ok">${esc(t('fixIt'))}</button>
+      <button class="btn" value="skip" formnovalidate>${esc(t('skipDay'))}</button>
+      <button class="btn ghost" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
+    </div>`, (form, action) => {
+    if (action === 'skip') { skipOcc(x, date); toast(t('skippedOcc', relDay(date))); changed(); return; }
+    const typed = form.other.value ? parseTime(form.other.value) : null;
+    const start = typed ?? (form.querySelector('input[name=slot]:checked') ? Number(form.querySelector('input[name=slot]:checked').value) : null);
+    if (start == null) return;
+    let b;
+    if (form.always.checked) {
+      const tk = upsert('tasks', { ...get('tasks', x.id), pickTime: false, whenMode: 'repeat' }, { silent: true });
+      b = planTask(tk, date, Math.max(0, start - lead)); // a series from this day, at this time
+    } else b = fixOcc(get('tasks', x.id), date, start);
+    toast(t('plannedToast', relDay(date), fmtTime(b.start + lead)));
+    changed();
+  });
+}
 // "Start now" in a task (v49): today's block moves to now, or one is made; and what it really took before.
 function startBox(x) {
   const td = today(); const now = Math.floor(nowMinutes() / 5) * 5;
@@ -968,34 +1094,7 @@ export function openTask(task, draft = null, opts = {}) {
       <div class="days"><label class="day-pill"><input type="radio" name="scope" value="following" ${x.scope !== 'all' ? 'checked' : ''}><span>${esc(t('scopeFollowing', relDay(x.fromOcc)))}</span></label>
       <label class="day-pill"><input type="radio" name="scope" value="all" ${x.scope === 'all' ? 'checked' : ''}><span>${esc(t('scopeAll'))}</span></label></div>` : ''}
     </div>` : ''}
-    ${remindField(x)}` : !helper ? `
-    <div class="two">
-      <label>${esc(t('date'))}${dateBox(`<input name="planDate" type="date" value="${esc(x.planDate || '')}">`, x.planDate || '')}</label>
-      <label>${esc(timeLabel)}<input name="planTime" ${TIME24} value="${x.planTime != null ? fmtTime(x.planTime) : ''}"></label>
-    </div>
-    <small class="hint">${esc(t(x.planBlockId ? 'whenPlannedHint' : 'whenHint'))}</small>
-    ${evLine}
-    <div class="two">
-      ${linkedEvent ? `<label>${esc(t('due'))}<span class="static">${esc(x.due ? relDay(x.due) : '—')}</span></label>` : `<label>${esc(t('due'))}${dateBox(`<input name="due" type="date" value="${esc(x.due || '')}">`, x.due || '')}</label>`}
-      <label>${esc(t('repeat'))}<select name="repeat" data-rerender="1"><option value="">${esc(t('rep_none'))}</option>${[...REPEATS, 'times'].map((r) => `<option value="${r}" ${r === x.repeat ? 'selected' : ''}>${esc(t(`rep_${r}`))}</option>`).join('')}</select></label>
-    </div>
-    ${x.repeat === 'times' ? `<div class="times-row"><input name="timesN" type="number" min="1" max="99" step="1" value="${esc(x.timesN || 3)}" aria-label="${esc(t('timesN'))}"><span>${esc(t('timesPer'))}</span>
-      <select name="timesPer">${['day', 'week', 'month', 'year'].map((u) => `<option value="${u}" ${u === (x.timesPer || 'week') ? 'selected' : ''}>${esc(t(`per_${u}`))}</option>`).join('')}</select></div>
-      ${hint('timesHint')}` : ''}
-    ${REPEATS.includes(x.repeat) ? `<div class="recur-box">
-      ${x.repeat !== 'weekdays' ? `<div class="times-row"><span>${esc(t('every'))}</span><input name="every" type="number" min="1" max="52" step="1" value="${esc(x.every || 1)}" aria-label="${esc(t('every'))}"><span>${esc(t(`unit_${x.repeat}`, Number(x.every) || 1))}</span></div>` : ''}
-      ${x.repeat === 'weekly' ? `<div class="days mini">${[1, 2, 3, 4, 5, 6, 7].map((d) => `<label class="day-pill"><input type="checkbox" name="repeatDays" value="${d}" ${((x.repeatDays || []).length ? x.repeatDays : [plannedIso(x)]).includes(d) ? 'checked' : ''}><span>${esc(dayShort(d))}</span></label>`).join('')}</div>` : ''}
-      <label>${esc(t('repeatUntil'))}${dateBox(`<input name="repeatUntil" type="date" value="${esc(x.repeatUntil || '')}">`, x.repeatUntil || '')}</label>
-      <small class="hint">${esc(x.seriesTime != null ? t('seriesHint', fmtTime(x.seriesTime)) : t('recurHint'))}</small>
-      ${x.fromOcc && (x.seriesFrom || x.due) && x.fromOcc > (x.seriesFrom || x.due) ? `<div class="field-label">${esc(t('applyTo'))}</div>
-      <div class="days"><label class="day-pill"><input type="radio" name="scope" value="following" ${x.scope !== 'all' ? 'checked' : ''}><span>${esc(t('scopeFollowing', relDay(x.fromOcc)))}</span></label>
-      <label class="day-pill"><input type="radio" name="scope" value="all" ${x.scope === 'all' ? 'checked' : ''}><span>${esc(t('scopeAll'))}</span></label></div>` : ''}
-    </div>` : ''}
-    <div class="two">
-      <label>${esc(t('bestTime'))}<select name="when">${['', 'morning', 'afternoon', 'evening'].map((w) => `<option value="${w}" ${w === (x.when || '') ? 'selected' : ''}>${esc(t(`when_${w || 'any'}`))}</option>`).join('')}</select></label>
-      ${routine ? `<label>${esc(x.steps.length > 1 && ai > 0 && anchor ? t('anchorAt', anchor.title || '…') : t('usualTimeOpt'))}<input name="defaultStart" ${TIME24} value="${x.defaultStart != null ? fmtTime(x.defaultStart) : ''}"></label>` : ''}
-    </div>
-    ${routine ? `${hint('usualTimeHint')}` : ''}
+    ${remindField(x)}` : !helper ? whenEditor(x, { routine, linkedEvent, evLine, timeLabel, anchorLabel: x.steps.length > 1 && ai > 0 && anchor ? t('anchorAt', anchor.title || '…') : t('usualTimeOpt') }) + `
     ${remindField(x)}` : '';
   // Tasks it needs done first (not itself, not meals, not ones that already need it: no loops).
   const needCandidates = live('tasks').filter((y) => y.id !== x.id && !isMealType(y) && !y.check && !y.done && !(y.after || []).includes(x.id) && !(x.after || []).includes(y.id))
@@ -1070,6 +1169,8 @@ export function openTask(task, draft = null, opts = {}) {
     </div>`, (form, action, e) => {
     collect(form);
     const again = (focus) => { e.preventDefault(); openTask(task, x); if (focus) modal.querySelector(focus)?.focus(); };
+    if (action.startsWith('day:')) { x.planDate = action.slice(4); again(); return; }
+    if (action === 'show-due') { x.showDue = true; again('input[name=due]'); return; }
     if (action === 'add-step') {
       x.steps.push({ id: uid().slice(0, 6), title: '', minutes: 10 });
       again(`input[name=st_t_${x.steps.length - 1}]`);
@@ -1145,6 +1246,11 @@ export function openTask(task, draft = null, opts = {}) {
       // A changed rule: the series restarts from the (new) due date.
       if (prevTask && isSeries(prevTask) && (prevTask.repeat !== x.repeat || (prevTask.every || 1) !== (x.every || 1) || JSON.stringify(prevTask.repeatDays || []) !== JSON.stringify(x.repeatDays || []) || prevTask.due !== x.due)) x.seriesFrom = x.due || today();
       rec = saveTask(x);
+      // "I pick the time each week": no fixed series any more (occurrences already on the plan, or done, stay).
+      if (rec.pickTime && rec.seriesTime != null) {
+        for (const b of seriesBlocks(rec.id).filter((y) => !outcomeOf(y) && y.auto && y.date >= today())) remove('blocks', b.id);
+        rec = upsert('tasks', { ...rec, seriesTime: null }, { silent: true });
+      }
       if (isSeries(rec)) ensureSeries(rec);
     }
     // The "When" section: plan it, move it, change its length, or take it off the plan.
@@ -1214,7 +1320,8 @@ export function openTask(task, draft = null, opts = {}) {
         const d = eventDate(linkedEvent); if (d) x.due = offsetDue(d, x.eventOffset);
       }
     }
-    if (!helper) {
+    if (!helper && !evMode) collectWhen(form, x);
+    if (!helper && evMode) {
       if (form.due) x.due = form.due.value || null;
       x.repeat = form.repeat.value || null;
       if (x.repeat === 'times' && form.timesN) { x.timesN = Math.max(1, Number(form.timesN.value) || 1); x.timesPer = form.timesPer.value || 'week'; }

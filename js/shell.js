@@ -12,6 +12,7 @@ import { SH } from './views/shop.js';
 import { gcalNow } from './connections.js';
 import { hydratePhotos } from './editors.js';
 import { lateBannerHtml, timerBarHtml } from './timer.js';
+import { todayRows, weekCardHtml } from './weekpick.js';
 import { viewSettings } from './views/settings.js';
 import { viewTasks } from './views/tasks.js';
 import { currentView, viewPlan } from './views/planner.js';
@@ -110,7 +111,8 @@ export function render() {
   const r = route();
   const active = document.activeElement;
   const focusId = active && active.id;
-  const typed = focusId && active.tagName === 'INPUT' ? active.value : null;
+  const typed = focusId && ['INPUT', 'TEXTAREA'].includes(active.tagName) ? active.value : null;
+  let sel = null; try { sel = typed != null ? [active.selectionStart, active.selectionEnd] : null; } catch { /* not a text field */ }
   for (const a of document.querySelectorAll('nav a')) a.classList.toggle('active', a.dataset.tab === (TAB_OF[r.name] || 'today'));
   $('#gear')?.classList.toggle('active', r.name === 'settings');
   document.body.classList.toggle('compact', Boolean(state.settings.compact));
@@ -131,7 +133,7 @@ export function render() {
     default: html = viewToday();
   }
   // A running timer shows on every tab (not Settings); a late start's offer on Today.
-  if (r.name !== 'settings') html = timerBarHtml() + (r.name === 'today' ? lateBannerHtml() : '') + html;
+  if (r.name !== 'settings') html = timerBarHtml() + (r.name === 'today' ? lateBannerHtml() + todayFixCard() : '') + html;
   // Nothing changed (e.g. a sync that found no news): leave the page alone. Replacing it
   // anyway is what made the screen flicker and fields lose what you were typing.
   if (html === ui.lastHtml && view.childElementCount) { positionNow(); settleScroll(r); return; }
@@ -144,9 +146,10 @@ export function render() {
     const el = document.getElementById(focusId);
     if (el) {
       el.focus();
-      if (typed != null && el.tagName === 'INPUT') {
+      if (typed != null && ['INPUT', 'TEXTAREA'].includes(el.tagName)) {
         el.value = typed;
-        try { el.setSelectionRange(typed.length, typed.length); } catch { /* not a text field */ }
+        // the cursor stays where it was (not at the end: you may be typing in the middle)
+        try { el.setSelectionRange(sel?.[0] ?? typed.length, sel?.[1] ?? typed.length); } catch { /* not a text field */ }
       }
     }
   }
@@ -164,6 +167,12 @@ export function settleScroll(r) {
   ui.shownDate = currentDate();
 }
 
+// (v51) Repeats that need a time: today's, and from the weekly moment the week's (see weekpick.js).
+function todayFixCard() {
+  const { rows, weekOn, key } = todayRows();
+  ui.weekRows = rows;
+  return weekCardHtml({ rows, title: t(weekOn ? 'toFixWeek' : 'toFixToday'), key: weekOn ? key : null });
+}
 // The red "now" line moves on its own every minute, without redrawing the day.
 export function positionNow() {
   const line = $('#now-line');
