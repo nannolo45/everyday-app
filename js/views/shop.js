@@ -361,13 +361,11 @@ export function openShopItem(it) {
     if (a === A.pickShop) { picked = picked.includes(b.dataset.id) ? picked.filter((x) => x !== b.dataset.id) : [...picked, b.dataset.id]; redrawChips(); }
     if (a === A.newShop) addShop();
   });
-  // Enter never presses the sheet's first button (Delete): in the new shop's name it adds the shop,
-  // anywhere else it saves.
+  // Enter saves (Save is the sheet's first submit button), except in the new shop's name: there it adds the shop.
   form.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' || e.target.tagName !== 'INPUT') return;
+    if (e.key !== 'Enter' || e.target.id !== 'sl-new-shop-name') return;
     e.preventDefault();
-    if (e.target.id === 'sl-new-shop-name') addShop();
-    else form.querySelector(`[data-action="${A.save}"]`).click();
+    addShop();
   });
 }
 

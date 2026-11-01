@@ -3,7 +3,8 @@
 // you see in Ricette: automatic ones ("auto:primo", renamed or switched off in data/tags.json)
 // plus your own. Folders are data/folders.json ({id, name, parentId}); a recipe has one folderId.
 import { normalizeName } from './parse.js';
-import { tagsOf as ricetteTags, minutesOf as ricetteMinutes } from './recipe-tools.js';
+import { tagsOf as ricetteTags, minutesOf as ricetteMinutes, isOriginTag } from './recipe-tools.js';
+import { CONTINENT_ICON, flagOf } from './geo.js';
 
 export function tagsOf(r, defs = []) { return ricetteTags(r, defs); }
 
@@ -14,6 +15,17 @@ export function tagLabel(tag, defs = [], autoName = null) {
   const id = tag.slice(5);
   const d = defs.find((x) => x && !x.deleted && x.id === id);
   return (d && (d.label || d.name)) || (autoName && autoName(id)) || id;
+}
+
+// Origin tags (Ricette's geo.js): "geo_it" → 🇮🇹 Italia (the country's name in the app's language),
+// "cont_eu" → 🌍 + contName('eu') (the host's translation). null for any other tag.
+export function originLabel(id, lang, contName = (c) => c) {
+  if (!isOriginTag(id)) return null;
+  const code = id.slice(id.indexOf('_') + 1);
+  if (id.startsWith('cont_')) return `${CONTINENT_ICON[code] || '🌐'} ${contName(code)}`;
+  let name = code.toUpperCase();
+  try { name = new Intl.DisplayNames([lang], { type: 'region' }).of(code.toUpperCase()) || name; } catch { /* keep the code */ }
+  return `${flagOf(code)} ${name}`;
 }
 
 export function minutesOf(r) { return r ? ricetteMinutes(r.time) : null; }

@@ -1,5 +1,8 @@
 // Automatic tags, cooking time in minutes, and "what can I cook with my pantry?".
 import { parseIngredient, namesMatch, convert, normalizeName } from './parse.js';
+import { foodKey } from './lang-food.js';
+import { recipeTimes } from './times.js';
+import { originOf, COUNTRY_CONTINENT } from './geo.js';
 
 const words = (list) => new RegExp(`(?:^|[^a-zà-öø-ÿ])(?:${list.join('|')})`, 'i');
 
@@ -111,7 +114,9 @@ export function autoTags(r, defs = []) {
     const course = courseOf(r, { meat, fish, sweet, pastaRice: tags.has('pasta') || tags.has('rice'), soup: tags.has('soup') });
     if (course) tags.add(course);
     if (course === 'drinks') { tags.delete('veg'); tags.delete('vegan'); }
-    const min = minutesOf(r.time);
+    // quick: a stated total, your own numbers, or an estimate that rests on durations in the steps
+    let min = minutesOf(r.time);
+    if (min == null) { const tm = recipeTimes(r, { minutesOfTotal: minutesOf }); if (!tm.estimated || tm.timed) min = tm.total; }
     if (min != null && min <= 30) tags.add('quick');
     if (OVEN.test(steps) || OVEN.test(title)) tags.add('oven');
   }
@@ -121,8 +126,24 @@ export function autoTags(r, defs = []) {
   const kwCourse = COURSE_TAGS.find((c) => keywordHit(r, def.get(c)?.keywords));
   if (kwCourse) for (const c of COURSE_TAGS) if (c !== kwCourse) tags.delete(c);
   const out = AUTO_TAGS.filter((t) => tags.has(t) && def.get(t)?.enabled !== false);
+  for (const id of originTags(r, def)) if (def.get(id)?.enabled !== false) out.push(id);
   for (const d of def.values()) if (d.custom && d.enabled !== false && keywordHit(r, d.keywords)) out.push(d.id);
   return out;
+}
+
+export const isOriginTag = (id) => /^(?:geo|cont)_[a-z]{2}$/.test(id);
+
+// Where the dish comes from: "geo_<country>" and "cont_<continent>". Keywords set in Settings on an
+// origin tag also count; a country found that way brings its continent along.
+function originTags(r, def) {
+  const o = originOf(r);
+  let country = o?.country || null;
+  let cont = o?.continent || null;
+  for (const d of def.values()) {
+    if (!isOriginTag(d.id) || !keywordHit(r, d.keywords)) continue;
+    if (d.id.startsWith('geo_')) { country = d.id.slice(4); cont = COUNTRY_CONTINENT[country] || cont; } else cont = d.id.slice(5);
+  }
+  return [country && `geo_${country}`, cont && `cont_${cont}`].filter(Boolean);
 }
 
 // Manual tags plus automatic ones the user hasn't hidden. Auto tags are returned as "auto:<id>".
@@ -140,9 +161,13 @@ const TO_TASTE = /\b(?:q\.?\s?b\.?|quanto basta|to taste|nach belieben|nach gesc
 
 export function isBasic(name) { return BASICS.test(normalizeName(name).replace(/\s+/g, ' ')); }
 
-function findPantryItem(name, pantry) {
+export function findPantryItem(name, pantry) {
   const n = normalizeName(name);
-  return pantry.find((p) => normalizeName(p.name) === n) || pantry.find((p) => namesMatch(p.name, name));
+  const direct = pantry.find((p) => normalizeName(p.name) === n) || pantry.find((p) => namesMatch(p.name, name));
+  if (direct) return direct;
+  // the same food in another language: "Eier" / "eggs" ↔ "uova"
+  const k = foodKey(name);
+  return k >= 0 ? pantry.find((p) => foodKey(p.name) === k) : undefined;
 }
 
 /**

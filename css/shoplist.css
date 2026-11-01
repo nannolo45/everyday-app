@@ -45,7 +45,10 @@
 .sl-newshop input { width: 9em; min-height: 36px; padding: 0 10px; margin: 0; }
 .sl-hint { font-size: .8rem; color: var(--muted); margin: 0; }
 .sl-actions { display: flex; align-items: center; gap: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
-.sl-gap { flex: 1; }
+.sl-gap { flex: 1; order: 1; }
+.sl-actions .sl-danger { order: 0; }
+.sl-actions .sl-cancel { order: 2; }
+.sl-actions .sl-primary { order: 3; }
 .sl-actions button { min-height: 46px; border-radius: 12px; font: inherit; font-weight: 600; padding: 0 16px; cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--ink); }
 .sl-actions .sl-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .sl-actions .sl-danger { border: 0; color: var(--danger); padding: 0 6px; }

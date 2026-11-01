@@ -1,12 +1,12 @@
 // editors.js: moved from app.js (v36). See app.js for how the modules fit together.
 import { advancedOn, catChips, catColor, catName, esc, findCategory, fmtDay, hint, kitchen, modal, PALETTE, planSettings, quickFields, range, reasonText, relDay, route, small, toast, ui, weekdayNames } from './core.js';
-import { t } from './i18n.js';
+import { getLang, t } from './i18n.js';
 import { isEvent, isMealType, isSaved, isStep, withKind } from './kinds.js';
 import { alreadyPlanned, anchorIndex, anchorOffset, anchorTitle, applyTemplate, blocksOn, busyOn, checklistLeft, checklistOf, checkMealNow, deleteBlock, endSeries, ensureSeries, eventDate, eventOf, eventTasksOf, followParent, isCheckStep, isSeries, leadOf, mealRecipes, mealTitle, mealTypes, newBlock, nextBlockOf, nextPlanned, offsetDue, offsetText, openTasks, outcomeOf, plannedTaskIds, plannedWhen, planTask, PREP_PLACES, qtyText, readinessText, recipeOf, recipes, RULE_PLACES, RULE_WHEN, rulesOf, savedGroups, savedInfo, savedStart, savedTasks, seriesBlocks, setBlockDone, setOutcome, setStepOutcome, setTaskDone, shoppingItems, splitSeries, stepLen, stepsOf, stepTimes, syncEventTasks, taskIssues, templates, travelTasks, trySetBlockDone, tryStep } from './model.js';
 import { addDays, fmtDur, fmtTime, formatTemplateLines, freeSlot, groupTasks, IMPORTANCE, importanceOf, isDate, nowMinutes, parseDate, parseTemplateLines, parseTime, quickAdd, REPEATS, sortTasks, today } from './plan.js';
 import { AUTO_SPANS, partOfDay, placeGhosts, planEventTasks, trayTasks, tripItems, warnConflicts } from './planning.js';
 import { pantryCoverage } from './recipe-tools.js';
-import { filterRecipes, folderOfRecipe, folderTree, minutesOf, tagCounts, tagLabel, tagsOf, timeParts } from './recipes.js';
+import { filterRecipes, folderOfRecipe, folderTree, minutesOf, originLabel, tagCounts, tagLabel, tagsOf, timeParts } from './recipes.js';
 import { changed, currentDate, render } from './shell.js';
 import { fold } from './shoplist.js';
 import { candidates, spareTime } from './smart.js';
@@ -348,7 +348,7 @@ export function openEvent(e) {
 export const coverage = (r, people) => pantryCoverage(r, live('r_pantry'), { servings: people || r.servings || 2 });
 export const tagDefs = () => live('r_tagdefs');
 export const pinnedTags = () => { const v = get('r_prefs', 'pinnedTags')?.value; return Array.isArray(v) ? v : []; };
-export const tagName = (tg) => tagLabel(tg, tagDefs(), (id) => t(`tag_${id}`));
+export const tagName = (tg) => tagLabel(tg, tagDefs(), (id) => originLabel(id, getLang(), (c) => t(`cont_${c}`)) ?? t(`tag_${id}`));
 export const coverOf = (r) => (r?.photos && r.photos[0]) || r?.image || '';
 
 // Photos: from Ricette's repo (images/...) via GitHub, cached on the device; web images directly.

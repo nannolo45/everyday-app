@@ -152,10 +152,11 @@ export function itemSheetHtml({ item, labels, units = [], depts = [], cat = '', 
     <label class="sl-field">${esc(L(labels, 'note'))}<input name="note" value="${esc(item.note || '')}" autocomplete="off"></label>
     ${origin ? `<p class="sl-hint">${esc(origin)}</p>` : ''}
     <div class="sl-actions">
-      <button type="submit" class="sl-danger" value="delete" formnovalidate data-action="${A.remove}">${esc(L(labels, 'delete'))}</button>
-      <span class="sl-gap"></span>
-      <button type="submit" class="sl-cancel" value="cancel" formnovalidate>${esc(L(labels, 'cancel'))}</button>
+      <!-- Save comes first in the markup: Enter in a field submits with the first submit button. CSS order puts Delete on the left. -->
       <button type="submit" class="sl-primary" value="ok" data-action="${A.save}">${esc(L(labels, 'save'))}</button>
+      <button type="submit" class="sl-cancel" value="cancel" formnovalidate>${esc(L(labels, 'cancel'))}</button>
+      <span class="sl-gap"></span>
+      <button type="submit" class="sl-danger" value="delete" formnovalidate data-action="${A.remove}">${esc(L(labels, 'delete'))}</button>
     </div>
   </div>`;
 }
