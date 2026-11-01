@@ -1,5 +1,5 @@
 // views/settings.js: moved from app.js (v36). See app.js for how the modules fit together.
-import { advancedOn, APP_VERSION, categories, catName, esc, ui, weekdayNames } from '../core.js';
+import { advancedOn, APP_VERSION, categories, catName, esc, route, ui, weekdayNames } from '../core.js';
 import { getLang, LANGS, t } from '../i18n.js';
 import { kindOf } from '../kinds.js';
 import { fmtDur, fmtTime } from '../plan.js';
@@ -28,9 +28,6 @@ export function viewSettings() {
 export function settingsHtml(s, msg) {
   const hourOpts = (sel, from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i).map((h) => `<option value="${h}" ${h === Number(sel) ? 'selected' : ''}>${fmtTime(h * 60)}</option>`).join('');
   const opts = (vals, sel, label) => vals.map((v) => `<option value="${v}" ${v === Number(sel) ? 'selected' : ''}>${esc(label(v))}</option>`).join('');
-  // Every section folds; which ones are open is remembered on this device (My day starts open).
-  const openSecs = { day: true, travel: true, cats: true, shops: true, adv: !isConfigured(), ...(s.setOpen || {}) };
-  const card = (key, title, body, cls = '') => `<details class="set-card ${cls}" data-sec="${key}" ${openSecs[key] ? 'open' : ''}><summary><h2>${title}</h2></summary>${body}</details>`;
   // An option with a line saying what it changes.
   const why = (key) => `<small class="why">${esc(t(key))}</small>`;
   const dayCard = `
@@ -147,23 +144,52 @@ export function settingsHtml(s, msg) {
     <button class="btn small" type="button" data-action="export">${esc(t('export'))}</button>
     ${ghConnected() ? `<button class="btn small ghost" type="button" data-action="wipe-local">${esc(t('wipeLocal'))}</button>` : ''}
   </div>`;
-  return `
-  <h1>${esc(t('tabSettings'))}</h1>
+  const langForm = `
   <form class="form" id="lang-form">
     <label>${esc(t('language'))}
       <select name="lang">${Object.entries(LANGS).map(([k, v]) => `<option value="${k}" ${k === getLang() ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>
     </label>
-  </form>
-  ${card('day', `☀️ ${esc(t('myDay'))}`, dayCard, 'c-day')}
-  ${card('travel', `🚌 ${esc(t('travelSettings'))}`, travelCard, 'c-travel')}
-  ${card('cats', `🏷 ${esc(t('categories'))}`, cats, 'c-cats')}
-  ${card('shops', `🏪 ${esc(t('shopsTitle'))}`, shops, 'c-shops')}
-  ${card('adv', `⚙ ${esc(t('advanced'))}`, advanced, 'c-links advanced')}
-  <div class="button-row subtle">
-    <a class="btn small" href="guide-${getLang() === 'it' ? 'it' : 'en'}.html" target="_blank" rel="noopener">📖 ${esc(t('guide'))}</a>
-    <span class="version">${esc(t('appName'))} ${APP_VERSION}</span>
+  </form>`;
+  // Settings is a list; each item opens a page of its own (#/settings/<key>), as in Ricette.
+  const pages = {
+    day: { icon: '☀️', title: t('myDay'), sub: `${fmtTime((s.dayStart ?? 6) * 60)}–${fmtTime((s.dayEnd ?? 23) * 60)} · ${t('maxLoadShort', s.maxLoad ?? 8)}`, body: dayCard },
+    travel: { icon: '🚌', title: t('travelSettings'), sub: [travelCfg().home || t('noHomeYet'), `${MODE_ICON[travelCfg().mode] || ''} ${t(`tm_${travelCfg().mode}`)}`].join(' · '), body: travelCard },
+    cats: { icon: '🏷', title: t('categories'), sub: t('nCategories', categories().length), body: cats },
+    shops: { icon: '🏪', title: t('shopsTitle'), sub: `${t('nShops', shopsList().length)} · ${t(`trip_${tripMode()}`)}`, body: shops },
+    adv: { icon: '⚙', title: t('advanced'), sub: t('advancedSub'), body: advanced },
+    lang: { icon: '🌐', title: t('language'), sub: LANGS[getLang()] || getLang(), body: langForm },
+  };
+  const page = pages[route().id];
+  if (page) {
+    return `
+  <a class="set-back" href="#/settings">← ${esc(t('tabSettings'))}</a>
+  <h1 class="set-title"><span aria-hidden="true">${page.icon}</span> ${esc(page.title)}</h1>
+  <div class="set-page set-${esc(route().id)}">${page.body}</div>`;
+  }
+  const row = (href, icon, title, sub, ext = false) => `<a class="set-row" href="${href}" ${ext ? 'target="_blank" rel="noopener"' : ''}>
+    <span class="set-ico" aria-hidden="true">${icon}</span><span class="set-text"><b>${esc(title)}</b><small>${esc(sub)}</small></span><span class="set-chev" aria-hidden="true">›</span></a>`;
+  const err = state.meta.lastError && state.meta.lastError !== 'network' ? t(`err_${state.meta.lastError}`) : '';
+  const status = ghConnected() ? `
+  <div class="set-status">
+    <span class="${err ? 'bad-dot' : 'ok-dot'}"></span>
+    <span class="set-text"><b>${esc(err ? t('syncProblem') : t('syncedTitle'))}</b><small>${esc(err || `${s.owner}/${s.repo} · ${state.meta.lastSync ? new Date(state.meta.lastSync).toLocaleString(getLang(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : t('never')}`)}</small></span>
+    <button class="btn small" type="button" data-action="sync-now">${esc(t('syncNow'))}</button>
+  </div>` : `
+  <div class="set-status">
+    <span class="off-dot"></span>
+    <span class="set-text"><b>${esc(t('localOnlyTitle'))}</b><small>${esc(t('localOnlySub'))}</small></span>
+    <a class="btn small" href="#/settings/adv">${esc(t('connect'))}</a>
   </div>`;
+  return `
+  <h1>${esc(t('tabSettings'))}</h1>
+  ${status}
+  <nav class="set-list" aria-label="${esc(t('tabSettings'))}">
+    ${Object.entries(pages).map(([k, p]) => row(`#/settings/${k}`, p.icon, p.title, p.sub)).join('')}
+    ${row(`guide-${getLang() === 'it' ? 'it' : 'en'}.html`, '📖', t('guide'), t('guideSub'), true)}
+  </nav>
+  <p class="version">${esc(t('appName'))} ${APP_VERSION}</p>`;
 }
+
 export function currentViewDefault() { const v = state.settings.defaultView || 'day'; return VIEWS.includes(v) ? v : 'day'; }
 
 // Reminders: Google Calendar notifies you (the "Everyday" calendar's events carry them). A default for

@@ -1,11 +1,11 @@
 // shell.js: moved from app.js (v36). See app.js for how the modules fit together.
-import { $, kitchen, modal, PPM, route, TAB_OF, ui, view } from './core.js';
+import { $, modal, PPM, route, TAB_OF, ui, view } from './core.js';
 import { t } from './i18n.js';
 import { ensureAllSeries, migrateBlocksToEvents, normalizeKinds } from './model.js';
 import { isDate, nowMinutes, today } from './plan.js';
 import { isDragging } from './sortable.js';
 import { applySharedSettings, get, live, seedSharedSettings, state } from './store.js';
-import { isConfigured, isSyncing, ricetteConfigured, syncNow } from './sync.js';
+import { isConfigured, isSyncing, syncNow } from './sync.js';
 import { scheduleTravelRefresh } from './travel-plan.js';
 import { SH } from './views/shop.js';
 import { gcalNow } from './connections.js';
@@ -41,7 +41,6 @@ export async function runSync() {
   if (!state.meta.lastError) { seedSharedSettings(); await applySharedSettings(); normalizeKinds(); }
   // Plan changed and Google Calendar is set up: push it there soon (at most every 10 minutes).
   if (planChanged && !state.meta.lastError && get('gcal', 'status') && Date.now() - (ui.lastDispatch || 0) > 600_000) gcalNow(true);
-  if (ricetteConfigured()) kitchen.ensureLowItems();
   migrateBlocksToEvents();
   ensureAllSeries();
   updateSyncBadge();

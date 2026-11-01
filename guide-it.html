@@ -17,8 +17,8 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 <p>Funziona nel browser, su telefono o computer, e si installa come un'app normale. I dati restano tuoi: stanno sui tuoi dispositivi e in uno spazio privato su GitHub che vedi solo tu. Non c'è un account da noi, nessuna IA e niente da pagare.</p>
 <p>Cosa non è: non è un calendario (gli appuntamenti arrivano da Google Calendar), non è un'app di note e non è uno strumento per un gruppo. Una persona, un insieme di dati.</p>
 <h2 id="prima-configurazione">Prima configurazione</h2>
-<p>Servono circa un quarto d'ora e un account GitHub (gratuito). Tutto avviene in <strong>Impostazioni</strong>: tocca l'ingranaggio in alto a destra. Ha tre schede — <em>La mia giornata</em>, <em>Spostamenti</em>, <em>Collegamenti</em> — e una sezione <em>Avanzate</em> per il resto.</p>
-<p><img alt="Impostazioni: tre schede" src="guide/it/05-settings-folded.png" /></p>
+<p>Servono circa un quarto d'ora e un account GitHub (gratuito). Tutto avviene in <strong>Impostazioni</strong>: tocca l'ingranaggio in alto a destra. Le Impostazioni sono un breve elenco, e ogni voce apre una pagina sua: <em>La mia giornata</em>, <em>Spostamenti</em>, <em>Categorie</em>, <em>Negozi</em>, <em>Avanzate</em> (i collegamenti e tutto quello che si imposta una volta), <em>Lingua</em> e la <em>Guida</em>. La scheda in alto dice se i dati sono sincronizzati, con <em>Sincronizza ora</em> (o <em>Collega</em>, finché non l'hai fatto).</p>
+<p><img alt="Impostazioni: la scheda della sincronizzazione e l'elenco delle pagine" src="guide/it/05-settings.png" /></p>
 <h3 id="1-installare-lapp">1. Installare l'app</h3>
 <p>Apri l'indirizzo dell'app in Chrome sul telefono, o in un browser qualsiasi sul computer. Su Android scegli <em>Installa app</em> (o <em>Aggiungi a schermata Home</em>) dal menu del browser; sul computer clicca la piccola icona di installazione nella barra dell'indirizzo. L'app funziona anche senza connessione; le nuove versioni arrivano da sole e una barra propone di ricaricare. In fondo alle Impostazioni vedi quale versione hai.</p>
 <h3 id="2-collegare-il-tuo-spazio-su-github">2. Collegare il tuo spazio su GitHub</h3>
@@ -26,21 +26,21 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 <ol>
 <li>Su GitHub crea un repository <strong>privato e vuoto</strong> (un "repository" è semplicemente una cartella su GitHub), ad esempio <code>everyday-data</code>. Non copiare quello di qualcun altro.</li>
 <li>Crea un <strong>token di accesso personale</strong> (GitHub → Settings → Developer settings → Fine-grained tokens) che possa leggere e scrivere i <em>Contents</em> di quel repository. Un token è come una password fatta per le app.</li>
-<li>In Impostazioni → <em>Collegamenti</em> → <em>Sincronizzazione con GitHub</em> scrivi il tuo utente GitHub, il nome del repository e il token, poi tocca <em>Salva e prova</em>. L'etichetta in alto dice <em>Sincronizzato</em> quando funziona.</li>
+<li>In Impostazioni → <em>Avanzate</em> → <em>Collegamenti</em> → <em>Sincronizzazione con GitHub</em> (o tocca <em>Collega</em> sulla scheda in cima alle Impostazioni) scrivi il tuo utente GitHub, il nome del repository e il token, poi tocca <em>Salva e prova</em>. L'etichetta in alto dice <em>Sincronizzato</em> quando funziona.</li>
 </ol>
 <p><img alt="Inserire utente, repository e token" src="guide/it/01-sync-form.png" /></p>
 <p><img alt="Collegato: il repository e l'ora dell'ultima sincronizzazione" src="guide/it/02-sync-connected.png" /></p>
 <p>Il token resta sul dispositivo. Fai il passo 3 su ogni telefono o computer che usi: condividono tutti gli stessi dati, entro un minuto da ogni modifica.</p>
 <h3 id="3-facoltativo-ricette-ricette-e-dispensa">3. Facoltativo: Ricette (ricette e dispensa)</h3>
-<p>Se usi anche l'app Ricette, scrivi il nome del suo repository dei dati in Impostazioni → <em>Collegamenti</em> → <em>Ricette</em> (lo stesso token deve poterlo usare). Everyday conosce allora le tue ricette e la dispensa, condivide la lista della spesa con Ricette e può pianificare pasti dalle ricette.</p>
+<p>Se usi anche l'app Ricette, scrivi il nome del suo repository dei dati in Impostazioni → <em>Avanzate</em> → <em>Ricette</em> (lo stesso token deve poterlo usare). Everyday conosce allora le tue ricette e la dispensa, condivide la lista della spesa con Ricette e può pianificare pasti dalle ricette.</p>
 <h3 id="4-facoltativo-google-calendar">4. Facoltativo: Google Calendar</h3>
-<p>Questo collegamento gira su GitHub, non sul telefono, e richiede una configurazione una tantum dalla parte di Google. Impostazioni → <em>Collegamenti</em> → <em>Google Calendar</em> elenca i passi; in breve, crei un piccolo progetto Google Cloud, gli permetti di usare il tuo calendario e salvi tre "secret" nel tuo repository. Fatto questo, gli appuntamenti compaiono nell'app e il tuo piano compare in Google Calendar, con i promemoria.</p>
+<p>Questo collegamento gira su GitHub, non sul telefono, e richiede una configurazione una tantum dalla parte di Google. Impostazioni → <em>Avanzate</em> → <em>Google Calendar</em> elenca i passi; in breve, crei un piccolo progetto Google Cloud, gli permetti di usare il tuo calendario e salvi tre "secret" nel tuo repository. Fatto questo, gli appuntamenti compaiono nell'app e il tuo piano compare in Google Calendar, con i promemoria.</p>
 <p><img alt="La sezione Google Calendar dopo la prima sincronizzazione" src="guide/it/04-settings-gcal.png" /></p>
 <h3 id="5-spostamenti">5. Spostamenti</h3>
 <p>In Impostazioni → <em>Spostamenti</em> scrivi l'indirizzo di casa e come ti muovi di solito (a piedi, bici, mezzi pubblici, auto). Basta questo perché l'app aggiunga il tempo di viaggio alle attività con un luogo. La chiave Google Maps è facoltativa; senza, l'app usa servizi di mappe gratuiti.</p>
 <p><img alt="Impostazioni degli spostamenti: casa, mezzo abituale e le tratte del viaggio" src="guide/it/03-settings-travel.png" /></p>
 <h3 id="6-una-seconda-persona">6. Una seconda persona</h3>
-<p>Ogni persona ha bisogno del proprio repository, del proprio token e (se la vuole) della propria configurazione del calendario. Sul suo dispositivo apri lo stesso indirizzo dell'app e scrivi in Impostazioni → Collegamenti il <em>suo</em> repository. Se il dispositivo conteneva prima i dati di qualcun altro, l'app chiede se <strong>partire vuoto</strong> — scegli quello. <em>Svuota questo dispositivo</em>, nella stessa sezione, fa lo stesso in qualsiasi momento.</p>
+<p>Ogni persona ha bisogno del proprio repository, del proprio token e (se la vuole) della propria configurazione del calendario. Sul suo dispositivo apri lo stesso indirizzo dell'app e scrivi in Impostazioni → Avanzate → Collegamenti il <em>suo</em> repository. Se il dispositivo conteneva prima i dati di qualcun altro, l'app chiede se <strong>partire vuoto</strong> — scegli quello. <em>Svuota questo dispositivo</em>, in fondo alla stessa pagina, fa lo stesso in qualsiasi momento.</p>
 <h2 id="le-quattro-schede">Le quattro schede</h2>
 <table>
 <thead>
@@ -191,14 +191,22 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 <p>I tempi di viaggio vengono da servizi di mappe gratuiti. Con una chiave Google Maps nelle Impostazioni si usa Google e i mezzi pubblici funzionano ovunque. Un «?» su un'attività significa che il tempo non è ancora noto: il planner conta 30 minuti finché non lo è, e ⚠ ti avvisa quando un indirizzo non è stato trovato. <em>Parti da dove sono oggi</em> usa la posizione del telefono per il primo spostamento del giorno.</p>
 <h2 id="pasti-lista-della-spesa-e-spese">Pasti, lista della spesa e spese</h2>
 <p>Con Ricette collegato, <em>+ Aggiungi → Pasto</em> mette un pasto in un giorno e ti fa scegliere le ricette; il passaggio di preparazione prende la durata dalle ricette. Quando arriva il momento (o quando spunti il passaggio di <em>controllo</em>) l'app guarda la dispensa: quello che manca va in <strong>lista della spesa</strong>, e una <strong>spesa</strong> viene pianificata prima del pasto.</p>
-<p><img alt="La lista della spesa, per reparto" src="guide/it/14-shopping.png" /></p>
-<p>La parte <strong>Spesa</strong> della scheda Attività (Da fare · Salvate · Spesa; l'app ricorda quale hai usato l'ultima volta, e un blocco di spesa la apre direttamente) è la stessa lista di Ricette, in entrambe le direzioni: aggiungi, cambia, spunta o elimina qui e lo vedi lì entro un minuto. Raggruppala per reparto, ricetta o negozio, ordinala A–Z o per data di aggiunta, cercala. Tocca un articolo per cambiarne quantità, nota o i negozi che lo hanno.</p>
-<p>I <strong>negozi</strong> (Impostazioni → Categorie e negozi) hanno orari di apertura e, se vuoi, un indirizzo. Indica quali negozi hanno un articolo e le spese vengono pianificate quando quei negozi sono aperti, come un solo giro o uno per negozio. Una spesa è un blocco come gli altri; spuntare gli articoli mentre li compri li segna come comprati in Ricette, e finiscono in dispensa quando lì «metti via la spesa».</p>
+<p><img alt="La lista della spesa, per reparto, con la barra del carrello" src="guide/it/14-shopping.png" /></p>
+<p>La parte <strong>Spesa</strong> della scheda Attività (Da fare · Salvate · Spesa; un blocco di spesa la apre direttamente) è la stessa lista di Ricette, in entrambe le direzioni: aggiungi, cambia, spunta o elimina qui e compare lì entro un minuto. Ha anche lo stesso aspetto e funziona allo stesso modo nelle due app.</p>
+<ul>
+<li><strong>Aggiungere.</strong> Scrivi <code>2 l latte</code>, <code>detersivo piatti</code> o <code>shampoo</code> nel campo in alto. Ogni articolo finisce da solo nel suo reparto — e nello stesso in qualunque lingua lo scrivi (<em>cavolfiore</em>, <em>Blumenkohl</em> e <em>cauliflower</em> vanno tutti in <em>Frutta e verdura</em>). Casa e pulizia e cura della persona hanno reparti propri. Gli articoli che Ricette aggiunge perché qualcosa sta finendo hanno l'etichetta <em>in esaurimento</em>.</li>
+<li><strong>⇅ Vista.</strong> Il pulsante accanto alla ricerca mostra la vista attuale; toccalo per scegliere <em>Reparti</em>, <em>Ricette</em>, <em>Negozi</em>, <em>Mio ordine</em>, <em>A–Z</em>, <em>Aggiunti di recente</em> o <em>Aggiunti per primi</em>, e per filtrare: solo quello che si trova in un negozio, o solo quello in esaurimento. I filtri attivi compaiono come etichette sotto la ricerca; toccane una per toglierla.</li>
+<li><strong>Spuntare.</strong> Spunta un articolo al negozio e lascia il suo gruppo per il <strong>carrello</strong> in basso: <em>Nel carrello · 3</em>. Tocca il numero per vedere cosa c'è dentro; <em>Metti in dispensa</em> mette il cibo nella dispensa di Ricette (gli articoli per la casa e la persona escono solo dalla lista).</li>
+<li><strong>Un articolo.</strong> Tocca il nome per cambiare nome, quantità (− / +), unità, reparto, nota e negozi che lo hanno; <em>+ Nuovo negozio</em> ne aggiunge uno lì. Elimina è nella stessa scheda, con <em>Annulla</em>.</li>
+<li><strong>⋯ Altro.</strong> <em>Pianifica la spesa</em> (i giri dei negozi), <em>Condividi la lista</em>, <em>Seleziona</em> (spunta più articoli per dare loro i negozi o eliminarli insieme), <em>Riordina</em> (trascina ⠿ per mettere reparti e articoli nell'ordine del tuo supermercato; <em>Mio ordine</em> ha sempre le maniglie) e <em>Svuota carrello</em>.</li>
+</ul>
+<p><img alt="Il foglio della vista: viste e filtri" src="guide/it/18-shopping-view.png" /></p>
+<p>I <strong>negozi</strong> (Impostazioni → Negozi) hanno orari di apertura e, se vuoi, un indirizzo. Indica quali negozi hanno un articolo e le spese vengono pianificate quando quei negozi sono aperti, come un solo giro o uno per negozio. Una spesa è un blocco come gli altri; elenca cosa comprare lì, e spuntare gli articoli mentre li compri li segna come comprati anche in Ricette.</p>
 <h2 id="google-calendar">Google Calendar</h2>
 <p>Una volta configurato, il collegamento funziona nei due sensi:</p>
 <ul>
 <li><strong>I tuoi calendari → Everyday.</strong> Gli appuntamenti dei calendari che importi compaiono nel piano nel loro colore, come tempo occupato attorno a cui il planner lavora. Qui non si cambiano; un link li apre in Google Calendar.</li>
-<li><strong>Everyday → Google Calendar.</strong> Tutto quello che pianifichi viene scritto in un calendario chiamato <em>Everyday</em>, con un promemoria (quello predefinito da Impostazioni → Collegamenti → Google Calendar, o quello dell'attività). Un'attività con uno spostamento è un solo evento che parte quando devi uscire, intitolato <em>Dentista 11:20 · parti 11:00</em>, così il promemoria suona prima che tu debba andare. I tuoi eventi hanno un 📅; quelli di tutto il giorno diventano voci di tutto il giorno. Sposta o elimina un evento Everyday in Google Calendar e il piano lo segue.</li>
+<li><strong>Everyday → Google Calendar.</strong> Tutto quello che pianifichi viene scritto in un calendario chiamato <em>Everyday</em>, con un promemoria (quello predefinito da Impostazioni → Avanzate → Google Calendar, o quello dell'attività). Un'attività con uno spostamento è un solo evento che parte quando devi uscire, intitolato <em>Dentista 11:20 · parti 11:00</em>, così il promemoria suona prima che tu debba andare. I tuoi eventi hanno un 📅; quelli di tutto il giorno diventano voci di tutto il giorno. Sposta o elimina un evento Everyday in Google Calendar e il piano lo segue.</li>
 </ul>
 <p>Il collegamento si aggiorna ogni ora e poco dopo ogni modifica al piano; <em>Sincronizza ora con Google</em> lo aggiorna a mano. La sezione in Impostazioni mostra quando è girato l'ultima volta e quanti appuntamenti sono arrivati. <em>Rimuovi i dati del calendario</em> elimina dal repository gli appuntamenti importati — utile se un repository è stato copiato da quello di un'altra persona e mostra il suo calendario.</p>
 <h2 id="una-settimana-tipo">Una settimana tipo</h2>
@@ -218,7 +226,7 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 <tbody>
 <tr>
 <td>L'etichetta dice <em>Offline</em> o mostra un errore</td>
-<td>Controlla la connessione, poi Impostazioni → Collegamenti → <em>Sincronizza ora</em>. Un token scaduto o senza più accesso mostra lì un errore; creane uno nuovo.</td>
+<td>Controlla la connessione, poi <em>Sincronizza ora</em> sulla scheda in cima alle Impostazioni. Un token scaduto o senza più accesso mostra lì un errore; creane uno nuovo.</td>
 </tr>
 <tr>
 <td>Due dispositivi mostrano cose diverse</td>
@@ -230,7 +238,7 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 </tr>
 <tr>
 <td>Su un dispositivo compaiono i dati di un'altra persona</td>
-<td>Impostazioni → Avanzate → <em>Svuota questo dispositivo</em>, dopo aver controllato che il repository indicato sia quello giusto. Se è il repository stesso a essere stato copiato da un altro, elimina prima i suoi file su GitHub (per il calendario: Impostazioni → Collegamenti → Google Calendar → <em>Rimuovi i dati del calendario</em>).</td>
+<td>Impostazioni → Avanzate → <em>Svuota questo dispositivo</em>, dopo aver controllato che il repository indicato sia quello giusto. Se è il repository stesso a essere stato copiato da un altro, elimina prima i suoi file su GitHub (per il calendario: Impostazioni → Avanzate → Google Calendar → <em>Rimuovi i dati del calendario</em>).</td>
 </tr>
 <tr>
 <td>Un'attività mostra ⚠</td>
@@ -250,7 +258,7 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 </tr>
 <tr>
 <td>Voglio i miei dati</td>
-<td>Impostazioni → Avanzate → <em>Scarica backup</em> dà un unico file con tutto; il tuo repository su GitHub contiene gli stessi file.</td>
+<td>Impostazioni → Avanzate → <em>Scarica backup (JSON)</em> dà un unico file con tutto; il tuo repository su GitHub contiene gli stessi file.</td>
 </tr>
 </tbody>
 </table></main></body></html>

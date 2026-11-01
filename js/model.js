@@ -2,7 +2,8 @@
 import { catColor, categories, esc, GROCERY_MINUTES, hint, kitchen, planSettings, range, relDay, toast, ui } from './core.js';
 import { t } from './i18n.js';
 import { isEvent, isMealType, isSaved, isStep, isTodo, needsKind, withKind } from './kinds.js';
-import { addQuantities, formatQty, namesMatch } from './parse.js';
+import { addQuantities, formatQty } from './parse.js';
+import { sameFood } from './foods.js';
 import { addDays, autoTemplatesFor, completeTask, fmtDur, fmtTime, freeSlot, importanceOf, nextOccurrence, nowMinutes, occurrences, parseDate, reopenTask, REPEATS, templateBlocks, today } from './plan.js';
 import { prepMinutes } from './recipes.js';
 import { findConflicts, placeGroceries, placePrep, windowOn, WINDOWS } from './smart.js';
@@ -562,7 +563,6 @@ export function runCheck(step, { auto = false } = {}) {
   const missing = missingForMeal(meal);
   if (!missing.length) { setOutcome(step, 'done'); if (!auto) toast(t('allInPantry')); return; }
   for (const m of missing) kitchen.addToShopping({ name: m.name, qty: m.buy, unit: m.unit, note: m.note }, meal.title);
-  kitchen.ensureLowItems();
   const b = upsert('blocks', { ...get('blocks', step.id), missing: missing.map((m) => [qtyText(m.buy, m.unit), m.name].filter(Boolean).join(' ')) }, { silent: true });
   setOutcome(b, 'failed');
   toast(t('checkMissing', missing.length, meal.title));
@@ -681,7 +681,7 @@ export function missingForMeal(meal) {
     if (!r) return;
     const pantry = kitchen.pantryAfter([...earlier, ...mine.slice(0, i)], recipeOf);
     for (const m of kitchen.missingFor(r, x.servings || r.servings || 2, pantry)) {
-      const same = out.find((o) => namesMatch(o.name, m.name) && addQuantities({ qty: o.buy, unit: o.unit }, { qty: m.buy, unit: m.unit }));
+      const same = out.find((o) => sameFood(o.name, m.name) && addQuantities({ qty: o.buy, unit: o.unit }, { qty: m.buy, unit: m.unit }));
       if (same) { const sum = addQuantities({ qty: same.buy, unit: same.unit }, { qty: m.buy, unit: m.unit }); same.buy = sum.qty; same.unit = sum.unit; } else out.push({ ...m });
     }
   });
@@ -712,8 +712,7 @@ export function checkMealNow(meal) {
     const picked = [...form.querySelectorAll('input[name=m]:checked')].map((i) => missing[Number(i.value)]);
     if (!picked.length) return;
     for (const m of picked) kitchen.addToShopping({ name: m.name, qty: m.buy, unit: m.unit, note: m.note }, meal.title);
-    kitchen.ensureLowItems();
-    const g = ensureGroceries(get('blocks', meal.id));
+      const g = ensureGroceries(get('blocks', meal.id));
     toast(t('groceriesPlanned', relDay(g.date), fmtTime(g.start)));
     changed();
   }), 0);

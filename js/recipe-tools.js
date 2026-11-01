@@ -1,6 +1,6 @@
 // Automatic tags, cooking time in minutes, and "what can I cook with my pantry?".
-import { parseIngredient, namesMatch, convert, normalizeName } from './parse.js';
-import { foodKey } from './lang-food.js';
+import { parseIngredient, convert, normalizeName } from './parse.js';
+import { sameFood, isBasicFood } from './foods.js';
 import { recipeTimes } from './times.js';
 import { originOf, COUNTRY_CONTINENT } from './geo.js';
 
@@ -156,18 +156,16 @@ export function tagsOf(r, defs = []) {
 
 // ---------- what can I cook? ----------
 
-const BASICS = /^(?:sale|sale fino|sale grosso|pepe|pepe nero|acqua|olio|olio (?:extra ?vergine|evo|d'oliva|di oliva|di semi)(?: d'oliva)?|salz|pfeffer|wasser|öl|olivenöl|salt|pepper|black pepper|water|oil|olive oil|ghiaccio|eis|ice)$/i;
 const TO_TASTE = /\b(?:q\.?\s?b\.?|quanto basta|to taste|nach belieben|nach geschmack|a piacere|etwas)\b/i;
 
-export function isBasic(name) { return BASICS.test(normalizeName(name).replace(/\s+/g, ' ')); }
+/** Salt, pepper, oil, water, ice: always at home (the dictionary's `basic` flag). */
+export function isBasic(name) { return isBasicFood(name); }
 
-export function findPantryItem(name, pantry) {
+/** The pantry product for an ingredient: the same name first, else the same food (any language). */
+export function findPantryItem(nameOrItem, pantry) {
+  const name = typeof nameOrItem === 'string' ? nameOrItem : nameOrItem?.name;
   const n = normalizeName(name);
-  const direct = pantry.find((p) => normalizeName(p.name) === n) || pantry.find((p) => namesMatch(p.name, name));
-  if (direct) return direct;
-  // the same food in another language: "Eier" / "eggs" ↔ "uova"
-  const k = foodKey(name);
-  return k >= 0 ? pantry.find((p) => foodKey(p.name) === k) : undefined;
+  return pantry.find((p) => normalizeName(p.name) === n) || pantry.find((p) => sameFood(p, nameOrItem)) || undefined;
 }
 
 /**
@@ -187,7 +185,7 @@ export function pantryCoverage(r, pantry, { servings, basics = true, expiringIds
     const ing = raw.name != null ? raw : parseIngredient(raw.raw || '');
     if (!ing.name) continue;
     const need = ing.qty == null ? null : (ing.qty * n) / base;
-    const p = findPantryItem(ing.name, pantry);
+    const p = findPantryItem(ing, pantry);
     // staples tracked by level (data contract v1): at home when ok or low, whatever qty says
     const byLevel = p && p.track === 'level';
     const stock = p ? (Number(p.qty) || 0) : 0;

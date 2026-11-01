@@ -5,7 +5,7 @@ import { esc, hint, kitchen, kitchenOwn, modal, relDay, toast, ui } from '../cor
 import { DEPT_IDS, DEPTS, deptIcon, deptOf, NONFOOD } from '../depts.js';
 import { getLang, t } from '../i18n.js';
 import { qtyText } from '../model.js';
-import { namesMatch, parseIngredient } from '../parse.js';
+import { parseIngredient } from '../parse.js';
 import { today } from '../plan.js';
 import { tripMode } from '../planning.js';
 import { changed } from '../shell.js';
@@ -55,11 +55,8 @@ export function SHOPS() { return ricetteConfigured() ? 'r_shops' : 'shops'; }
 export function shopsList() { return live(SHOPS()).sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || (a.name || '').localeCompare(b.name || '')); }
 export function shopName(id) { return get(SHOPS(), id)?.name || ''; }
 export function deptOrder() { return byOrder(DEPT_IDS, shopPref('deptOrder', [])); }
-export function shopDept(i) {
-  if (i.cat && DEPT_IDS.includes(i.cat)) return i.cat;
-  const p = ricetteConfigured() && ((i.pantryId && get('r_pantry', i.pantryId)) || K().findPantry(i.name));
-  return p && p.cat && DEPT_IDS.includes(p.cat) ? p.cat : deptOf(i);
-}
+// An item's department (depts.js, shared): the one a person chose, else the food dictionary, else keywords.
+export const shopDept = (i) => deptOf(i);
 export const isFood = (i) => !NONFOOD.includes(shopDept(i));
 // A shop by name (case and accents ignored), or a new one (always open; hours can be added in Settings).
 function shopByName(name) {
@@ -134,7 +131,7 @@ export function viewShop() {
   <p class="hint">${esc(ricetteConfigured() ? t('shopFromRicette') : t('shopOwn'))}</p>
   ${ricetteConfigured()
     ? `<p class="sync-line"><span class="ok-dot"></span>${esc(state.meta.ricetteSynced ? t('ricetteSyncedAt', new Date(state.meta.ricetteSynced).toLocaleTimeString(getLang(), { hour: '2-digit', minute: '2-digit', hour12: false })) : t('ricetteNotYet'))} <button class="linkish" type="button" data-action="sync-now">↻ ${esc(t('syncNow'))}</button></p>`
-    : `<p class="sync-line"><a href="#/settings">${esc(t('connectRicette'))}</a></p>`}
+    : `<p class="sync-line"><a href="#/settings/adv">${esc(t('connectRicette'))}</a></p>`}
   ${listFrozen() ? `<p class="sl-frozen" role="alert">⚠ ${esc(t('sl_contract'))}</p>` : ''}
   ${ui.shopUndo ? `<div class="reflow"><span>${esc(ui.shopUndo.msg)}</span><button class="linkish" type="button" data-action="shop-undo">${esc(t('undo'))}</button><button class="icon" type="button" data-action="shop-undo-ok" aria-label="${esc(t('close'))}">✕</button></div>` : ''}
   <form id="shop-add" class="row">
@@ -157,10 +154,8 @@ export function viewShop() {
 export function shopAdd(text) {
   const ing = parseIngredient(text);
   if (!ing.name) return;
-  K().addToShopping({ name: ing.name, qty: ing.qty, unit: ing.unit, note: ing.note }, '');
-  // Give it its department straight away (so Everyday's household/personal-care ones stick).
-  const it = live(SH()).filter((x) => !x.checked && namesMatch(x.name, ing.name)).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0];
-  if (it && !it.cat) upsert(SH(), { ...it, cat: deptOf(it) }, { silent: true });
+  // No stored department: it's worked out when shown (the dictionary knows household and care too).
+  return K().addToShopping({ name: ing.name, qty: ing.qty, unit: ing.unit, note: ing.note }, '');
 }
 
 // Removed items can come back (Undo): the tombstones are simply overwritten.
@@ -180,7 +175,7 @@ function undoRemove() {
 }
 
 export function putAwayCart() {
-  const n = K().putAway(isFood, (it) => ({ cat: DEPT_IDS.includes(shopDept(it)) && !NONFOOD.includes(shopDept(it)) ? shopDept(it) : null }));
+  const n = K().putAway(isFood, (it) => (it.cat && DEPT_IDS.includes(it.cat) && !NONFOOD.includes(it.cat) ? it.cat : null));
   toast(t('putAwayDone', n));
   ui.cartOpen = false;
   changed();

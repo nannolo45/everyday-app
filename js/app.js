@@ -181,10 +181,6 @@ view.addEventListener('change', (e) => {
   }
 });
 
-view.addEventListener('toggle', (e) => {
-  const d = e.target.closest?.('details.set-card');
-  if (d?.dataset.sec) saveSettings({ setOpen: { ...(state.settings.setOpen || {}), [d.dataset.sec]: d.open } });
-}, true);
 
 view.addEventListener('click', (e) => {
   // In-app links (‹ › and Today on the plan) change the address without the browser's own jump to the top.

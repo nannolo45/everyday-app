@@ -1,9 +1,10 @@
-// Departments for Everyday's shopping list: Ricette's food departments (categories.js, copied
+// Departments for the shopping list (both apps): Ricette's food departments (categories.js, copied
 // from Ricette, in supermarket order) plus two for things that aren't food: household
 // (cleaning supplies, paper, bags…) and personal care. Ricette doesn't know these two, so it
 // shows such items under "Other".
 import { CATEGORIES, categorize } from './categories.js';
 import { normalizeName } from './parse.js';
+import { foodDept } from './foods.js';
 
 const re = (list) => new RegExp(`(?:^|[^a-zà-öø-ÿ])(?:${list.join('|')})`, 'i');
 
@@ -22,8 +23,12 @@ export const DEPTS = [...CATEGORIES.filter((c) => c.id !== 'other'), ...EXTRA.ma
 export const DEPT_IDS = DEPTS.map((c) => c.id);
 export const deptIcon = (id) => (DEPTS.find((c) => c.id === id) || DEPTS.at(-1)).icon;
 
+// An item's department: the one a person chose (`cat`), then the food dictionary, then the
+// household / personal-care keywords, then the food keyword rules (categories.js).
 export function deptOf(item) {
   if (item.cat && DEPT_IDS.includes(item.cat)) return item.cat;
+  const d = foodDept(item);
+  if (d && d !== 'other') return d;
   const n = ` ${normalizeName(item.name || '')}`;
   for (const [id, , rx] of EXTRA) if (rx.test(n)) return id;
   return categorize(item.name || '');

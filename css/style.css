@@ -1009,21 +1009,33 @@ details.set-sec > .set-body { padding-bottom: 8px; }
 .reflow span { flex: 1; }
 .reflow .linkish { font-weight: 600; }
 /* Settings cards */
-.set-card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 4px 16px 14px; margin: 12px 0; }
-.set-card > h2 { margin: 12px 0 6px; font-size: 1.15rem; }
-.set-card h3 { margin: 16px 0 6px; font-size: .95rem; color: var(--muted); font-family: var(--sans); font-weight: 600; letter-spacing: .02em; text-transform: uppercase; }
-.set-card .form { margin: 0; }
-.set-card h4 { margin: 14px 0 4px; font-size: .95rem; font-weight: 700; }
-details.set-card > summary { list-style: none; cursor: pointer; display: flex; align-items: center; }
-details.set-card > summary::-webkit-details-marker { display: none; }
-details.set-card > summary::after { content: '›'; margin-left: auto; color: var(--muted); font-size: 1.4rem; transition: transform .15s; }
-details.set-card[open] > summary::after { transform: rotate(90deg); }
-details.set-card > summary h2 { margin: 12px 0; }
-details.set-card[open] > summary h2 { margin-bottom: 6px; }
-.set-card .why { display: block; color: var(--muted); font-size: .8rem; line-height: 1.35; margin: 2px 0 8px; }
-.set-card label.opt { display: block; margin: 10px 0 0; }
-.set-card label.opt .why { margin-top: 4px; }
-.set-card label.check small { display: block; color: var(--muted); font-size: .8rem; font-weight: 400; }
+.set-page h3 { margin: 18px 0 6px; font-size: .95rem; color: var(--muted); font-family: var(--sans); font-weight: 600; letter-spacing: .02em; text-transform: uppercase; }
+.set-page .form { margin: 0; }
+.set-page h4 { margin: 14px 0 4px; font-size: .95rem; font-weight: 700; }
+.set-page .why { display: block; color: var(--muted); font-size: .8rem; line-height: 1.35; margin: 2px 0 8px; }
+.set-page label.opt { display: block; margin: 10px 0 0; }
+.set-page label.opt .why { margin-top: 4px; }
+.set-page label.check small { display: block; color: var(--muted); font-size: .8rem; font-weight: 400; }
+/* Settings: a status card, then a list of pages (as in Ricette) */
+.set-status { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 14px 14px 16px; margin: 12px 0 14px; }
+.set-status .ok-dot, .set-status .off-dot, .set-status .bad-dot { margin-top: 0; }
+.off-dot, .bad-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.off-dot { background: var(--muted); }
+.bad-dot { background: var(--danger); }
+.set-status .btn { margin: 0; white-space: nowrap; }
+.set-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.set-text b { font-size: 1rem; }
+.set-text small { color: var(--muted); font-size: .85rem; line-height: 1.3; }
+.set-list { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+.set-row { display: flex; align-items: center; gap: 14px; padding: 14px 14px 14px 16px; min-height: 64px; color: var(--ink); text-decoration: none; border-top: 1px solid var(--line); }
+.set-row:first-child { border-top: 0; }
+.set-row:active { background: var(--accent-soft); }
+@media (hover: hover) { .set-row:hover { background: var(--accent-soft); } }
+.set-ico { font-size: 1.5rem; width: 32px; text-align: center; flex: none; }
+.set-chev { color: var(--muted); font-size: 1.4rem; flex: none; }
+.set-back { display: inline-block; color: var(--muted); text-decoration: none; margin: 4px 0 0; padding: 6px 0; }
+.set-title { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.version { text-align: center; color: var(--muted); font-size: .8rem; margin: 18px 0 8px; }
 .leg-line { display: grid; grid-template-columns: 1fr auto; gap: 6px 8px; align-items: center; margin: 6px 0; }
 .leg-line .leg-name { grid-column: 1 / -1; font-size: .85rem; color: var(--muted); font-weight: 600; }
 .leg-line select { min-width: 0; }
@@ -1082,7 +1094,10 @@ label.check.tall { align-items: flex-start; }
 .today-allday { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
 
 /* ---------- shopping list v2 (css/shoplist.css, shared with Ricette): Everyday's own placement ---------- */
-.shop-tools .shop-view { margin-left: auto; white-space: nowrap; }
+.task-tools.shop-tools { flex-wrap: nowrap; }
+.shop-tools .search-box { flex: 1 1 auto; }
+.shop-tools .shop-view { margin-left: auto; white-space: nowrap; flex: none; }
+.shop-tools .icon-btn { flex: none; }
 .shop-tools .icon-btn { width: 40px; padding: 6px 0; font-size: 1.1rem; line-height: 1; }
 .shop-filter-chips { margin: -2px 0 8px; }
 .sl-bar { margin: 6px 0 10px; flex-wrap: wrap; }

@@ -906,7 +906,7 @@ export function openTask(task, draft = null, opts = {}) {
       <label>${esc(t('travelMode'))}<select name="tvMode"><option value="default" ${x.travel.mode === 'default' ? 'selected' : ''}>${esc(t('tvDefault', t(`tm_${travelCfg().mode}`)))}</option>${TRAVEL_MODES.map((m) => `<option value="${m}" ${x.travel.mode === m ? 'selected' : ''}>${MODE_ICON[m]} ${esc(t(`tm_${m}`))}</option>`).join('')}</select></label>
     </div>
     ${(src.steps || []).filter((y) => y.travel).map((y) => `<p class="hint">${MODE_ICON[y.mode] || ''} ${esc(y.title)}: ${y.known ? esc(fmtDur(y.minutes)) : '?'} · ${esc(t('fromPlace', y.from || t('home')))}${y.known ? '' : ` · ${esc(t('travelPending'))}`}</p>`).join('')}
-    ${!travelCfg().home && !hereNow() ? `<p class="hint warn-text">⚠ ${esc(t('homeUnset'))} <a href="#/settings">${esc(t('tabSettings'))}</a></p>` : ''}
+    ${!travelCfg().home && !hereNow() ? `<p class="hint warn-text">⚠ ${esc(t('homeUnset'))} <a href="#/settings/travel">${esc(t('travelSettings'))}</a></p>` : ''}
     ${hint('travelHint')}` : ''}`;
   openModal(`
     <h2>${esc(heading)}</h2>

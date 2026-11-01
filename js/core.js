@@ -1,12 +1,12 @@
 // core.js: moved from app.js (v36). See app.js for how the modules fit together.
 import { getLang, t } from './i18n.js';
 import { isStep } from './kinds.js';
-import { makeKitchen } from './kitchen.js';
+import { makeKitchen } from './kitchen-host.js';
 import { addDays, fmtTime, parseDate, today } from './plan.js';
 import { get, has, live, remove, state, uid, upsert } from './store.js';
 
 // Shown under Settings; keep in step with VERSION in sw.js (a unit test checks).
-export const APP_VERSION = 'v38';
+export const APP_VERSION = 'v39';
 
 export const $ = (sel, root = document) => root.querySelector(sel);
 // Hints that were emptied in i18n (the guide explains instead) render nothing.
@@ -36,14 +36,14 @@ export const kitchen = makeKitchen({
   live, get, uid,
   upsert: (c, r) => upsert(c, r, { silent: true }),
   remove: (c, id) => remove(c, id),
-}, { recipes: 'r_recipes', pantry: 'r_pantry', shopping: 'r_shopping' }, { autoItems: () => false });
+}, { pantry: 'r_pantry', shopping: 'r_shopping' });
 // ("Running low" items on Ricette's list are Ricette's to add: data contract v1.)
 // The same rules on Everyday's own list, for when Ricette isn't connected (no pantry then).
 export const kitchenOwn = makeKitchen({
   live, get, uid,
   upsert: (c, r) => upsert(c, r, { silent: true }),
   remove: (c, id) => remove(c, id),
-}, { recipes: 'r_recipes', pantry: 'r_pantry', shopping: 'shopping' });
+}, { pantry: 'r_pantry', shopping: 'shopping' });
 
 export function toast(msg, ms = 3200) {
   const el = $('#toast');

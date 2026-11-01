@@ -17,8 +17,8 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 <p>It works in the browser on a phone or a computer and can be installed like a normal app. Your data stays yours: it lives on your devices and in a private space on GitHub that only you can see. There is no account with us, no AI and nothing to pay.</p>
 <p>What it is not: it is not a calendar (your appointments come from Google Calendar), not a notes app and not a tool for a team. One person, one set of data.</p>
 <h2 id="first-setup">First setup</h2>
-<p>You need about fifteen minutes and a GitHub account (free). Everything happens in <strong>Settings</strong>: tap the gear at the top right. It has three cards — <em>My day</em>, <em>Travel</em>, <em>Connections</em> — and an <em>Advanced</em> fold for the rest.</p>
-<p><img alt="Settings: three cards" src="guide/en/05-settings-folded.png" /></p>
+<p>You need about fifteen minutes and a GitHub account (free). Everything happens in <strong>Settings</strong>: tap the gear at the top right. Settings is a short list, and each item opens a page of its own: <em>My day</em>, <em>Travel</em>, <em>Categories</em>, <em>Shops</em>, <em>Advanced</em> (the connections and everything you set once), <em>Language</em> and the <em>Guide</em>. The card at the top says whether your data is in sync, with <em>Sync now</em> (or <em>Connect</em>, before you have).</p>
+<p><img alt="Settings: the sync card and the list of pages" src="guide/en/05-settings.png" /></p>
 <h3 id="1-install-the-app">1. Install the app</h3>
 <p>Open the app's address in Chrome on your phone, or in any browser on a computer. On Android choose <em>Install app</em> (or <em>Add to Home screen</em>) from the browser menu; on a computer click the small install icon in the address bar. The app works without a connection too; new versions arrive on their own, and a bar offers to reload. The bottom of Settings shows which version you have.</p>
 <h3 id="2-connect-your-own-space-on-github">2. Connect your own space on GitHub</h3>
@@ -26,21 +26,21 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 <ol>
 <li>On GitHub, create a <strong>private, empty</strong> repository (a "repository" is just a folder on GitHub), for example <code>everyday-data</code>. Don't copy anyone else's.</li>
 <li>Create a <strong>personal access token</strong> (GitHub → Settings → Developer settings → Fine-grained tokens) that is allowed to read and write the <em>Contents</em> of that repository. A token is like a password made for apps.</li>
-<li>In Settings → <em>Connections</em> → <em>GitHub sync</em>, type your GitHub user name, the repository name and the token, then tap <em>Save and test</em>. The badge at the top of the app says <em>Synced</em> when it works.</li>
+<li>In Settings → <em>Advanced</em> → <em>Connections</em> → <em>GitHub sync</em> (or tap <em>Connect</em> on the card at the top of Settings), type your GitHub user name, the repository name and the token, then tap <em>Save and test</em>. The badge at the top of the app says <em>Synced</em> when it works.</li>
 </ol>
 <p><img alt="Entering user, repository and token" src="guide/en/01-sync-form.png" /></p>
 <p><img alt="Connected: the repository and the time of the last sync" src="guide/en/02-sync-connected.png" /></p>
 <p>The token stays on the device. Do step 3 on every phone or computer you use: they all share the same data, within a minute of any change.</p>
 <h3 id="3-optional-ricette-recipes-and-pantry">3. Optional: Ricette (recipes and pantry)</h3>
-<p>If you also use the Ricette app, type the name of its data repository in Settings → <em>Connections</em> → <em>Ricette</em> (the same token must be allowed to use it). Everyday then knows your recipes and your pantry, shares the shopping list with Ricette and can plan meals from recipes.</p>
+<p>If you also use the Ricette app, type the name of its data repository in Settings → <em>Advanced</em> → <em>Ricette</em> (the same token must be allowed to use it). Everyday then knows your recipes and your pantry, shares the shopping list with Ricette and can plan meals from recipes.</p>
 <h3 id="4-optional-google-calendar">4. Optional: Google Calendar</h3>
-<p>This link runs on GitHub, not on your phone, so it needs a one-time setup on Google's side. Settings → <em>Connections</em> → <em>Google Calendar</em> lists the steps; in short, you create a small Google Cloud project, allow it to use your calendar, and store three "secrets" in your repository. Once done, your appointments appear in the app and your plan appears in Google Calendar, with reminders.</p>
+<p>This link runs on GitHub, not on your phone, so it needs a one-time setup on Google's side. Settings → <em>Advanced</em> → <em>Google Calendar</em> lists the steps; in short, you create a small Google Cloud project, allow it to use your calendar, and store three "secrets" in your repository. Once done, your appointments appear in the app and your plan appears in Google Calendar, with reminders.</p>
 <p><img alt="The Google Calendar section after the first sync" src="guide/en/04-settings-gcal.png" /></p>
 <h3 id="5-travel">5. Travel</h3>
 <p>In Settings → <em>Travel</em>, type your home address and how you usually get around (walking, bike, public transport, car). That's all the app needs to add travel time to tasks that have a place. A Google Maps key is optional; without one the app uses free map services.</p>
 <p><img alt="Travel settings: home, usual transport, and the journey legs" src="guide/en/03-settings-travel.png" /></p>
 <h3 id="6-a-second-person">6. A second person</h3>
-<p>Each person needs their own repository, their own token and (if they want it) their own calendar setup. On their device, open the same app address and type <em>their</em> repository in Settings → Connections. If the device held someone else's data before, the app asks whether to <strong>start empty</strong> — choose that. <em>Empty this device</em>, in the same section, does the same at any later time.</p>
+<p>Each person needs their own repository, their own token and (if they want it) their own calendar setup. On their device, open the same app address and type <em>their</em> repository in Settings → Advanced → Connections. If the device held someone else's data before, the app asks whether to <strong>start empty</strong> — choose that. <em>Empty this device</em>, at the bottom of the same page, does the same at any later time.</p>
 <h2 id="the-four-tabs">The four tabs</h2>
 <table>
 <thead>
@@ -191,14 +191,22 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 <p>Travel times come from free map services. With a Google Maps key in Settings, Google is used instead and public transport works everywhere. A "?" on a task means the time isn't known yet: the planner counts 30 minutes until it is, and ⚠ tells you when an address wasn't found. <em>Start from where I am today</em> uses your phone's location for the first trip of the day.</p>
 <h2 id="meals-shopping-list-and-grocery-runs">Meals, shopping list and grocery runs</h2>
 <p>With Ricette connected, <em>+ Add → Meal</em> puts a meal on a day and lets you pick recipes for it; the preparation step takes its length from the recipes. When the time comes (or when you tick the <em>check</em> step) the app looks at the pantry: what's missing goes on the <strong>shopping list</strong>, and a <strong>grocery run</strong> is planned before the meal.</p>
-<p><img alt="The shopping list, grouped by department" src="guide/en/14-shopping.png" /></p>
-<p>The <strong>Shopping</strong> part of the Tasks tab (To do · Saved · Shopping; the app remembers which one you used last, and a grocery-run block opens it directly) is the same list as in Ricette, both ways: add, change, tick or delete here and it shows there within a minute. Group it by department, recipe or shop, sort it A–Z or by when things were added, search it. Tap an item to change its quantity, note or the shops that have it.</p>
-<p><strong>Shops</strong> (Settings → Categories and shops) have opening hours and, if you like, an address. Say which shops carry an item and the grocery runs are planned when those shops are open, as one run or one per shop. A grocery run is a block like any other; ticking items as you buy them marks them bought in Ricette, and they go into the pantry when you put the shopping away there.</p>
+<p><img alt="The shopping list, grouped by department, with the cart bar" src="guide/en/14-shopping.png" /></p>
+<p>The <strong>Shopping</strong> part of the Tasks tab (To do · Saved · Shopping; a grocery-run block opens it directly) is the same list as in Ricette, both ways: add, change, tick or delete here and it shows there within a minute. It also looks and works the same in both apps.</p>
+<ul>
+<li><strong>Adding.</strong> Type <code>2 l milk</code>, <code>dish soap</code> or <code>shampoo</code> in the field at the top. Each item lands in its department by itself — and in the same one whatever language you type in (<em>cavolfiore</em>, <em>Blumenkohl</em> and <em>cauliflower</em> all go under <em>Fruit &amp; veg</em>). Household and personal care have departments of their own. Items Ricette adds because something is running low carry a <em>running low</em> label.</li>
+<li><strong>⇅ View.</strong> The button next to the search shows the current view; tap it to choose <em>Departments</em>, <em>Recipes</em>, <em>Shops</em>, <em>My order</em>, <em>A–Z</em>, <em>Newest first</em> or <em>Oldest first</em>, and to filter: only what you can get at one shop, or only what is running low. Active filters show as chips under the search; tap one to remove it.</li>
+<li><strong>Ticking.</strong> Tick an item at the shop and it leaves its group for the <strong>cart</strong> at the bottom: <em>In the cart · 3</em>. Tap the count to see what's in it; <em>Put in pantry</em> puts the food into Ricette's pantry (household and care items just leave the list).</li>
+<li><strong>An item.</strong> Tap its name to change the name, the quantity (− / +), the unit, the department, the note and the shops that have it; <em>+ New shop</em> adds one right there. Delete is in the same sheet, with <em>Undo</em>.</li>
+<li><strong>⋯ More.</strong> <em>Plan the shopping</em> (the grocery runs), <em>Share the list</em>, <em>Select</em> (tick several items to give them shops or delete them together), <em>Reorder</em> (drag ⠿ to put departments and items in the order of your supermarket; <em>My order</em> always has the handles) and <em>Empty the cart</em>.</li>
+</ul>
+<p><img alt="The view sheet: views and filters" src="guide/en/18-shopping-view.png" /></p>
+<p><strong>Shops</strong> (Settings → Shops) have opening hours and, if you like, an address. Say which shops carry an item and the grocery runs are planned when those shops are open, as one run or one per shop. A grocery run is a block like any other; it lists what to buy there, and ticking items as you buy them marks them bought in Ricette too.</p>
 <h2 id="google-calendar">Google Calendar</h2>
 <p>Once set up, the link works both ways:</p>
 <ul>
 <li><strong>Your calendars → Everyday.</strong> Appointments from the calendars you import appear on the plan in their colour, as busy time the planner works around. You can't change them here; a link opens them in Google Calendar.</li>
-<li><strong>Everyday → Google Calendar.</strong> Everything you plan is written to a calendar called <em>Everyday</em>, with a reminder (the default from Settings → Connections → Google Calendar, or the task's own). A task with a trip is one event that starts when you leave, titled <em>Dentist 11:20 · leave 11:00</em>, so the reminder rings before you have to go. Your own events carry a 📅; all-day ones become all-day entries. Move or delete an Everyday event in Google Calendar and your plan follows.</li>
+<li><strong>Everyday → Google Calendar.</strong> Everything you plan is written to a calendar called <em>Everyday</em>, with a reminder (the default from Settings → Advanced → Google Calendar, or the task's own). A task with a trip is one event that starts when you leave, titled <em>Dentist 11:20 · leave 11:00</em>, so the reminder rings before you have to go. Your own events carry a 📅; all-day ones become all-day entries. Move or delete an Everyday event in Google Calendar and your plan follows.</li>
 </ul>
 <p>The link refreshes every hour and a moment after you change your plan; <em>Sync with Google now</em> refreshes it by hand. The section in Settings shows when it last ran and how many appointments came in. <em>Remove calendar data</em> deletes the imported appointments from your repository — useful if a repository was copied from someone else's and shows their calendar.</p>
 <h2 id="a-typical-week">A typical week</h2>
@@ -218,7 +226,7 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 <tbody>
 <tr>
 <td>The badge says <em>Offline</em> or shows an error</td>
-<td>Check the connection, then Settings → Connections → <em>Sync now</em>. A token that expired or lost access shows an error there; make a new one.</td>
+<td>Check the connection, then <em>Sync now</em> on the card at the top of Settings. A token that expired or lost access shows an error there; make a new one.</td>
 </tr>
 <tr>
 <td>Two devices show different things</td>
@@ -230,7 +238,7 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 </tr>
 <tr>
 <td>Someone else's data shows on a device</td>
-<td>Settings → Advanced → <em>Empty this device</em>, after checking that the repository there is the right one. If the repository itself was copied from someone else's, delete its files on GitHub first (for the calendar: Settings → Connections → Google Calendar → <em>Remove calendar data</em>).</td>
+<td>Settings → Advanced → <em>Empty this device</em>, after checking that the repository there is the right one. If the repository itself was copied from someone else's, delete its files on GitHub first (for the calendar: Settings → Advanced → Google Calendar → <em>Remove calendar data</em>).</td>
 </tr>
 <tr>
 <td>A task shows ⚠</td>
@@ -250,7 +258,7 @@ nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 
 </tr>
 <tr>
 <td>I want my data</td>
-<td>Settings → Advanced → <em>Download backup</em> gives one file with everything; your repository on GitHub holds the same files.</td>
+<td>Settings → Advanced → <em>Download backup (JSON)</em> gives one file with everything; your repository on GitHub holds the same files.</td>
 </tr>
 </tbody>
 </table></main></body></html>

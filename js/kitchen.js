@@ -1,202 +1,194 @@
-// Shopping list and pantry rules, shared with Ricette.
-// These are the same rules Ricette uses (merge items, restock the pantry when an item is
-// ticked, "remind me" thresholds, using up ingredients when you cook), written against a
-// small store interface so both apps can run the same code.
+// Kitchen rules shared by Ricette and Everyday (copied unchanged in both apps):
+// finding a pantry product, adding to the shopping list, what a recipe still needs,
+// what cooking takes out of the pantry, putting shopping away, and running low.
+// Every comparison of two foods goes through foods.js (sameFood), so both apps match alike.
 //
-// store = { live(c), get(c, id), upsert(c, rec), remove(c, id), uid() }
-// names = { recipes, pantry, shopping } -> collection names in that store
+// The host passes its store:  createKitchen({ live, get, upsert, remove, uid })
+//   live(collection) → records not deleted;  get(collection, id) → record or undefined (not deleted)
+//   upsert(collection, record, { silent: true }) → the stored record;  remove(collection, id);  uid() → new id
+//   all(collection) → records including deleted ones (optional; only ensureLowItems uses it)
+// Nothing here touches the screen; the host shows messages and saves.
+import { parseIngredient, convert, scaleQty, addQuantities, stepFor, normalizeName } from './parse.js';
+import { sameFood } from './foods.js';
 
-import { parseIngredient, scaleQty, convert, addQuantities, namesMatch, stepFor } from './parse.js';
-import { isBasic } from './recipe-tools.js';
+export const num = (v) => { if (v === '' || v == null) return null; const n = parseFloat(String(v).replace(',', '.')); return Number.isFinite(n) ? n : null; };
+export const round = (x) => Math.round(x * 1000) / 1000;
+const earlier = (a, b) => { if (!a) return b || null; if (!b) return a; return a < b ? a : b; };
 
-const round = (x) => Math.round(x * 1000) / 1000;
-// Staples tracked by level (data contract v1, track: 'level'): at home when the level is ok or low,
-// whatever qty says; cooking doesn't use them up; putting one away sets it back to ok.
-export const byLevel = (p) => Boolean(p) && p.track === 'level';
-export const levelAtHome = (p) => p.level === 'ok' || p.level === 'low';
-const num = (v) => { if (v === '' || v == null) return null; const n = parseFloat(String(v).replace(',', '.')); return Number.isFinite(n) ? n : null; };
+// Staples (contract v1): track 'level' = counted as C'è / Poca / Finita instead of a quantity.
+export const LEVELS = ['ok', 'low', 'out'];
+export const isLevel = (p) => p?.track === 'level';
+export const levelOf = (p) => (LEVELS.includes(p?.level) ? p.level : 'ok');
+/** At home: ok or low for staples (qty ignored), qty > 0 otherwise. */
+export const atHome = (p) => (isLevel(p) ? levelOf(p) !== 'out' : (num(p?.qty) || 0) > 0);
 
+/** A recipe's ingredients, parsed when they were stored as text only. */
 export function ingredientsOf(r) {
   return (r?.ingredients || []).map((i) => (i.name == null ? parseIngredient(i.raw || '') : i));
 }
 
-// opts.autoItems: whether this app puts "running low" items on the list itself. With Ricette connected
-// that's Ricette's job alone (data contract v1), so Everyday passes () => false there.
-export function makeKitchen(store, names = { recipes: 'recipes', pantry: 'pantry', shopping: 'shopping' }, opts = {}) {
-  const { live, get, upsert, remove, uid } = store;
-  const autoItems = opts.autoItems || (() => true);
-  const P = names.pantry; const S = names.shopping;
+/** Running low? { buy } = how much to buy (null for staples), or null. */
+export function lowInfo(p) {
+  if (isLevel(p)) return levelOf(p) === 'ok' ? null : { buy: null };
+  const min = num(p.min);
+  if (min == null) return null;
+  const qty = num(p.qty) || 0;
+  if (qty > min) return null;
+  const tgt = num(p.target);
+  const target = tgt != null && tgt > min ? tgt : Math.max(min * 2, min + stepFor(p.unit));
+  return { buy: round(target - qty) };
+}
 
-  const findPantry = (name, pantry = live(P)) => pantry.find((p) => namesMatch(p.name, name));
+const codesOf = (p) => [...new Set([...(p.barcodes || []), ...(p.barcode ? [p.barcode] : [])])];
 
-  function addToShopping({ name, qty, unit, note }, source) {
-    const existing = live(S).find((s) => !s.checked && !s.auto && namesMatch(s.name, name)
-      && addQuantities(s, { qty, unit }) !== null);
+export function createKitchen({ live, get, upsert, remove, uid, all }) {
+  const silent = { silent: true };
+
+  /** The pantry product for a name or an item: the same name first, else the same food. */
+  function findPantry(nameOrItem) {
+    const name = typeof nameOrItem === 'string' ? nameOrItem : nameOrItem?.name;
+    const pantry = live('pantry');
+    const n = normalizeName(name);
+    return pantry.find((p) => normalizeName(p.name) === n) || pantry.find((p) => sameFood(p, nameOrItem)) || null;
+  }
+
+  /**
+   * Add to the shopping list, merging into an open item of the same food when the units add up.
+   * item: { name, qty, unit, note, shops, cat }  (cat only when a person chose it). Returns the stored record.
+   */
+  function addToShopping(item, source) {
+    const { name, qty, unit, note, shops } = item;
+    const existing = live('shopping').find((s) => !s.checked && !s.auto && sameFood(s, item) && addQuantities(s, { qty, unit }) !== null);
     if (existing) {
       const sum = addQuantities(existing, { qty, unit });
       const sources = [...new Set([...(existing.sources || []), source].filter(Boolean))];
-      upsert(S, { ...existing, qty: sum.qty == null ? null : round(sum.qty), unit: sum.unit, sources });
-    } else {
-      upsert(S, {
-        id: uid(), name, qty: qty == null ? null : round(qty), unit: unit || '', note: note || '',
-        checked: false, sources: source ? [source] : [], addedAt: Date.now(),
-      });
+      const merged = [...new Set([...(existing.shops || []), ...(shops || [])])];
+      const added = existing.addedAt || existing.createdAt || Date.now();
+      return upsert('shopping', { ...existing, qty: sum.qty == null ? null : round(sum.qty), unit: sum.unit, sources, ...(merged.length ? { shops: merged } : {}), addedAt: Math.min(added, Date.now()) }, silent);
     }
+    // the department: what a person chose, or the pantry product's chosen one; otherwise worked out when shown
+    const p = item.cat ? null : findPantry(item);
+    const cat = item.cat || p?.cat || null;
+    return upsert('shopping', {
+      id: uid(), name, qty: qty == null ? null : round(qty), unit: unit || '', note: note || '',
+      checked: false, sources: source ? [source] : [], addedAt: Date.now(), ...(cat ? { cat } : {}), ...(shops && shops.length ? { shops } : {}),
+    }, silent);
   }
 
-  function lowInfo(p) {
-    if (byLevel(p)) return null;
-    const min = num(p.min);
-    if (min == null) return null;
-    const qty = num(p.qty) || 0;
-    if (qty > min) return null;
-    const tgt = num(p.target);
-    const target = tgt != null && tgt > min ? tgt : Math.max(min * 2, min + stepFor(p.unit));
-    return { buy: round(target - qty) };
-  }
-
-  // Items at or below their "remind me at" threshold go on the list by themselves (Ricette's rule:
-  // an item already ticked as bought stays ticked until it's put away in the pantry).
+  /** Ricette only (contract v1: automatic items are Ricette's while it is connected). */
   function ensureLowItems() {
-    if (!autoItems()) return;
-    for (const p of live(P)) {
+    const pantry = live('pantry');
+    for (const p of pantry) {
       const id = `low_${p.id}`;
-      const cur = get(S, id);
+      const cur = get('shopping', id);
       const low = lowInfo(p);
+      const unit = low && low.buy == null ? '' : p.unit || '';
       if (low) {
         if (!cur) {
-          upsert(S, { id, name: p.name, qty: low.buy, unit: p.unit || '', checked: false, auto: true, pantryId: p.id, sources: [] });
-        } else if (!cur.checked && (cur.qty !== low.buy || cur.name !== p.name || cur.unit !== (p.unit || ''))) {
-          upsert(S, { ...cur, name: p.name, qty: low.buy, unit: p.unit || '' });
+          upsert('shopping', { id, name: p.name, qty: low.buy, unit, checked: false, auto: true, pantryId: p.id, sources: [], addedAt: Date.now(), ...(p.cat ? { cat: p.cat } : {}) }, silent);
+        } else if ((!cur.checked && (cur.qty ?? null) !== low.buy) || cur.name !== p.name || cur.unit !== unit) {
+          upsert('shopping', { ...cur, name: p.name, qty: low.buy, unit }, silent);
         }
       } else if (cur && !cur.checked) {
-        remove(S, id);
+        remove('shopping', id);
       }
     }
-    // Pantry item deleted: its automatic list item goes too.
-    for (const it of live(S)) {
-      if (it.auto && !it.checked && it.pantryId && !get(P, it.pantryId)) remove(S, it.id);
+    // products deleted since (tombstones, when the host passes `all`): their open automatic items go too
+    for (const p of all ? all('pantry').filter((x) => x.deleted) : []) {
+      const cur = get('shopping', `low_${p.id}`);
+      if (cur && !cur.checked) remove('shopping', cur.id);
     }
   }
 
-  // Ticking an item at the shop marks it bought. As in Ricette, it reaches the pantry when you
-  // put the shopping away there ("Put away", with expiry dates). Older versions stocked it on
-  // the spot: unticking such an item still takes it back out.
-  function setChecked(id, checked) {
-    const it = get(S, id);
-    if (!it) return;
-    let stocked = it.stocked || null;
-    if (!checked && stocked) {
-      const p = get(P, stocked.pantryId);
-      if (p) upsert(P, { ...p, qty: Math.max(0, round((num(p.qty) || 0) - stocked.amount)) });
-      stocked = null;
-    }
-    upsert(S, { ...it, checked, stocked });
-    ensureLowItems();
-  }
-
-  // "Put in pantry" for the ticked items: food tops up the matching pantry item (or becomes a new
-  // one); things that aren't food (isFood false) just leave the list. Ricette's own put-away also
-  // asks for expiry dates and barcodes: use that when you want them.
-  function putAway(isFood = () => true, newItem = (it) => ({})) {
-    let n = 0;
-    for (const it of live(S).filter((x) => x.checked)) {
-      if (isFood(it)) {
-        const p = it.pantryId ? get(P, it.pantryId) : findPantry(it.name);
-        const qty = num(it.qty);
-        if (p && byLevel(p)) {
-          upsert(P, { ...p, level: 'ok' });
-        } else if (p) {
-          let next = num(p.qty) || 0; let unit = p.unit || '';
-          if (!it.stocked && qty != null) {
-            const add = convert(qty, it.unit || '', unit);
-            if (add != null) next = round(next + add);
-            else if (next <= 0) { next = qty; unit = it.unit || ''; }
-          }
-          upsert(P, { ...p, qty: next, unit });
-        } else {
-          upsert(P, { id: uid(), name: it.name, qty: qty ?? 1, unit: it.unit || '', expires: null, min: null, target: null, brand: '', ...newItem(it) });
-        }
-      }
-      remove(S, it.id);
-      n++;
-    }
-    ensureLowItems();
-    return n;
-  }
-
-  // What a recipe for n people needs, against a pantry (by default the real one).
-  function planForRecipe(r, n, pantry = live(P)) {
+  /** What a recipe needs for n people: [{ idx, name, unit, note, need, buy, covered, have }]. */
+  function planForRecipe(r, n, usePantry) {
     const base = r.servings || 4;
     return ingredientsOf(r).map((ing, idx) => {
       const need = scaleQty(ing.qty, base, n);
       let buy = need; let covered = false; let have = null;
-      const p = findPantry(ing.name, pantry);
-      if (p && byLevel(p)) {
-        have = p; covered = levelAtHome(p); buy = covered ? 0 : need;
-      } else if (p) {
-        have = p;
-        const pq = num(p.qty) || 0;
-        if (need == null) covered = pq > 0;
-        else {
-          const avail = convert(pq, p.unit, ing.unit);
-          if (avail != null) { buy = Math.max(0, need - avail); covered = buy <= 1e-9; }
+      if (usePantry) {
+        const p = findPantry(ing);
+        if (p && isLevel(p)) {
+          have = p;
+          covered = atHome(p);
+          if (covered) buy = 0;
+        } else if (p) {
+          have = p;
+          const pq = num(p.qty) || 0;
+          if (need == null) covered = pq > 0;
+          else {
+            const avail = convert(pq, p.unit, ing.unit);
+            if (avail != null) { buy = Math.max(0, need - avail); covered = buy <= 1e-9; }
+          }
         }
       }
-      return { idx, name: ing.name, unit: ing.unit, note: ing.note, need, buy, covered, have, tracked: Boolean(p) };
+      return { idx, name: ing.name, unit: ing.unit, note: ing.note, need, buy, covered, have };
     });
   }
 
-  // Pantry as it will be by the time of a meal: what's there now, plus what's already on the
-  // shopping list, minus what the meals planned before it will use up.
-  function pantryAfter(meals, recipeOf) {
-    const pantry = live(P).map((p) => ({ ...p }));
-    for (const it of live(S)) {
-      // Still to buy, or bought (ticked) and not put away yet: either way it'll be at home.
-      if (it.stocked) continue;
-      const p = findPantry(it.name, pantry);
-      if (p && byLevel(p)) { p.level = 'ok'; continue; } // on the list: bought by then
-      if (it.qty == null) continue;
-      if (!p) { pantry.push({ id: `list_${it.id}`, name: it.name, qty: it.qty, unit: it.unit || '' }); continue; }
-      const add = convert(it.qty, it.unit, p.unit);
-      if (add != null) p.qty = round((num(p.qty) || 0) + add);
-    }
-    for (const m of meals) {
-      const r = recipeOf(m.recipeId);
-      if (!r) continue;
-      const base = r.servings || 4;
-      for (const ing of ingredientsOf(r)) {
-        if (ing.qty == null) continue;
-        const p = findPantry(ing.name, pantry);
-        if (!p || byLevel(p)) continue;
-        const sub = convert(scaleQty(ing.qty, base, m.servings || base), ing.unit, p.unit);
-        if (sub != null) p.qty = Math.max(0, round((num(p.qty) || 0) - sub));
-      }
-    }
-    return pantry;
-  }
-
-  // Ingredients to buy for a meal. Basics (salt, pepper, oil, water) and untracked "to taste"
-  // items never trigger a trip, same as Ricette's "what can I cook" suggestions.
-  function missingFor(r, n, pantry) {
-    return planForRecipe(r, n, pantry).filter((x) => !x.covered && (x.need != null || x.tracked) && !isBasic(x.name || ''));
-  }
-
-  function cook(r, n) {
+  /** Take a cooked recipe (n people) out of the pantry. Staples are left alone. Returns how many products changed. */
+  function usePantryFor(r, n) {
     const base = r.servings || 4;
     let count = 0;
     for (const ing of ingredientsOf(r)) {
       if (ing.qty == null) continue;
-      const p = findPantry(ing.name);
-      if (!p || byLevel(p)) continue;
+      const p = findPantry(ing);
+      if (!p || isLevel(p)) continue;
       const sub = convert(scaleQty(ing.qty, base, n), ing.unit, p.unit);
       if (sub == null) continue;
-      upsert(P, { ...p, qty: Math.max(0, round((num(p.qty) || 0) - sub)) });
+      upsert('pantry', { ...p, qty: Math.max(0, round((num(p.qty) || 0) - sub)) }, silent);
       count++;
     }
-    ensureLowItems();
     return count;
   }
 
-  return { addToShopping, ensureLowItems, setChecked, putAway, planForRecipe, pantryAfter, missingFor, cook, findPantry };
+  /** The pantry product a bought item goes into: its pantryId, its barcode, else the same food. */
+  function pantryTarget(row) {
+    const pantry = live('pantry');
+    return (row.pantryId && get('pantry', row.pantryId))
+      || (row.barcode && pantry.find((p) => codesOf(p).includes(row.barcode)))
+      || findPantry(row)
+      || null;
+  }
+
+  /**
+   * Put one bought item away. row: { name, qty, unit, expires, pantryId?, barcode?, brand?, packQty?, packUnit?, cat?, stocked? }
+   * Tops up the product (or creates it); a staple goes back to 'ok' and keeps its qty. Returns the pantry record.
+   */
+  function putAwayRow(row) {
+    const tg = pantryTarget(row);
+    const qty = num(row.qty);
+    const unit = row.unit || '';
+    const withCode = (p) => (row.barcode ? (() => { const codes = [...new Set([...codesOf(p), row.barcode])]; return { barcode: codes[0], barcodes: codes }; })() : {});
+    if (tg && isLevel(tg)) {
+      return upsert('pantry', {
+        ...tg, level: 'ok', expires: row.expires || tg.expires || null, ...withCode(tg),
+        brand: tg.brand || row.brand || '', cat: tg.cat || row.cat || null,
+      }, silent);
+    }
+    if (tg) {
+      const before = num(tg.qty) || 0;
+      const wasEmpty = before <= 0;
+      let newQty = before; let newUnit = tg.unit || '';
+      if (!row.stocked && qty != null) {
+        const add = convert(qty, unit, newUnit);
+        if (add != null) newQty = round(before + add);
+        else if (wasEmpty) { newQty = qty; newUnit = unit; }
+      }
+      return upsert('pantry', {
+        ...tg, qty: newQty, unit: newUnit,
+        expires: row.expires ? (wasEmpty ? row.expires : earlier(tg.expires, row.expires)) : (wasEmpty ? null : tg.expires || null),
+        ...withCode(tg),
+        brand: tg.brand || row.brand || '', packQty: tg.packQty || row.packQty || null, packUnit: tg.packQty ? tg.packUnit : (row.packUnit || null),
+        cat: tg.cat || row.cat || null,
+      }, silent);
+    }
+    return upsert('pantry', {
+      id: uid(), name: String(row.name || '').trim(), qty: qty ?? 1, unit, expires: row.expires || null, min: null, target: null, addedAt: Date.now(),
+      ...(row.barcode ? { barcode: row.barcode, barcodes: [row.barcode] } : {}), brand: row.brand || '', packQty: row.packQty || null, packUnit: row.packUnit || null,
+      cat: row.cat || null, ...(row.lookupPending ? { lookupPending: true } : {}), ...(row.nameFromCode ? { nameFromCode: true } : {}),
+    }, silent);
+  }
+
+  return { findPantry, addToShopping, ensureLowItems, planForRecipe, usePantryFor, pantryTarget, putAwayRow };
 }

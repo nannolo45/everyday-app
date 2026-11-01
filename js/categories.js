@@ -1,5 +1,6 @@
 // Departments for the pantry and the shopping list (roughly in supermarket order).
 import { normalizeName } from './parse.js';
+import { foodDept } from './foods.js';
 
 export const CATEGORIES = [
   { id: 'produce', icon: '🥕' },
@@ -48,8 +49,12 @@ const RULES = [
     'apple', 'pear', 'banana', 'orange', 'lemon', 'berr', 'grape', 'peach', 'lettuce', 'spinach', 'tomato', 'carrot', 'courgette', 'eggplant', 'bell pepper', 'onion', 'garlic', 'potato', 'celery', 'cabbage', 'broccoli', 'mushroom', 'leek', 'pumpkin', 'cucumber', 'parsley', 'basil', 'ginger', 'asparagus', 'herbs'])],
 ];
 
+// A department for a name: Open Food Facts' category, then the food dictionary (foods.js),
+// then these keyword rules for names the dictionary doesn't know.
 export function categorize(name, offCategory) {
   if (offCategory && CATEGORY_IDS.includes(offCategory) && offCategory !== 'other') return offCategory;
+  const d = foodDept(name);
+  if (d && CATEGORY_IDS.includes(d) && d !== 'other') return d;
   const n = ` ${normalizeName(name)}`;
   for (const [id, rx] of RULES) if (rx.test(n)) return id;
   return 'other';
