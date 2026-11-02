@@ -1,6 +1,6 @@
 // Departments for the shopping list (both apps): Ricette's food departments (categories.js, copied
-// from Ricette, in supermarket order) plus two for things that aren't food: household
-// (cleaning supplies, paper, bags…) and personal care. Ricette doesn't know these two, so it
+// from Ricette, in supermarket order) plus three for things that aren't food: household
+// (cleaning supplies, paper, bags…), personal care and (v54) baby things. Ricette doesn't know these two, so it
 // shows such items under "Other".
 import { CATEGORIES, categorize, keywordCategory } from './categories.js';
 import { normalizeName } from './parse.js';
@@ -15,9 +15,15 @@ const EXTRA = [
   ['care', '🧴', re(['shampoo', 'balsamo', 'bagnoschiuma', 'docciaschiuma', 'sapone(?! (?:per i piatti|piatti|bucato))', 'dentifricio', 'spazzolin', 'filo interdentale', 'collutorio', 'deodorante(?! per ambienti)', 'crema (?:viso|mani|corpo|solare)', 'rasoi', 'lamette', 'schiuma da barba', 'assorbent', 'cotton fioc', 'dischetti', 'cerott', 'pannolin', 'salviettine', 'struccante', 'trucco',
     'duschgel', 'spülung', 'seife', 'zahnpasta', 'zahnbürste', 'zahnseide', 'mundspülung', 'deo', 'creme', 'rasierer', 'rasierschaum', 'binden', 'tampons', 'wattestäbchen', 'pflaster', 'windeln', 'feuchttücher',
     'shower gel', 'conditioner', 'soap', 'toothpaste', 'toothbrush', 'floss', 'mouthwash', 'deodorant', 'lotion', 'razor', 'shaving', 'pads', 'tampons', 'cotton buds', 'plasters', 'band-aid', 'nappies', 'diapers', 'wipes'])],
+  // v54: baby things (Bambino), checked before personal care so nappies, wipes for babies, nappy cream land here
+  ['baby', '👶', re(['pannolin', 'salviett[ei]n?e? (?:per (?:i )?(?:bambin|neonat)|neonat)', 'bambin', 'neonat', 'prima infanzia', 'omogeneizzat', 'biberon', 'tettarell', 'ciucci', 'succhiett', 'talco', 'borotalco', 'pasta (?:di|all.ossido di) zinco', 'crema (?:per il |del )?(?:cambio|culetto)', 'latte (?:in polvere|artificiale|di proseguimento|di crescita|per neonati)', 'liofilizzat', 'pappe?\\b', 'pappin', 'dentizione', 'assorbilatte',
+    'windel', 'baby[ -]?(?:food|wipes|shampoo|bath|powder|oil|lotion|cream|creme|öl|bad|nahrung|milch|tücher|puder|flasche|kekse|brei|pflege|bottle|monitor)', 'säugling', 'schnuller', 'fläschchen', 'sauger', 'brei\\b', 'babybrei', 'wundschutz', 'zinksalbe', 'folgemilch', 'anfangsmilch', 'pre-milch', 'zahnungs', 'stilleinlagen', 'puder',
+    'nappy', 'nappies', 'diaper', 'infant', 'formula milk', 'baby formula', 'pacifier', 'dummy', 'soother', 'teat', 'teething', 'nursing pads', 'talc'])],
 ];
 
 export const NONFOOD = EXTRA.map(([id]) => id);
+// keyword order: baby before personal care (a nappy cream is a baby thing), then the rest as listed
+const MATCH = [...EXTRA.filter(([id]) => id === 'baby'), ...EXTRA.filter(([id]) => id !== 'baby')];
 // Food departments first, then household and personal care, then "other" last.
 export const DEPTS = [...CATEGORIES.filter((c) => c.id !== 'other'), ...EXTRA.map(([id, icon]) => ({ id, icon })), CATEGORIES.find((c) => c.id === 'other')];
 export const DEPT_IDS = DEPTS.map((c) => c.id);
@@ -30,13 +36,13 @@ export function deptOf(item) {
   const d = foodDept(item);
   if (d && d !== 'other') return d;
   const n = ` ${normalizeName(item.name || '')}`;
-  for (const [id, , rx] of EXTRA) if (rx.test(n)) return id;
+  for (const [id, , rx] of MATCH) if (rx.test(n)) return id;
   return categorize(item.name || '');
 }
 
 /** The department the keyword rules alone give a name (no dictionary): what Ricette ≤ v38 and Everyday ≤ v38 stored. */
 export function keywordDept(name) {
   const n = ` ${normalizeName(name || '')}`;
-  for (const [id, , rx] of EXTRA) if (rx.test(n)) return id;
+  for (const [id, , rx] of MATCH) if (rx.test(n)) return id;
   return keywordCategory(name || '');
 }

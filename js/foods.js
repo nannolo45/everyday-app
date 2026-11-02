@@ -493,9 +493,24 @@ tampons|care|tamponi|Tampons|tampons|assorbenti interni
 cotton-buds|care|cotton fioc|Wattestäbchen|cotton buds|bastoncini cotonati;q-tips
 cotton-pads|care|dischetti di cotone|Wattepads|cotton pads|dischetti struccanti
 plasters|care|cerotti|Pflaster|plasters|cerotto;band-aid;band aids
-nappies|care|pannolini|Windeln|nappies|pannolino;diapers
 wet-wipes|care|salviettine umidificate|Feuchttücher|wet wipes|salviette;wipes
 make-up-remover|care|struccante|Abschminktücher|make-up remover|latte detergente
+nappies|baby|pannolini|Windeln|nappies|pannolino;pannolini mutandina;windelhose;diapers;diaper;nappy;pull-ups
+baby-wipes|baby|salviette per bambini|Baby-Feuchttücher|baby wipes|salviette per neonati;salviettine per bambini;salviette neonato;babyfeuchttucher;babytucher
+nappy-cream|baby|crema per il cambio|Wundschutzcreme|nappy cream|crema cambio;crema per il culetto;pasta di zinco;pasta all'ossido di zinco;ossido di zinco;wundcreme;zinksalbe;zinkpaste;diaper cream;barrier cream;zinc cream
+baby-powder|baby|talco|Babypuder|baby powder|talco per bambini;borotalco;puder;talcum powder;talc
+baby-bath|baby|bagnetto per bambini|Babybad|baby bath|bagnetto;bagnoschiuma per bambini;shampoo per bambini;shampoo neonato;babyshampoo;kindershampoo;baby shampoo
+baby-oil|baby|olio per bambini|Babyöl|baby oil|olio per neonati;olio di mandorle per neonati;baby massage oil
+nappy-bags|baby|sacchetti per pannolini|Windelbeutel|nappy bags|sacchetti pannolini;windeltuten;diaper bags
+formula|baby|latte in polvere|Säuglingsmilch|baby formula|latte artificiale;latte di proseguimento;latte di crescita;latte per neonati;latte per l'infanzia;pre-milch;pre milch;folgemilch;anfangsmilch;babymilch;milchpulver;infant formula;follow-on milk;formula milk;growing up milk
+baby-food|baby|omogeneizzati|Babygläschen|baby food|omogeneizzato;omogeneizzato di frutta;omogeneizzato di carne;glaschen;baby puree;baby food jars;fruit pouches
+baby-cereal|baby|crema di cereali per bambini|Babybrei|baby cereal|pappa;pappe;pappine;crema di riso per bambini;crema multicereali;liofilizzati;liofilizzato;getreidebrei;milchbrei;baby porridge
+baby-biscuits|baby|biscotti per l'infanzia|Babykekse|baby biscuits|biscotti per bambini;biscotti per neonati;biscottini;babykeks;baby rusks;teething biscuits
+baby-bottle|baby|biberon|Babyflasche|baby bottle|fläschchen;flaschchen;babyflaschchen;feeding bottle
+teats|baby|tettarelle|Sauger|teats|tettarella;flaschensauger;bottle teats
+dummy|baby|ciuccio|Schnuller|dummy|ciucci;ciuccetto;succhietto;pacifier;soother
+teething-gel|baby|gel per la dentizione|Zahnungsgel|teething gel|gel dentizione;dentizione;zahnungshilfe;zahngel
+nursing-pads|baby|coppette assorbilatte|Stilleinlagen|nursing pads|assorbilatte;coppette;breast pads
 `;
 
 /* ---------- names ---------- */
@@ -506,7 +521,7 @@ export const simple = (s) => String(s || '').toLowerCase().replace(/ß/g, 'ss').
 // last-word forms: plurals in it/de/en (uova/uovo, pomodori/pomodoro, Zwiebeln/Zwiebel, eggs/egg)
 const lastForms = (w) => [...new Set([w, w.replace(/(?:es|en|s|e|i|n)$/, ''), w.replace(/i$/, 'o'), w.replace(/e$/, 'a'), w.replace(/i$/, 'e'), w.replace(/a$/, 'e'), w.replace(/o$/, 'i')])];
 const WEIGHT_KEYS = ['piece', 'dens', 'pack', 'can', 'slice', 'bunch'];
-export const NONFOOD_DEPTS = ['household', 'care'];
+export const NONFOOD_DEPTS = ['household', 'care', 'baby'];
 
 /* ---------- the table ---------- */
 
