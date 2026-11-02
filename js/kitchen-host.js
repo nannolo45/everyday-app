@@ -3,7 +3,8 @@
 // This file maps Everyday's collections onto it and keeps the few things only Everyday does:
 //  - pantryAfter / missingFor: the pantry as it will be by a meal (the list bought, earlier meals cooked);
 //  - setChecked: ticking at the shop (older records "stocked" on the spot are taken back out on untick);
-//  - putAway: the ticked items, food into the pantry, the rest just off the list.
+//  - putAway: the ticked items, food into the pantry, the rest just off the list (a new product takes the
+//    item's shops, as in Ricette v50; Everyday leaves a product's `place` to Ricette).
 // "Running low" items are Ricette's alone (data contract v1): Everyday never calls ensureLowItems.
 //
 // store = { live(c), get(c, id), upsert(c, rec), remove(c, id), uid() }; names = { pantry, shopping }
@@ -86,7 +87,13 @@ export function makeKitchen(store, names = { pantry: 'pantry', shopping: 'shoppi
   function putAway(isFood = () => true, catOf = () => null) {
     let n = 0;
     for (const it of live(S).filter((x) => x.checked)) {
-      if (isFood(it)) k.putAwayRow({ ...it, cat: catOf(it) || it.cat || null });
+      if (isFood(it)) {
+        const row = { ...it, cat: catOf(it) || it.cat || null };
+        const isNew = !k.pantryTarget(row);
+        const p = k.putAwayRow(row);
+        // (v60, Ricette v50) a new product takes the item's shops; an existing one keeps its own
+        if (isNew && p && (it.shops || []).length) upsert(P, { ...p, shops: [...it.shops] });
+      }
       remove(S, it.id);
       n++;
     }

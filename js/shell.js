@@ -90,7 +90,7 @@ export function renderShell() {
   for (const a of document.querySelectorAll('nav a')) {
     a.querySelector('.label').textContent = t(`tab${a.dataset.tab.charAt(0).toUpperCase()}${a.dataset.tab.slice(1)}`);
   }
-  const gear = $('#gear'); if (gear) { gear.setAttribute('aria-label', t('gearSettings')); gear.title = t('gearSettings'); }
+  const gear = $('#gear'); if (gear) { gear.setAttribute('aria-label', t('gearSettings')); gear.title = t('gearSettings'); const gl = $('#gear-label'); if (gl) gl.textContent = t('gearSettings'); }
   updateSyncBadge();
 }
 

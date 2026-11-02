@@ -5,6 +5,7 @@
 //   data/prefs.json  contract {value: 1}, activePlan {planId, name, from, days: [{routineId, weekday
 //                    (0 = Monday … 6, null = any day), time?}], previous?}            read
 //                    planned  [{blockId, routineId, date, start: "HH:MM"}]          written by Everyday
+//                    moves    [{routineId, from, to: "YYYY-MM-DD", at (ms)}]            read (v60, Palestra v12)
 // Each workout is a routine here (a saved task with `palestraId`). The active plan gives it its rhythm:
 // fixed weekdays (at the plan's time, else picked each week on the Sunday card), or "N times a week" for
 // days without a weekday. A plan that starts later ("from Monday") goes in `next` until then. A workout
@@ -13,8 +14,9 @@
 // for the same workout, or gets a new one.
 import { esc } from './core.js';
 import { t } from './i18n.js';
-import { newBlock } from './model.js';
-import { addDays, dateStr, fmtTime, parseTime, today } from './plan.js';
+import { busyOn, newBlock } from './model.js';
+import { autoHoursFor } from './planning.js';
+import { addDays, dateStr, fmtTime, freeSlot, isOccurrence, parseTime, today } from './plan.js';
 import { contractVersion, get, live, PAL_CONTRACT, remove, state, uid, upsert } from './store.js';
 import { palestraConfigured } from './sync.js';
 
@@ -94,6 +96,59 @@ export function applyPalestra() {
   }
   // 3. the sessions
   n += applySessions(mine);
+  // 4. (v60) "Sposta a domani" in Palestra
+  n += applyMoves();
+  return n;
+}
+
+// (v60) Moves made in Palestra (prefs `moves`, Palestra v12): each step {routineId, from, to, at} takes the
+// workout's open block on `from` to `to`, at the same time when that's free, else the first free slot that
+// day. Steps go in `at` order, so a second move (Tue→Wed) finds the block where the first (Mon→Tue) left
+// it, and an undo after a sync is a step back (Tue→Mon). A block already done or started stays put.
+// An undo puts the block back at the time it had there. No block on `from` at all (a time still to pick): that day is skipped and a block goes on `to`, unless the
+// workout already has one there. Each step is applied once: its key is kept on the workout (`palMoves`,
+// synced, so a second device doesn't apply it again). The moved block goes back to Palestra in `planned`.
+export const moveKey = (m) => `${m.at}|${m.from}|${m.to}`;
+const openOn = (x, d) => live('blocks').filter((b) => b.taskId === x.id && b.date === d && b.kind !== 'prep' && !outcomeOf(b) && !b.startedAt && !b.endedAt).sort((a, b) => a.start - b.start);
+function slotOn(d, minutes, want, skipId) {
+  const busy = busyOn(d).filter((b) => b.id !== skipId && !b.allowOverlap);
+  const [h0, h1] = autoHoursFor(d);
+  if (want != null && !busy.some((b) => b.start < want + minutes && b.start + b.minutes > want)) return want;
+  const now = new Date(); const nowM = d === today() ? now.getHours() * 60 + now.getMinutes() : 0;
+  return freeSlot(busy, minutes, { from: nowM, dayStart: h0, dayEnd: h1 }) ?? want ?? h0;
+}
+export function applyMoves() {
+  const list = (pref('moves')?.value || []).filter((m) => m && m.routineId && m.from && m.to && m.from !== m.to)
+    .sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
+  if (!list.length) return 0;
+  const td = today(); let n = 0;
+  for (const m of list) {
+    let x = live('tasks').find((y) => isPalestra(y) && y.palestraId === m.routineId);
+    if (!x || x.archived) continue;
+    const key = moveKey(m);
+    if ((x.palMoves || []).includes(key)) continue;
+    if (m.to >= td) {
+      const b = openOn(x, m.from)[0];
+      const any = live('blocks').some((y) => y.taskId === x.id && y.date === m.from && y.kind !== 'prep');
+      if (b) {
+        // back where it came from (an undo): its time there; otherwise the time it has now
+        const want = b.palPrev?.date === m.to ? b.palPrev.start : b.start;
+        upsert('blocks', { ...b, date: m.to, start: slotOn(m.to, b.minutes || x.minutes || 45, want, b.id), auto: false, palMoved: true, palPrev: { date: m.from, start: b.start } }, { silent: true });
+        // the day it left is done with (no "to fix" for it); a day it comes back to is on again
+        const left = !live('blocks').some((y) => y.taskId === x.id && y.date === m.from && y.kind !== 'prep');
+        const sk = new Set(x.skipped || []); sk.delete(m.to); if (left && x.repeat && isOccurrence(x, m.from)) sk.add(m.from);
+        x = upsert('tasks', { ...x, skipped: [...sk] }, { silent: true });
+      } else if (!any && !openOn(x, m.to).length && !live('blocks').some((y) => y.taskId === x.id && y.date === m.to && y.kind !== 'prep')) {
+        // nothing planned on `from` yet: that day is off, the new day gets the workout
+        if (isOccurrence(x, m.from)) x = upsert('tasks', { ...x, skipped: [...new Set([...(x.skipped || []), m.from])] }, { silent: true });
+        const minutes = x.minutes || 45;
+        newBlock({ taskId: x.id, title: x.title, category: x.category || null, date: m.to, start: slotOn(m.to, minutes, x.seriesTime ?? null, null), minutes, auto: false, palMoved: true, ...(x.repeat ? { pickOcc: true } : {}) });
+      }
+    }
+    const keep = (x.palMoves || []).filter((k) => list.some((y) => moveKey(y) === k)); // Palestra keeps only this week's moves
+    upsert('tasks', { ...get('tasks', x.id), palMoves: [...keep, key] }, { silent: true });
+    n++;
+  }
   return n;
 }
 
