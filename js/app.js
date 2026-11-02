@@ -29,6 +29,8 @@ import { elapsedText, pauseTimer, resumeTimer, runningBlock, startBlock } from '
 import { fixAll, fixOcc, fixTimes, laterWeek, skipOcc } from './weekpick.js';
 import { openEventFilters, prepareEvents } from './views/events.js';
 import { placePicked, wideClick } from './views/wide.js';
+import { applyTheme } from './theme.js';
+applyTheme();
 import { classic, curView, openFilters, openPick, openSort, openTriage, openViews, setView, viewList } from './views/impegni.js';
 import { agendaAdd, agendaPlan, openGapFits, planStyle, showSteps } from './views/planner.js';
 import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName, SHOPS } from './views/shop.js';
@@ -152,6 +154,7 @@ view.addEventListener('change', (e) => {
     return;
   }
   if (el.id === 'day-picker' && isDate(el.value)) location.hash = `#/plan/${el.value}`;
+  if (el.form?.id === 'lang-form' && el.name === 'theme') { applyTheme(el.value); render(); return; } // (v62) per device
   if (el.form?.id === 'lang-form') {
     saveSettings({ lang: el.value });
     applyLang(el.value);
@@ -168,17 +171,43 @@ view.addEventListener('change', (e) => {
     return;
   }
   if (el.form?.id === 'planner-form') {
+    if (!el.form.elements.dayStart) { // (v62) the Planner page: its own fields only
+      const g = Object.fromEntries(new FormData(el.form));
+      const patch = {};
+      for (const k of ['weekCardDay', 'weekCardHour', 'snap']) if (k in g) patch[k] = Number(g[k]);
+      if ('planStyle' in g) patch.planStyle = g.planStyle;
+      if ('defaultView' in g) patch.defaultView = g.defaultView;
+      saveSettings(patch);
+      if (el.name === 'defaultView') ui.view = null;
+      return;
+    }
     const f = Object.fromEntries(new FormData(el.form));
     const dayStart = Number(f.dayStart); const dayEnd = Number(f.dayEnd);
     const hr = (a, b, d) => { const x = parseTime(f[a]); const y = parseTime(f[b]); return x != null && y != null && y > x ? [x, y] : d; };
     // "Breathing room" is one number: the margin after each task and the gap the planner keeps between blocks.
     const breath = Number(f.taskBuffer) || 0;
     saveSettings({
-      dayStart, dayEnd: Math.max(dayEnd, dayStart + 1), buffer: Math.min(breath, 15), taskBuffer: breath, maxLoad: Number(f.maxLoad), splitOver: Number(f.splitOver ?? 4), weekCardDay: Number(f.weekCardDay ?? 0), weekCardHour: Number(f.weekCardHour ?? 18), defaultView: f.defaultView, planStyle: f.planStyle || planStyle(), freeWeekends: el.form.freeWeekends.checked,
+      dayStart, dayEnd: Math.max(dayEnd, dayStart + 1), buffer: Math.min(breath, 15), taskBuffer: breath, maxLoad: Number(f.maxLoad), splitOver: Number(f.splitOver ?? 4), weekCardDay: Number(f.weekCardDay ?? state.settings.weekCardDay ?? 0), weekCardHour: Number(f.weekCardHour ?? state.settings.weekCardHour ?? 18), defaultView: f.defaultView ?? state.settings.defaultView, planStyle: f.planStyle || planStyle(), freeWeekends: el.form.freeWeekends.checked,
       autoHours: { wd: hr('ahWdF', 'ahWdT', autoHoursFor('2026-11-02')), we: hr('ahWeF', 'ahWeT', autoHoursFor('2026-11-07')) },
     });
     if (el.name === 'defaultView') ui.view = null;
     if (el.name === 'taskBuffer') { for (const x of travelTasks()) applyTravel(x); changed(); return; }
+  }
+  if (el.form?.id === 'advanced-form' && !el.form.elements.snap) { // (v62) the pages of Avanzate: each its own fields
+    const f = el.form; const fd = new FormData(f); const has = (k) => Boolean(f.elements[k]);
+    const patch = {};
+    if (has('longUnits')) patch.longUnits = f.longUnits.checked;
+    if (has('advancedFeatures')) patch.advancedFeatures = f.advancedFeatures.checked;
+    if (has('glance')) patch.glance = fd.getAll('glance');
+    if (has('tg')) { const on = fd.getAll('tg'); patch.taskGroups = { today: on.includes('today'), tomorrow: on.includes('tomorrow'), soon: on.includes('soon'), soonDays: Number(f.soonDays?.value) || 7 }; }
+    saveSettings(patch);
+    if (has('travelBuffer') && (el.name === 'travelBuffer' || el.name === 'googleKey')) {
+      saveSettings({ travel: { ...travelCfg(), buffer: Number(f.travelBuffer.value) || 0, googleKey: f.googleKey.value.trim() }, travelCache: { ...travelCache(), routes: {} } });
+      for (const x of travelTasks()) applyTravel(x);
+      changed();
+    }
+    render();
+    return;
   }
   if (el.form?.id === 'advanced-form') {
     const f = el.form; const fd = new FormData(f); const on = fd.getAll('tg');

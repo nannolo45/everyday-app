@@ -1,6 +1,6 @@
-<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Everyday · Guida</title><script>(function(){var m;try{m=localStorage.getItem('guideMode')}catch(e){}var w=innerWidth,d=m?m==='desk':w>=1000||(w>=700&&matchMedia('(pointer:fine)').matches);if(d)document.documentElement.classList.add('desk')})()</script><style>
-:root{color-scheme:light dark;--bg:#fff;--ink:#1c2222;--muted:#6c7676;--line:#e3e8e8;--acc:#2f8f86;--card:#f4f7f7}
-@media(prefers-color-scheme:dark){:root{--bg:#161b1b;--ink:#eef2f2;--muted:#98a3a3;--line:#2a3333;--acc:#6fbdb4;--card:#1f2626}}
+<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Everyday · Guida</title><script>(function(){var m;try{m=localStorage.getItem('guideMode')}catch(e){}var w=innerWidth,d=m?m==='desk':w>=1000||(w>=700&&matchMedia('(pointer:fine)').matches);if(d)document.documentElement.classList.add('desk');var t='auto';try{t=localStorage.getItem('everyday-theme')||'auto'}catch(e){}document.documentElement.classList.add(t==='dark'||(t!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light')})()</script><style>
+:root{color-scheme:light;--bg:#fff;--ink:#1c2222;--muted:#6c7676;--line:#e3e8e8;--acc:#2f8f86;--card:#f4f7f7}
+:root.dark{color-scheme:dark;--bg:#161b1b;--ink:#eef2f2;--muted:#98a3a3;--line:#2a3333;--acc:#6fbdb4;--card:#1f2626}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 main{max-width:720px;margin:0 auto;padding:16px 18px 60px}
 h1{font-family:Georgia,serif;font-size:1.9rem;margin:.4em 0}h2{font-family:Georgia,serif;margin-top:2em;border-top:1px solid var(--line);padding-top:1em}
@@ -10,11 +10,12 @@ table{border-collapse:collapse;width:100%;font-size:.95em}th,td{text-align:left;
 .top{display:flex;justify-content:space-between;align-items:center;gap:8px 12px;flex-wrap:wrap;font-size:.95em}.top a{text-decoration:none}
 nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 0}nav.toc a{display:block;padding:3px 0;text-decoration:none}
 img{cursor:zoom-in}
-/* (v57) Phone or computer: a class on <html> (chosen at the top, remembered; guessed the first time) */
+/* Phone or computer: a class on <html> (chosen at the top, remembered; guessed the first time). Light or dark: the app's own choice. */
+/* (v62) the two choices at the top are dropdowns: how to read (phone / computer) and the language */
+.top .pick{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:.9em}
+.top select{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 28px 6px 10px;appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 15px) 55%,calc(100% - 10px) 55%;background-size:5px 5px;background-repeat:no-repeat;cursor:pointer}
+.top .picks{display:flex;gap:10px;flex-wrap:wrap}
 html:not(.desk) .dk,html:not(.desk) .desk-only,html.desk .ph,html.desk .phone-only{display:none}
-.mode{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:2px;gap:2px}
-.mode button{border:0;background:none;color:var(--muted);font:inherit;font-size:.88em;padding:4px 12px;border-radius:999px;cursor:pointer}
-.mode button[aria-pressed=true]{background:var(--acc);color:var(--bg);font-weight:600}
 html.desk main{max-width:1080px;padding:24px 32px 80px}
 html.desk main>p,html.desk main>ul,html.desk main>ol,html.desk main>table,html.desk main>h2,html.desk main>h3,html.desk main>div,html.desk nav.toc{max-width:780px;margin-left:auto;margin-right:auto}
 html.desk nav.toc{columns:2;column-gap:24px}
@@ -24,21 +25,22 @@ html.desk .desk-only{background:var(--card);border-radius:14px;padding:2px 16px}
 .zoom{position:fixed;inset:0;z-index:9;background:rgba(0,0,0,.86);display:flex;align-items:center;justify-content:center;padding:2vw;cursor:zoom-out}
 .zoom img{max-width:100%;max-height:100%;width:auto;margin:0;border:0;box-shadow:none;cursor:zoom-out}
 </style></head>
-<body><main><div class="top"><a href="./#/settings">← Torna all'app</a><span class="mode" role="group" aria-label="Mostra la guida per"><button type="button" data-mode="phone">📱 Telefono</button><button type="button" data-mode="desk">💻 Computer</button></span><a href="guide-en.html">English</a></div><h1 id="everyday-guida-per-lutente">Everyday: guida per l'utente</h1><nav class="toc"><a href="#cose-everyday">Cos'è Everyday</a><a href="#prima-configurazione">Prima configurazione</a><a href="#le-quattro-schede">Le quattro schede</a><a href="#oggi">Oggi</a><a href="#eventi">Eventi</a><a href="#impegni">Impegni</a><a href="#pianificare">Pianificare</a><a href="#spostamenti">Spostamenti</a><a href="#pasti-lista-della-spesa-e-spese">Pasti, lista della spesa e spese</a><a href="#google-calendar">Google Calendar</a><a href="#una-settimana-tipo">Una settimana tipo</a><a href="#su-un-computer">Su un computer</a><a href="#consigli-e-problemi-comuni">Consigli e problemi comuni</a></nav>
+<body><main><div class="top"><a href="./#/settings">← Torna all'app</a><span class="picks"><label class="pick"><span>Mostra la guida per</span><select id="mode" aria-label="Mostra la guida per"><option value="phone">📱 Telefono</option><option value="desk">💻 Computer</option></select></label><label class="pick"><span>Lingua</span><select id="lang" aria-label="Lingua"><option value="guide-it.html" selected>Italiano</option><option value="guide-en.html">English</option></select></label></span></div><h1 id="everyday-guida-per-lutente">Everyday: guida per l'utente</h1><nav class="toc"><a href="#cose-everyday">Cos'è Everyday</a><a href="#prima-configurazione">Prima configurazione</a><a href="#le-quattro-schede">Le quattro schede</a><a href="#oggi">Oggi</a><a href="#eventi">Eventi</a><a href="#impegni">Impegni</a><a href="#pianificare">Pianificare</a><a href="#spostamenti">Spostamenti</a><a href="#pasti-lista-della-spesa-e-spese">Pasti, lista della spesa e spese</a><a href="#google-calendar">Google Calendar</a><a href="#una-settimana-tipo">Una settimana tipo</a><a href="#su-un-computer">Su un computer</a><a href="#consigli-e-problemi-comuni">Consigli e problemi comuni</a></nav>
 <p>Tutto quello che serve per configurare Everyday e pianificare le giornate.</p>
 <div class="desk-only">
-<p><strong>Stai leggendo la guida per il computer.</strong> Le immagini mostrano l'app su uno schermo largo: la barra a sinistra con le schede e le viste, la scheda in mezzo e il pannello a destra (vedi <a href="#su-un-computer">Su un computer</a>). Dove la guida dice <em>tocca</em>, sul computer è un clic; una riga di Impegni o un evento si aprono nel pannello invece che in un foglio. In cima, <strong>📱 Telefono</strong> mostra la guida per il telefono (la scelta resta). Clicca un'immagine per ingrandirla.</p>
+<p><strong>Stai leggendo la guida per il computer.</strong> Le immagini mostrano l'app su uno schermo largo: la barra a sinistra con le schede e le viste, la scheda in mezzo e il pannello a destra (vedi <a href="#su-un-computer">Su un computer</a>). Dove la guida dice <em>tocca</em>, sul computer è un clic; una riga di Impegni o un evento si aprono nel pannello invece che in un foglio. Nel menu in cima, <em>Mostra la guida per</em> → <strong>📱 Telefono</strong> passa a quella per il telefono (la scelta resta). Clicca un'immagine per ingrandirla.</p>
 </div>
 <div class="phone-only">
-<p><em>Questa è la guida per il telefono. In cima, </em><em>💻 Computer</em><em> mostra quella per il computer.</em></p>
+<p><em>Questa è la guida per il telefono. Nel menu in cima, </em>Mostra la guida per<em> → </em><em>💻 Computer</em><em> passa a quella per il computer.</em></p>
 </div>
 <h2 id="cose-everyday">Cos'è Everyday</h2>
 <p>Everyday è un pianificatore delle giornate. Dentro ci sono due tipi di cose: gli <strong>eventi</strong>, che una data ce l'hanno già (un concerto, una visita, un corso), e le <strong>attività</strong>, che una data devono ancora averla — le scrivi e l'app ti aiuta a decidere <em>quando</em> farle. Ogni attività richiede un certo tempo e, una volta messa in un giorno, diventa un blocco sulla linea di quel giorno, accanto agli eventi e agli appuntamenti del calendario. Le attività si possono anche legare a un evento («comprare i biglietti, due settimane prima»), così l'evento si porta dietro la sua lista di cose da fare. L'app può suggerire un piano per un giorno, una settimana o un mese, tenere allineato Google Calendar, aggiungere il tempo per arrivare in un luogo, e pianificare pasti e spese insieme all'app di ricette Ricette.</p>
 <p>Funziona nel browser, su telefono o computer, e si installa come un'app normale. I dati restano tuoi: stanno sui tuoi dispositivi e in uno spazio privato su GitHub che vedi solo tu. Non c'è un account da noi, nessuna IA e niente da pagare.</p>
 <p>Cosa non è: non è un calendario (gli appuntamenti arrivano da Google Calendar), non è un'app di note e non è uno strumento per un gruppo. Una persona, un insieme di dati.</p>
 <h2 id="prima-configurazione">Prima configurazione</h2>
-<p>Servono circa un quarto d'ora e un account GitHub (gratuito). Tutto avviene in <strong>Impostazioni</strong>: tocca l'ingranaggio in alto a destra. Le Impostazioni sono un breve elenco, e ogni voce apre una pagina sua: <em>La mia giornata</em>, <em>Spostamenti</em>, <em>Categorie</em>, <em>Negozi</em>, <em>Avanzate</em> (i collegamenti e tutto quello che si imposta una volta), <em>Lingua</em> e la <em>Guida</em>. La scheda in alto dice se i dati sono sincronizzati, con <em>Sincronizza ora</em> (o <em>Collega</em>, finché non l'hai fatto).</p>
+<p>Servono circa un quarto d'ora e un account GitHub (gratuito). Tutto avviene in <strong>Impostazioni</strong>: tocca l'ingranaggio in alto a destra. Le Impostazioni sono un breve elenco, e ogni voce apre una pagina sua: <em>La mia giornata</em>, <em>Planner</em>, <em>Spostamenti</em>, <em>Categorie</em>, <em>Negozi</em>, <em>Avanzate</em> (a sua volta un elenco: i collegamenti, l'elenco attività, le regole e i tuoi dati, ognuno con la sua pagina), <em>Lingua e aspetto</em> (la lingua, e il tema: <em>Automatico</em> segue il telefono o il computer, oppure sempre <em>Chiaro</em> o <em>Scuro</em>) e la <em>Guida</em>. La scheda in alto dice se i dati sono sincronizzati, con <em>Sincronizza ora</em> (o <em>Collega</em>, finché non l'hai fatto).</p>
 <p><img class="ph" loading="lazy" alt="Impostazioni: la scheda della sincronizzazione e l'elenco delle pagine" src="guide/it/05-settings.webp" /><img class="dk" loading="lazy" alt="Impostazioni: la scheda della sincronizzazione e l'elenco delle pagine" src="guide/it/desk/05-settings.webp" /></p>
+<p><img class="ph" loading="lazy" alt="Avanzate: anche questa è un elenco, i collegamenti e le opzioni ognuno con la sua pagina" src="guide/it/06b-settings-adv.webp" /><img class="dk" loading="lazy" alt="Avanzate: anche questa è un elenco, i collegamenti e le opzioni ognuno con la sua pagina" src="guide/it/desk/06b-settings-adv.webp" /></p>
 <h3 id="1-installare-lapp">1. Installare l'app</h3>
 <p>Apri l'indirizzo dell'app in Chrome sul telefono, o in un browser qualsiasi sul computer. Su Android scegli <em>Installa app</em> (o <em>Aggiungi a schermata Home</em>) dal menu del browser; sul computer clicca la piccola icona di installazione nella barra dell'indirizzo. L'app funziona anche senza connessione; le nuove versioni arrivano da sole e una barra propone di ricaricare. In fondo alle Impostazioni vedi quale versione hai.</p>
 <h3 id="2-collegare-il-tuo-spazio-su-github">2. Collegare il tuo spazio su GitHub</h3>
@@ -46,7 +48,7 @@ html.desk .desk-only{background:var(--card);border-radius:14px;padding:2px 16px}
 <ol>
 <li>Su GitHub crea un repository <strong>privato e vuoto</strong> (un "repository" è semplicemente una cartella su GitHub), ad esempio <code>everyday-data</code>. Non copiare quello di qualcun altro.</li>
 <li>Crea un <strong>token di accesso personale</strong> (GitHub → Settings → Developer settings → Fine-grained tokens) che possa leggere e scrivere i <em>Contents</em> di quel repository. Un token è come una password fatta per le app.</li>
-<li>In Impostazioni → <em>Avanzate</em> → <em>Collegamenti</em> → <em>Sincronizzazione con GitHub</em> (o tocca <em>Collega</em> sulla scheda in cima alle Impostazioni) scrivi il tuo utente GitHub, il nome del repository e il token, poi tocca <em>Salva e prova</em>. L'etichetta in alto dice <em>Sincronizzato</em> quando funziona.</li>
+<li>In Impostazioni → <em>Avanzate</em> → <em>Sincronizzazione con GitHub</em> (o tocca <em>Collega</em> sulla scheda in cima alle Impostazioni) scrivi il tuo utente GitHub, il nome del repository e il token, poi tocca <em>Salva e prova</em>. L'etichetta in alto dice <em>Sincronizzato</em> quando funziona.</li>
 </ol>
 <p><img class="ph" loading="lazy" alt="Inserire utente, repository e token" src="guide/it/01-sync-form.webp" /><img class="dk" loading="lazy" alt="Inserire utente, repository e token" src="guide/it/desk/01-sync-form.webp" /></p>
 <p><img class="ph" loading="lazy" alt="Collegato: il repository e l'ora dell'ultima sincronizzazione" src="guide/it/02-sync-connected.webp" /><img class="dk" loading="lazy" alt="Collegato: il repository e l'ora dell'ultima sincronizzazione" src="guide/it/desk/02-sync-connected.webp" /></p>
@@ -57,7 +59,7 @@ html.desk .desk-only{background:var(--card);border-radius:14px;padding:2px 16px}
 <p>Se usi l'app Palestra, scrivi il nome del suo repository dei dati in Impostazioni → <em>Avanzate</em> → <em>Palestra</em> (di solito <code>palestra-data</code>; lo stesso token deve poterlo usare). Le sue schede compaiono allora come routine, pianificate nei giorni del workout attivo di Palestra (il suo piano della settimana), e ogni allenamento che finisci lì torna col suo tempo vero. Vedi <a href="#gli-allenamenti-da-palestra">Gli allenamenti da Palestra</a>.</p>
 <h3 id="5-facoltativo-google-calendar">5. Facoltativo: Google Calendar</h3>
 <p>Questo collegamento gira su GitHub, non sul telefono, e richiede una configurazione una tantum dalla parte di Google. Impostazioni → <em>Avanzate</em> → <em>Google Calendar</em> elenca i passi; in breve, crei un piccolo progetto Google Cloud, gli permetti di usare il tuo calendario e salvi tre "secret" nel tuo repository. Fatto questo, gli appuntamenti compaiono nell'app e il tuo piano compare in Google Calendar, con i promemoria.</p>
-<p><img class="ph" loading="lazy" alt="La sezione Google Calendar dopo la prima sincronizzazione" src="guide/it/04-settings-gcal.webp" /><img class="dk" loading="lazy" alt="La sezione Google Calendar dopo la prima sincronizzazione" src="guide/it/desk/04-settings-gcal.webp" /></p>
+<p><img class="ph" loading="lazy" alt="La pagina Google Calendar dopo la prima sincronizzazione" src="guide/it/04-settings-gcal.webp" /><img class="dk" loading="lazy" alt="La pagina Google Calendar dopo la prima sincronizzazione" src="guide/it/desk/04-settings-gcal.webp" /></p>
 <h3 id="6-spostamenti">6. Spostamenti</h3>
 <p>In Impostazioni → <em>Spostamenti</em> scrivi l'indirizzo di casa e come ti muovi di solito (a piedi, bici, mezzi pubblici, auto). Basta questo perché l'app aggiunga il tempo di viaggio alle attività con un luogo. La chiave Google Maps è facoltativa; senza, l'app usa servizi di mappe gratuiti.</p>
 <p><img class="ph" loading="lazy" alt="Impostazioni degli spostamenti: casa, mezzo abituale e le tratte del viaggio" src="guide/it/03-settings-travel.webp" /><img class="dk" loading="lazy" alt="Impostazioni degli spostamenti: casa, mezzo abituale e le tratte del viaggio" src="guide/it/desk/03-settings-travel.webp" /></p>
@@ -377,7 +379,7 @@ html.desk .desk-only{background:var(--card);border-radius:14px;padding:2px 16px}
 </tr>
 <tr>
 <td>Su un dispositivo compaiono i dati di un'altra persona</td>
-<td>Impostazioni → Avanzate → <em>Svuota questo dispositivo</em>, dopo aver controllato che il repository indicato sia quello giusto. Se è il repository stesso a essere stato copiato da un altro, elimina prima i suoi file su GitHub (per il calendario: Impostazioni → Avanzate → Google Calendar → <em>Rimuovi i dati del calendario</em>).</td>
+<td>Impostazioni → Avanzate → <em>I tuoi dati</em> → <em>Svuota questo dispositivo</em>, dopo aver controllato che il repository indicato sia quello giusto. Se è il repository stesso a essere stato copiato da un altro, elimina prima i suoi file su GitHub (per il calendario: Impostazioni → Avanzate → Google Calendar → <em>Rimuovi i dati del calendario</em>).</td>
 </tr>
 <tr>
 <td>Cerco Importa, o il menu completo per aggiungere</td>
@@ -401,13 +403,14 @@ html.desk .desk-only{background:var(--card);border-radius:14px;padding:2px 16px}
 </tr>
 <tr>
 <td>Voglio i miei dati</td>
-<td>Impostazioni → Avanzate → <em>Scarica backup (JSON)</em> dà un unico file con tutto; il tuo repository su GitHub contiene gli stessi file.</td>
+<td>Impostazioni → Avanzate → <em>I tuoi dati</em> → <em>Scarica backup (JSON)</em> dà un unico file con tutto; il tuo repository su GitHub contiene gli stessi file.</td>
 </tr>
 </tbody>
 </table></main><script>
 document.addEventListener('click',function(e){var z=document.querySelector('.zoom');if(z){z.remove();return;}var i=e.target.closest('main img');if(!i)return;var d=document.createElement('div');d.className='zoom';var b=document.createElement('img');b.src=i.currentSrc||i.src;b.alt=i.alt;d.appendChild(b);document.body.appendChild(d);});
-function setMode(m,keep){document.documentElement.classList.toggle('desk',m==='desk');document.querySelectorAll('.mode button').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.mode===m));});if(keep){try{localStorage.setItem('guideMode',m)}catch(e){}}}
+function setMode(m,keep){document.documentElement.classList.toggle('desk',m==='desk');var s=document.getElementById('mode');if(s)s.value=m;if(keep){try{localStorage.setItem('guideMode',m)}catch(e){}}}
 setMode(document.documentElement.classList.contains('desk')?'desk':'phone',false);
-document.querySelectorAll('.mode button').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();setMode(b.dataset.mode,true);});});
+document.getElementById('mode').addEventListener('change',function(e){setMode(e.target.value,true);});
+document.getElementById('lang').addEventListener('change',function(e){location.href=e.target.value+location.hash;});
 document.addEventListener('keydown',function(e){if(e.key==='Escape'){var z=document.querySelector('.zoom');if(z)z.remove();}});
 </script></body></html>

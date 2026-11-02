@@ -6,7 +6,7 @@ import { addDays, fmtTime, parseDate, today } from './plan.js';
 import { get, has, live, remove, state, uid, upsert } from './store.js';
 
 // Shown under Settings; keep in step with VERSION in sw.js (a unit test checks).
-export const APP_VERSION = 'v61';
+export const APP_VERSION = 'v62';
 
 export const $ = (sel, root = document) => root.querySelector(sel);
 // Hints that were emptied in i18n (the guide explains instead) render nothing.
@@ -62,8 +62,8 @@ export function toast(msg, ms = 3200, actions = null) {
 
 export function route() {
   const h = location.hash.replace(/^#\/?/, '') || 'today';
-  const [name, id] = h.split('/');
-  return { name, id: id && decodeURIComponent(id) };
+  const [name, id, sub] = h.split('/');
+  return { name, id: id && decodeURIComponent(id), sub: sub && decodeURIComponent(sub) }; // (v62) #/settings/adv/sync
 }
 
 // Left to right, the way a week gets planned: today → events → tasks around them → the plan.

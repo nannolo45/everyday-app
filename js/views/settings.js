@@ -12,10 +12,12 @@ import { isConfigured, palestraConfigured, ricetteConfigured } from '../sync.js'
 import { ensureLegTasks, LEGS, legTemplate, travelCfg } from '../travel-plan.js';
 import { MODE_ICON, MODES as TRAVEL_MODES } from '../travel.js';
 import { glance, GLANCE, planStyle, VIEWS } from './planner.js';
+import { THEMES, themeChoice } from '../theme.js';
 import { shopsList } from './shop.js';
 import { taskGroupsCfg } from './tasks.js';
 import { TIME24, windowsText } from '../widgets.js';
 import { gcalSection, ghConnected } from '../connections.js';
+import { classic } from './impegni.js';
 
 // ---------- view: settings ----------
 
@@ -32,6 +34,8 @@ export function settingsHtml(s, msg) {
   const opts = (vals, sel, label) => vals.map((v) => `<option value="${v}" ${v === Number(sel) ? 'selected' : ''}>${esc(label(v))}</option>`).join('');
   // An option with a line saying what it changes.
   const why = (key) => `<small class="why">${esc(t(key))}</small>`;
+  // (v62) the Planner's own options move to a page of their own; the marker below is where the day page ends
+  const PLAN_CUT = '<!--plan-->';
   const dayCard = `
   <form class="form" id="planner-form">
     <div class="two">
@@ -49,6 +53,7 @@ export function settingsHtml(s, msg) {
     </div>
     <label>${esc(t('splitOver'))}<select name="splitOver">${opts([0, 2, 3, 4, 5, 6], s.splitOver ?? 4, (h) => (h ? t('splitOverH', h) : t('splitNever')))}</select>${why('splitOverWhy')}</label>
     <label class="check"><input type="checkbox" name="freeWeekends" ${s.freeWeekends ? 'checked' : ''}> <span>${esc(t('freeWeekends'))}</span></label>
+    ${PLAN_CUT}
     <div class="field-label">${esc(t('weekCardSet'))}</div>
     <div class="two">
       <label>${esc(t('weekCardDay'))}<select name="weekCardDay">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<option value="${d}" ${d === Number(s.weekCardDay ?? 0) ? 'selected' : ''}>${esc(fmtDay(addDays('2026-11-01', d), { weekday: 'long' }))}</option>`).join('')}</select></label>
@@ -56,6 +61,11 @@ export function settingsHtml(s, msg) {
     </div>${why('weekCardWhy')}
     <label>${esc(t('planStyleL'))}<select name="planStyle">${['agenda', 'hours'].map((v) => `<option value="${v}" ${v === planStyle() ? 'selected' : ''}>${esc(t(`ps_${v}`))}</option>`).join('')}</select></label>
     <label>${esc(t('defaultView'))}<select name="defaultView">${VIEWS.map((v) => `<option value="${v}" ${v === currentViewDefault() ? 'selected' : ''}>${esc(t(`v_${v}`))}</option>`).join('')}</select></label>
+  </form>`;
+  const [dayTop, planRest] = dayCard.split(PLAN_CUT);
+  const dayPage = `${dayTop}</form>`;
+  const plannerPage = `<form class="form" id="planner-form">${planRest.replace('</form>', '')}
+    <label class="opt">${esc(t('snap'))}<select name="snap">${opts([5, 10, 15, 30], s.snap, (m) => `${m} min`)}</select>${why('snapWhy')}</label>
   </form>`;
   const travelCard = `
   <form class="form" id="travel-form">
@@ -175,16 +185,76 @@ export function settingsHtml(s, msg) {
     <label>${esc(t('language'))}
       <select name="lang">${Object.entries(LANGS).map(([k, v]) => `<option value="${k}" ${k === getLang() ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>
     </label>
+    <div class="field-label">${esc(t('appearance'))}</div>
+    <div class="seg theme-seg" role="radiogroup" aria-label="${esc(t('appearance'))}">${THEMES.map((k) => `<label class="${k === themeChoice() ? 'on' : ''}"><input type="radio" name="theme" value="${k}" ${k === themeChoice() ? 'checked' : ''}><span>${esc(t(`theme_${k}`))}</span></label>`).join('')}</div>
+    <p class="hint">${esc(t('themeHint'))}</p>
   </form>`;
+  // (v62) Avanzate as a list too: each connection and each group of options on a page of its own
+  const v2 = !classic();
+  const travelMore = `
+  <form class="form" id="advanced-form">
+    <div class="field-label">${esc(t('advTravelMore'))}</div>
+    <label class="opt">${esc(t('travelBuffer'))}<select name="travelBuffer">${[0, 5, 10, 15].map((m) => `<option value="${m}" ${m === Number(travelCfg().buffer) ? 'selected' : ''}>${m ? `${m} min` : esc(t('none'))}</option>`).join('')}</select>${why('travelBufferWhy')}</label>
+    <label class="opt">${esc(t('googleKey'))}<input name="googleKey" value="${esc(travelCfg().googleKey)}" placeholder="AIza…" autocomplete="off">${why('googleKeyWhy')}</label>
+  </form>`;
+  const tasksPage = `
+  <form class="form" id="advanced-form">
+    <div class="field-label">${esc(t('taskGroupsLabel'))}</div>
+    <div class="days glance">${['today', 'tomorrow', 'soon'].map((k) => `<label class="day-pill"><input type="checkbox" name="tg" value="${k}" ${taskGroupsCfg()[k] ? 'checked' : ''}><span>${esc(k === 'soon' ? t('grp_soon') : t(`grp_${k}`))}</span></label>`).join('')}</div>
+    ${why('taskGroupsWhy')}
+    <label class="opt">${esc(t('soonDays'))}<select name="soonDays">${[3, 5, 7, 14, 30].map((n) => `<option value="${n}" ${n === Number(taskGroupsCfg().soonDays) ? 'selected' : ''}>${esc(t('nDays', n))}</option>`).join('')}</select></label>
+    <div class="field-label">${esc(t('glanceTitle'))}</div>
+    <div class="days glance">${GLANCE.map((k) => `<label class="day-pill"><input type="checkbox" name="glance" value="${k}" ${glance().has(k) ? 'checked' : ''}><span>${esc(t(`gl_${k}`))}</span></label>`).join('')}</div>
+    ${why('glanceWhy')}
+    <label class="check"><input type="checkbox" name="longUnits" ${s.longUnits ? 'checked' : ''}> <span>${esc(t('longUnits'))}<small>${esc(t('longUnitsWhy'))}</small></span></label>
+  </form>`;
+  const rulesPage = `
+  <form class="form" id="advanced-form">
+    <label class="check"><input type="checkbox" name="advancedFeatures" ${advancedOn() ? 'checked' : ''}> <span>${esc(t('advancedFeatures'))}<small>${esc(t('advancedFeaturesWhy'))}</small></span></label>
+  </form>
+  ${advancedOn() ? advancedListsHtml() : ''}`;
+  const dataPage = `  ${why('dataWhy')}
+  <div class="button-row">
+    <button class="btn small" type="button" data-action="export">${esc(t('export'))}</button>
+    ${ghConnected() ? `<button class="btn small ghost" type="button" data-action="wipe-local">${esc(t('wipeLocal'))}</button>` : ''}
+  </div>`;
+  const conn = (on, label) => (on ? label : t('notConnected'));
+  const advPages = {
+    sync: { icon: '🔄', title: t('sync'), sub: conn(ghConnected(), `${s.owner}/${s.repo}`), body: `${why('connectionsWhy')}${github}` },
+    ric: { icon: '🍲', title: t('ricette'), sub: conn(ricetteConfigured(), `${s.owner}/${s.ricetteRepo}`), body: ricette },
+    pal: { icon: '🏋', title: t('palestra'), sub: conn(palestraConfigured(), t('palStatus', nPal, '')), body: palestra },
+    gcal: { icon: '📆', title: t('gcal'), sub: t('gcalRowSub'), body: gcalSection() },
+    tasks: { icon: '☑', title: t('advTasks'), sub: t('advTasksSub'), body: tasksPage },
+    rules: { icon: '🧩', title: t('advancedFeatures'), sub: advancedOn() ? t('onWord') : t('offWord'), body: rulesPage },
+    data: { icon: '💾', title: t('advData'), sub: t('advDataSub'), body: dataPage },
+  };
   // Settings is a list; each item opens a page of its own (#/settings/<key>), as in Ricette.
   const pages = {
-    day: { icon: '☀️', title: t('myDay'), sub: `${fmtTime((s.dayStart ?? 6) * 60)}–${fmtTime((s.dayEnd ?? 23) * 60)} · ${t('maxLoadShort', s.maxLoad ?? 8)}`, body: dayCard },
-    travel: { icon: '🚌', title: t('travelSettings'), sub: [travelCfg().home || t('noHomeYet'), `${MODE_ICON[travelCfg().mode] || ''} ${t(`tm_${travelCfg().mode}`)}`].join(' · '), body: travelCard },
+    day: { icon: '☀️', title: t('myDay'), sub: `${fmtTime((s.dayStart ?? 6) * 60)}–${fmtTime((s.dayEnd ?? 23) * 60)} · ${t('maxLoadShort', s.maxLoad ?? 8)}`, body: v2 ? dayPage : dayCard },
+    ...(v2 ? { planner: { icon: '📅', title: t('tabPlan'), sub: `${t(`ps_${planStyle()}`).split(' (')[0]} · ${t(`v_${currentViewDefault()}`)}`, body: plannerPage } } : {}),
+    travel: { icon: '🚌', title: t('travelSettings'), sub: [travelCfg().home || t('noHomeYet'), `${MODE_ICON[travelCfg().mode] || ''} ${t(`tm_${travelCfg().mode}`)}`].join(' · '), body: v2 ? travelCard + travelMore : travelCard },
     cats: { icon: '🏷', title: t('categories'), sub: t('nCategories', categories().length), body: cats },
     shops: { icon: '🏪', title: t('shopsTitle'), sub: `${t('nShops', shopsList().length)} · ${t(`trip_${tripMode()}`)}`, body: shops },
-    adv: { icon: '⚙', title: t('advanced'), sub: t('advancedSub'), body: advanced },
-    lang: { icon: '🌐', title: t('language'), sub: LANGS[getLang()] || getLang(), body: langForm },
+    adv: { icon: '⚙', title: t('advanced'), sub: v2 ? t('advancedSub2') : t('advancedSub'), body: advanced },
+    lang: { icon: '🌐', title: t('langLook'), sub: `${LANGS[getLang()] || getLang()} · ${t(`theme_${themeChoice()}`)}`, body: langForm },
   };
+  const row = (href, icon, title, sub, ext = false) => `<a class="set-row" href="${href}" ${ext ? 'target="_blank" rel="noopener"' : ''}>
+    <span class="set-ico" aria-hidden="true">${icon}</span><span class="set-text"><b>${esc(title)}</b><small>${esc(sub)}</small></span><span class="set-chev" aria-hidden="true">›</span></a>`;
+  if (v2 && route().id === 'adv') {
+    const sp = advPages[route().sub];
+    if (sp) return `
+  <a class="set-back" href="#/settings/adv">← ${esc(t('advanced'))}</a>
+  <h1 class="set-title"><span aria-hidden="true">${sp.icon}</span> ${esc(sp.title)}</h1>
+  <div class="set-page set-adv-${esc(route().sub)}">${sp.body}</div>`;
+    return `
+  <a class="set-back" href="#/settings">← ${esc(t('tabSettings'))}</a>
+  <h1 class="set-title"><span aria-hidden="true">⚙</span> ${esc(t('advanced'))}</h1>
+  <p class="hint">${esc(t('advListHint'))}</p>
+  <div class="set-sub-h">${esc(t('connections'))}</div>
+  <nav class="set-list">${['sync', 'ric', 'pal', 'gcal'].map((k) => row(`#/settings/adv/${k}`, advPages[k].icon, advPages[k].title, advPages[k].sub)).join('')}</nav>
+  <div class="set-sub-h">${esc(t('advOptions'))}</div>
+  <nav class="set-list">${['tasks', 'rules', 'data'].map((k) => row(`#/settings/adv/${k}`, advPages[k].icon, advPages[k].title, advPages[k].sub)).join('')}</nav>`;
+  }
   const page = pages[route().id];
   if (page) {
     return `
@@ -192,8 +262,6 @@ export function settingsHtml(s, msg) {
   <h1 class="set-title"><span aria-hidden="true">${page.icon}</span> ${esc(page.title)}</h1>
   <div class="set-page set-${esc(route().id)}">${page.body}</div>`;
   }
-  const row = (href, icon, title, sub, ext = false) => `<a class="set-row" href="${href}" ${ext ? 'target="_blank" rel="noopener"' : ''}>
-    <span class="set-ico" aria-hidden="true">${icon}</span><span class="set-text"><b>${esc(title)}</b><small>${esc(sub)}</small></span><span class="set-chev" aria-hidden="true">›</span></a>`;
   const err = state.meta.lastError && state.meta.lastError !== 'network' ? t(`err_${state.meta.lastError}`) : '';
   const status = ghConnected() ? `
   <div class="set-status">
@@ -204,7 +272,7 @@ export function settingsHtml(s, msg) {
   <div class="set-status">
     <span class="off-dot"></span>
     <span class="set-text"><b>${esc(t('localOnlyTitle'))}</b><small>${esc(t('localOnlySub'))}</small></span>
-    <a class="btn small" href="#/settings/adv">${esc(t('connect'))}</a>
+    <a class="btn small" href="${v2 ? '#/settings/adv/sync' : '#/settings/adv'}">${esc(t('connect'))}</a>
   </div>`;
   return `
   <h1>${esc(t('tabSettings'))}</h1>

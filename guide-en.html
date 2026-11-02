@@ -1,6 +1,6 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Everyday · Guide</title><script>(function(){var m;try{m=localStorage.getItem('guideMode')}catch(e){}var w=innerWidth,d=m?m==='desk':w>=1000||(w>=700&&matchMedia('(pointer:fine)').matches);if(d)document.documentElement.classList.add('desk')})()</script><style>
-:root{color-scheme:light dark;--bg:#fff;--ink:#1c2222;--muted:#6c7676;--line:#e3e8e8;--acc:#2f8f86;--card:#f4f7f7}
-@media(prefers-color-scheme:dark){:root{--bg:#161b1b;--ink:#eef2f2;--muted:#98a3a3;--line:#2a3333;--acc:#6fbdb4;--card:#1f2626}}
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Everyday · Guide</title><script>(function(){var m;try{m=localStorage.getItem('guideMode')}catch(e){}var w=innerWidth,d=m?m==='desk':w>=1000||(w>=700&&matchMedia('(pointer:fine)').matches);if(d)document.documentElement.classList.add('desk');var t='auto';try{t=localStorage.getItem('everyday-theme')||'auto'}catch(e){}document.documentElement.classList.add(t==='dark'||(t!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light')})()</script><style>
+:root{color-scheme:light;--bg:#fff;--ink:#1c2222;--muted:#6c7676;--line:#e3e8e8;--acc:#2f8f86;--card:#f4f7f7}
+:root.dark{color-scheme:dark;--bg:#161b1b;--ink:#eef2f2;--muted:#98a3a3;--line:#2a3333;--acc:#6fbdb4;--card:#1f2626}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 main{max-width:720px;margin:0 auto;padding:16px 18px 60px}
 h1{font-family:Georgia,serif;font-size:1.9rem;margin:.4em 0}h2{font-family:Georgia,serif;margin-top:2em;border-top:1px solid var(--line);padding-top:1em}
@@ -10,11 +10,12 @@ table{border-collapse:collapse;width:100%;font-size:.95em}th,td{text-align:left;
 .top{display:flex;justify-content:space-between;align-items:center;gap:8px 12px;flex-wrap:wrap;font-size:.95em}.top a{text-decoration:none}
 nav.toc{background:var(--card);border-radius:14px;padding:10px 16px;margin:16px 0}nav.toc a{display:block;padding:3px 0;text-decoration:none}
 img{cursor:zoom-in}
-/* (v57) Phone or computer: a class on <html> (chosen at the top, remembered; guessed the first time) */
+/* Phone or computer: a class on <html> (chosen at the top, remembered; guessed the first time). Light or dark: the app's own choice. */
+/* (v62) the two choices at the top are dropdowns: how to read (phone / computer) and the language */
+.top .pick{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:.9em}
+.top select{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 28px 6px 10px;appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 15px) 55%,calc(100% - 10px) 55%;background-size:5px 5px;background-repeat:no-repeat;cursor:pointer}
+.top .picks{display:flex;gap:10px;flex-wrap:wrap}
 html:not(.desk) .dk,html:not(.desk) .desk-only,html.desk .ph,html.desk .phone-only{display:none}
-.mode{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:2px;gap:2px}
-.mode button{border:0;background:none;color:var(--muted);font:inherit;font-size:.88em;padding:4px 12px;border-radius:999px;cursor:pointer}
-.mode button[aria-pressed=true]{background:var(--acc);color:var(--bg);font-weight:600}
 html.desk main{max-width:1080px;padding:24px 32px 80px}
 html.desk main>p,html.desk main>ul,html.desk main>ol,html.desk main>table,html.desk main>h2,html.desk main>h3,html.desk main>div,html.desk nav.toc{max-width:780px;margin-left:auto;margin-right:auto}
 html.desk nav.toc{columns:2;column-gap:24px}
@@ -24,21 +25,22 @@ html.desk .desk-only{background:var(--card);border-radius:14px;padding:2px 16px}
 .zoom{position:fixed;inset:0;z-index:9;background:rgba(0,0,0,.86);display:flex;align-items:center;justify-content:center;padding:2vw;cursor:zoom-out}
 .zoom img{max-width:100%;max-height:100%;width:auto;margin:0;border:0;box-shadow:none;cursor:zoom-out}
 </style></head>
-<body><main><div class="top"><a href="./#/settings">← Back to the app</a><span class="mode" role="group" aria-label="Show the guide for"><button type="button" data-mode="phone">📱 Phone</button><button type="button" data-mode="desk">💻 Computer</button></span><a href="guide-it.html">Italiano</a></div><h1 id="everyday-user-guide">Everyday: user guide</h1><nav class="toc"><a href="#what-everyday-is">What Everyday is</a><a href="#first-setup">First setup</a><a href="#the-four-tabs">The four tabs</a><a href="#today">Today</a><a href="#events">Events</a><a href="#to-do">To do</a><a href="#planning">Planning</a><a href="#travel">Travel</a><a href="#meals-shopping-list-and-grocery-runs">Meals, shopping list and grocery runs</a><a href="#google-calendar">Google Calendar</a><a href="#a-typical-week">A typical week</a><a href="#on-a-computer">On a computer</a><a href="#tips-and-troubleshooting">Tips and troubleshooting</a></nav>
+<body><main><div class="top"><a href="./#/settings">← Back to the app</a><span class="picks"><label class="pick"><span>Show the guide for</span><select id="mode" aria-label="Show the guide for"><option value="phone">📱 Phone</option><option value="desk">💻 Computer</option></select></label><label class="pick"><span>Language</span><select id="lang" aria-label="Language"><option value="guide-it.html">Italiano</option><option value="guide-en.html" selected>English</option></select></label></span></div><h1 id="everyday-user-guide">Everyday: user guide</h1><nav class="toc"><a href="#what-everyday-is">What Everyday is</a><a href="#first-setup">First setup</a><a href="#the-four-tabs">The four tabs</a><a href="#today">Today</a><a href="#events">Events</a><a href="#to-do">To do</a><a href="#planning">Planning</a><a href="#travel">Travel</a><a href="#meals-shopping-list-and-grocery-runs">Meals, shopping list and grocery runs</a><a href="#google-calendar">Google Calendar</a><a href="#a-typical-week">A typical week</a><a href="#on-a-computer">On a computer</a><a href="#tips-and-troubleshooting">Tips and troubleshooting</a></nav>
 <p>Everything you need to set Everyday up and plan your days with it.</p>
 <div class="desk-only">
-<p><strong>You're reading the guide for a computer.</strong> The pictures show the app on a wide screen: the rail on the left with the tabs and the views, the tab in the middle and the pane on the right (see <a href="#on-a-computer">On a computer</a>). Where the guide says <em>tap</em>, on a computer it's a click; a To do row or an event opens in the pane instead of a sheet. At the top, <strong>📱 Phone</strong> shows the guide for a phone (the choice is kept). Click a picture to enlarge it.</p>
+<p><strong>You're reading the guide for a computer.</strong> The pictures show the app on a wide screen: the rail on the left with the tabs and the views, the tab in the middle and the pane on the right (see <a href="#on-a-computer">On a computer</a>). Where the guide says <em>tap</em>, on a computer it's a click; a To do row or an event opens in the pane instead of a sheet. In the menu at the top, <em>Show the guide for</em> → <strong>📱 Phone</strong> switches to the phone guide (the choice is kept). Click a picture to enlarge it.</p>
 </div>
 <div class="phone-only">
-<p><em>This is the guide for a phone. At the top, </em><em>💻 Computer</em><em> shows the one for a computer.</em></p>
+<p><em>This is the guide for a phone. In the menu at the top, </em>Show the guide for<em> → </em><em>💻 Computer</em><em> switches to the computer guide.</em></p>
 </div>
 <h2 id="what-everyday-is">What Everyday is</h2>
 <p>Everyday is a planner for your days. There are two kinds of things in it: <strong>events</strong>, which already have a date (a concert, a visit, a class), and <strong>tasks</strong>, which still need one — you write them down and the app helps you decide <em>when</em> to do them. Every task takes some time, and once you put it on a day it becomes a block on that day's timeline, next to your events and calendar appointments. Tasks can also be tied to an event ("buy the tickets, two weeks before"), so the event carries its own to-do list. The app can suggest a plan for a day, a week or a month, keep Google Calendar in step, add the time it takes to get to a place, and plan meals and grocery runs together with the Ricette recipe app.</p>
 <p>It works in the browser on a phone or a computer and can be installed like a normal app. Your data stays yours: it lives on your devices and in a private space on GitHub that only you can see. There is no account with us, no AI and nothing to pay.</p>
 <p>What it is not: it is not a calendar (your appointments come from Google Calendar), not a notes app and not a tool for a team. One person, one set of data.</p>
 <h2 id="first-setup">First setup</h2>
-<p>You need about fifteen minutes and a GitHub account (free). Everything happens in <strong>Settings</strong>: tap the gear at the top right. Settings is a short list, and each item opens a page of its own: <em>My day</em>, <em>Travel</em>, <em>Categories</em>, <em>Shops</em>, <em>Advanced</em> (the connections and everything you set once), <em>Language</em> and the <em>Guide</em>. The card at the top says whether your data is in sync, with <em>Sync now</em> (or <em>Connect</em>, before you have).</p>
+<p>You need about fifteen minutes and a GitHub account (free). Everything happens in <strong>Settings</strong>: tap the gear at the top right. Settings is a short list, and each item opens a page of its own: <em>My day</em>, <em>Planner</em>, <em>Travel</em>, <em>Categories</em>, <em>Shops</em>, <em>Advanced</em> (itself a list: the connections, the task list, rules and your data, each on a page of its own), <em>Language and appearance</em> (the language, and the theme: <em>Automatic</em> follows your phone or computer, or always <em>Light</em> or <em>Dark</em>) and the <em>Guide</em>. The card at the top says whether your data is in sync, with <em>Sync now</em> (or <em>Connect</em>, before you have).</p>
 <p><img class="ph" loading="lazy" alt="Settings: the sync card and the list of pages" src="guide/en/05-settings.webp" /><img class="dk" loading="lazy" alt="Settings: the sync card and the list of pages" src="guide/en/desk/05-settings.webp" /></p>
+<p><img class="ph" loading="lazy" alt="Advanced: a list too, the connections and the options each on a page of its own" src="guide/en/06b-settings-adv.webp" /><img class="dk" loading="lazy" alt="Advanced: a list too, the connections and the options each on a page of its own" src="guide/en/desk/06b-settings-adv.webp" /></p>
 <h3 id="1-install-the-app">1. Install the app</h3>
 <p>Open the app's address in Chrome on your phone, or in any browser on a computer. On Android choose <em>Install app</em> (or <em>Add to Home screen</em>) from the browser menu; on a computer click the small install icon in the address bar. The app works without a connection too; new versions arrive on their own, and a bar offers to reload. The bottom of Settings shows which version you have.</p>
 <h3 id="2-connect-your-own-space-on-github">2. Connect your own space on GitHub</h3>
@@ -46,7 +48,7 @@ html.desk .desk-only{background:var(--card);border-radius:14px;padding:2px 16px}
 <ol>
 <li>On GitHub, create a <strong>private, empty</strong> repository (a "repository" is just a folder on GitHub), for example <code>everyday-data</code>. Don't copy anyone else's.</li>
 <li>Create a <strong>personal access token</strong> (GitHub → Settings → Developer settings → Fine-grained tokens) that is allowed to read and write the <em>Contents</em> of that repository. A token is like a password made for apps.</li>
-<li>In Settings → <em>Advanced</em> → <em>Connections</em> → <em>GitHub sync</em> (or tap <em>Connect</em> on the card at the top of Settings), type your GitHub user name, the repository name and the token, then tap <em>Save and test</em>. The badge at the top of the app says <em>Synced</em> when it works.</li>
+<li>In Settings → <em>Advanced</em> → <em>Sync with GitHub</em> (or tap <em>Connect</em> on the card at the top of Settings), type your GitHub user name, the repository name and the token, then tap <em>Save and test</em>. The badge at the top of the app says <em>Synced</em> when it works.</li>
 </ol>
 <p><img class="ph" loading="lazy" alt="Entering user, repository and token" src="guide/en/01-sync-form.webp" /><img class="dk" loading="lazy" alt="Entering user, repository and token" src="guide/en/desk/01-sync-form.webp" /></p>
 <p><img class="ph" loading="lazy" alt="Connected: the repository and the time of the last sync" src="guide/en/02-sync-connected.webp" /><img class="dk" loading="lazy" alt="Connected: the repository and the time of the last sync" src="guide/en/desk/02-sync-connected.webp" /></p>
@@ -57,7 +59,7 @@ html.desk .desk-only{background:var(--card);border-radius:14px;padding:2px 16px}
 <p>If you use the Palestra workout app, type the name of its data repository in Settings → <em>Advanced</em> → <em>Palestra</em> (usually <code>palestra-data</code>; the same token must be allowed to use it). Its workouts then show up as routines, planned on the days of Palestra's active workout (its plan for the week), and every workout you finish there comes back with its real time. See <a href="#workouts-from-palestra">Workouts from Palestra</a>.</p>
 <h3 id="5-optional-google-calendar">5. Optional: Google Calendar</h3>
 <p>This link runs on GitHub, not on your phone, so it needs a one-time setup on Google's side. Settings → <em>Advanced</em> → <em>Google Calendar</em> lists the steps; in short, you create a small Google Cloud project, allow it to use your calendar, and store three "secrets" in your repository. Once done, your appointments appear in the app and your plan appears in Google Calendar, with reminders.</p>
-<p><img class="ph" loading="lazy" alt="The Google Calendar section after the first sync" src="guide/en/04-settings-gcal.webp" /><img class="dk" loading="lazy" alt="The Google Calendar section after the first sync" src="guide/en/desk/04-settings-gcal.webp" /></p>
+<p><img class="ph" loading="lazy" alt="The Google Calendar page after the first sync" src="guide/en/04-settings-gcal.webp" /><img class="dk" loading="lazy" alt="The Google Calendar page after the first sync" src="guide/en/desk/04-settings-gcal.webp" /></p>
 <h3 id="6-travel">6. Travel</h3>
 <p>In Settings → <em>Travel</em>, type your home address and how you usually get around (walking, bike, public transport, car). That's all the app needs to add travel time to tasks that have a place. A Google Maps key is optional; without one the app uses free map services.</p>
 <p><img class="ph" loading="lazy" alt="Travel settings: home, usual transport, and the journey legs" src="guide/en/03-settings-travel.webp" /><img class="dk" loading="lazy" alt="Travel settings: home, usual transport, and the journey legs" src="guide/en/desk/03-settings-travel.webp" /></p>
@@ -377,7 +379,7 @@ html.desk .desk-only{background:var(--card);border-radius:14px;padding:2px 16px}
 </tr>
 <tr>
 <td>Someone else's data shows on a device</td>
-<td>Settings → Advanced → <em>Empty this device</em>, after checking that the repository there is the right one. If the repository itself was copied from someone else's, delete its files on GitHub first (for the calendar: Settings → Advanced → Google Calendar → <em>Remove calendar data</em>).</td>
+<td>Settings → Advanced → <em>Your data</em> → <em>Empty this device</em>, after checking that the repository there is the right one. If the repository itself was copied from someone else's, delete its files on GitHub first (for the calendar: Settings → Advanced → Google Calendar → <em>Remove calendar data</em>).</td>
 </tr>
 <tr>
 <td>I'm looking for Import, or the full add menu</td>
@@ -401,13 +403,14 @@ html.desk .desk-only{background:var(--card);border-radius:14px;padding:2px 16px}
 </tr>
 <tr>
 <td>I want my data</td>
-<td>Settings → Advanced → <em>Download backup (JSON)</em> gives one file with everything; your repository on GitHub holds the same files.</td>
+<td>Settings → Advanced → <em>Your data</em> → <em>Download backup (JSON)</em> gives one file with everything; your repository on GitHub holds the same files.</td>
 </tr>
 </tbody>
 </table></main><script>
 document.addEventListener('click',function(e){var z=document.querySelector('.zoom');if(z){z.remove();return;}var i=e.target.closest('main img');if(!i)return;var d=document.createElement('div');d.className='zoom';var b=document.createElement('img');b.src=i.currentSrc||i.src;b.alt=i.alt;d.appendChild(b);document.body.appendChild(d);});
-function setMode(m,keep){document.documentElement.classList.toggle('desk',m==='desk');document.querySelectorAll('.mode button').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.mode===m));});if(keep){try{localStorage.setItem('guideMode',m)}catch(e){}}}
+function setMode(m,keep){document.documentElement.classList.toggle('desk',m==='desk');var s=document.getElementById('mode');if(s)s.value=m;if(keep){try{localStorage.setItem('guideMode',m)}catch(e){}}}
 setMode(document.documentElement.classList.contains('desk')?'desk':'phone',false);
-document.querySelectorAll('.mode button').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();setMode(b.dataset.mode,true);});});
+document.getElementById('mode').addEventListener('change',function(e){setMode(e.target.value,true);});
+document.getElementById('lang').addEventListener('change',function(e){location.href=e.target.value+location.hash;});
 document.addEventListener('keydown',function(e){if(e.key==='Escape'){var z=document.querySelector('.zoom');if(z)z.remove();}});
 </script></body></html>

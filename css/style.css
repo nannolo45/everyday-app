@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   /* (v61) light theme "Pulito": cool neutral page, white cards with a soft shadow, white bars */
   --bg: #f3f5f5;
   --surface: #ffffff;
@@ -18,11 +19,11 @@
   --nav-h: 64px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
+/* (v62) dark: the device's choice, or Settings → Aspetto (theme.js puts .dark or .light on <html>) */
+:root.dark {
+    color-scheme: dark;
     --bg: #151a1b; --surface: #1f2627; --ink: #e9eeec; --muted: #94a09f; --line: #313b3c;
     --accent: #6fb7b4; --accent-ink: #102021; --accent-soft: #23393a; --green: #7cc28f; --warn: #c98a12;
-  }
 }
 
 * { box-sizing: border-box; }
@@ -1137,7 +1138,7 @@ label.check.tall { align-items: flex-start; }
 #toast.act { pointer-events: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0 4px; padding: 8px 6px 4px 16px; width: min(520px, calc(100vw - 24px)); }
 #toast.act .t-msg { flex: 1 1 100%; }
 #toast.act button { border: 0; background: none; color: #9fd3d0; font: inherit; font-weight: 700; padding: 10px 10px; cursor: pointer; white-space: nowrap; }
-@media (prefers-color-scheme: dark) { #toast.act button { color: #1d5f62; } }
+:root.dark #toast.act button { color: #1d5f62; }
 .just-added .ja-h { color: var(--accent); }
 .list.fresh li { border: 1.5px solid var(--accent); border-radius: 12px; background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
 .task-tools.more { margin-top: -4px; }
@@ -1442,11 +1443,16 @@ body.is-wide.wide-pane #fab { right: calc(var(--pane) + 28px); }
 @media (min-width: 1100px) { .gear { padding: 0 14px 0 11px; } .gear-label { display: inline; } }
 
 /* ---------- v61: light theme "Pulito" — cards lift off the page; bars are white ---------- */
-@media (prefers-color-scheme: light) {
-  .list, .ag-c, .ev2-card, .vw-card, .ag-card-top, .card, .ag-day, .now-card, .set-list, .week-card, .seg, .gear, .search, .to-plan, .tray { box-shadow: var(--lift); }
-  .ag-row.ghost .ag-c, .ev2.imported .ev2-card { box-shadow: none; }
-  .top { background: color-mix(in srgb, #fff 88%, transparent); }
-  .tabs { background: #fff; }
-  .rail, .pane { background: #fff; }
-  .pane { background: color-mix(in srgb, var(--bg) 55%, #fff); }
-}
+:root:not(.dark) .list, :root:not(.dark) .ag-c, :root:not(.dark) .ev2-card, :root:not(.dark) .vw-card, :root:not(.dark) .ag-card-top, :root:not(.dark) .card, :root:not(.dark) .ag-day, :root:not(.dark) .now-card, :root:not(.dark) .set-list, :root:not(.dark) .week-card, :root:not(.dark) .seg, :root:not(.dark) .gear, :root:not(.dark) .search, :root:not(.dark) .to-plan, :root:not(.dark) .tray { box-shadow: var(--lift); }
+:root:not(.dark) .ag-row.ghost .ag-c, :root:not(.dark) .ev2.imported .ev2-card { box-shadow: none; }
+:root:not(.dark) .top { background: color-mix(in srgb, #fff 88%, transparent); }
+:root:not(.dark) .tabs { background: #fff; }
+:root:not(.dark) .rail, :root:not(.dark) .pane { background: #fff; }
+:root:not(.dark) .pane { background: color-mix(in srgb, var(--bg) 55%, #fff); }
+/* (v62) Settings → Aspetto: Automatico · Chiaro · Scuro */
+.seg.theme-seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; margin: 4px 0 6px; max-width: 420px; }
+.seg.theme-seg label { margin: 0 !important; position: relative; display: flex; align-items: center; justify-content: center; padding: 8px 6px; border-radius: 9px; cursor: pointer; color: var(--muted); font-weight: 600; font-size: .9rem; }
+.seg.theme-seg label.on { background: var(--accent); color: var(--accent-ink); }
+.seg.theme-seg input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.seg.theme-seg label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.set-sub-h { margin: 18px 4px 6px; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); } /* (v62) groups of rows in Avanzate */
