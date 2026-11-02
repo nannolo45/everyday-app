@@ -6,13 +6,13 @@ import { esc, planSettings, relDay, ui } from './core.js';
 import { t } from './i18n.js';
 import { isSaved, isTodo } from './kinds.js';
 import { busyOn, leadOf, planTask, timesLeft } from './model.js';
-import { addDays, fmtDur, fmtTime, freeSlot, nowMinutes, occurrences, REPEATS, today } from './plan.js';
+import { addDays, fmtDur, fmtTime, freeSlot, nowMinutes, occurrences, REPEATS, ruleAt, today } from './plan.js';
 import { autoHoursFor, placeBlock, planPlacements } from './planning.js';
 import { WINDOWS } from './smart.js';
 import { get, live, saveSettings, state, upsert } from './store.js';
 import { weekStart } from './views/planner.js';
 
-export const pickTasks = () => live('tasks').filter((x) => !x.done && x.pickTime && (isTodo(x) || isSaved(x)) && (REPEATS.includes(x.repeat) || x.repeat === 'times'));
+export const pickTasks = () => live('tasks').filter((x) => !x.done && !x.archived && (x.pickTime || x.next?.pickTime) && (isTodo(x) || isSaved(x)) && (REPEATS.includes(x.repeat) || x.repeat === 'times' || REPEATS.includes(x.next?.repeat)));
 const hasBlock = (x, date) => live('blocks').some((b) => b.taskId === x.id && b.date === date && b.kind !== 'prep');
 
 // The weekly moment: {day 0–6 (0 = Sunday), hour}. The card for the week ahead shows from then on.
@@ -37,7 +37,7 @@ export function toFix(from, to) {
       if (n > 0) out.push({ x, n, days: days.filter((d) => d >= today()) });
       continue;
     }
-    for (const d of occurrences(x, from, to)) if (d >= today() && !hasBlock(x, d) && !(x.skipped || []).includes(d)) out.push({ x, date: d });
+    for (const d of occurrences(x, from, to)) if (d >= today() && ruleAt(x, d).pickTime && !hasBlock(x, d) && !(x.skipped || []).includes(d)) out.push({ x, date: d });
   }
   return out.sort((a, b) => ((a.date || '9') < (b.date || '9') ? -1 : 1));
 }

@@ -7,16 +7,19 @@ import { catName, esc, fmtDay, relDay, toast, ui } from './core.js';
 import { getLang, t } from './i18n.js';
 import { isMealType, isSaved, isTodo } from './kinds.js';
 import { ensureSeries } from './model.js';
-import { addDays, fmtDur, fmtTime, inPause, isOccurrence, parseDate, REPEATS, today } from './plan.js';
+import { addDays, fmtDur, fmtTime, inPause, isOccurrence, parseDate, REPEATS, ruleAt, today } from './plan.js';
 import { changed } from './shell.js';
 import { get, live, remove, upsert } from './store.js';
 import { ricetteConfigured } from './sync.js';
 import { weekStart } from './views/planner.js';
 import { dayShort, openModal, repeatText } from './widgets.js';
 import { openPlanSaved, openTask } from './editors.js';
+import { isPalestra, PALESTRA_APP } from './palestra.js';
 
 export const isRoutine = (x) => Boolean(x && !x.deleted && !x.done && !x.travelRole && (isSaved(x) || (isTodo(x) && x.repeat)));
-export const hasRhythm = (x) => Boolean(x?.repeat && (REPEATS.includes(x.repeat) || x.repeat === 'times'));
+// Workouts deleted in Palestra (v54): kept for their history, listed apart, never planned again.
+export const isArchived = (x) => Boolean(x?.archived);
+export const hasRhythm = (x) => Boolean((x?.repeat && (REPEATS.includes(x.repeat) || x.repeat === 'times')) || REPEATS.includes(x?.next?.repeat));
 export const routines = () => live('tasks').filter(isRoutine);
 const timesWeekly = (x) => x.repeat === 'times' && (x.timesPer || 'week') === 'week';
 
@@ -36,11 +39,12 @@ export function dayState(x, d, blocks = blocksByDate(x.id), td = today()) {
     if (d < td || o.every(Boolean)) return 'missed';
     return 'planned';
   }
-  if (!REPEATS.includes(x.repeat) || !isOccurrence(x, d) || (x.repeatUntil && d > x.repeatUntil)) return '';
+  const r = ruleAt(x, d);
+  if (!REPEATS.includes(r.repeat) || !isOccurrence(x, d) || (x.repeatUntil && d > x.repeatUntil)) return '';
   if ((x.skipped || []).includes(d)) return 'skip';
   if (inPause(x, d)) return 'pause';
   if (d < td) return 'missed';
-  return x.pickTime ? 'fix' : 'due';
+  return r.pickTime ? 'fix' : 'due';
 }
 export const weekStates = (x, ws, blocks = blocksByDate(x.id)) => [0, 1, 2, 3, 4, 5, 6].map((i) => dayState(x, addDays(ws, i), blocks));
 const PLACED = ['done', 'part', 'planned'];
@@ -92,6 +96,10 @@ function metaOf(x, ws) {
 }
 const planBtn = (x) => `<button class="icon saved-plan" type="button" data-action="saved-plan" data-id="${esc(x.id)}" aria-label="${esc(t('planSaved', x.title))}" title="${esc(t('planSaved', x.title))}">▶</button>`;
 export function routineRow(x, ws = ui.routineWeek || weekStart(today())) {
+  if (x.archived) {
+    const n = live('blocks').filter((b) => b.taskId === x.id && (b.outcome === 'done' || b.done)).length;
+    return `<li class="rt-row archived"><button class="task-main" type="button" data-action="routine-open" data-id="${esc(x.id)}"><span class="item-text">${esc(x.title)}<small>${esc(t('rtArchivedMeta', n))}</small></span></button></li>`;
+  }
   const rhythm = hasRhythm(x) || isMealType(x);
   const paused = pausedUntil(x) !== null;
   return `<li class="rt-row${paused ? ' paused' : ''}"><button class="task-main" type="button" data-action="routine-open" data-id="${esc(x.id)}"><span class="item-text">${isMealType(x) ? '🍽 ' : ''}${esc(x.title)}<small>${esc(metaOf(x, ws))}</small></span>${rhythm ? strip(x, ws, blocksByDate(x.id)) : ''}</button>${!hasRhythm(x) ? planBtn(x) : ''}</li>`;
@@ -99,23 +107,32 @@ export function routineRow(x, ws = ui.routineWeek || weekStart(today())) {
 
 // The groups: areas (the first category) for routines with a rhythm, then meals, then the ones without.
 export function routineGroups(list) {
-  const areas = new Map(); const meals = []; const loose = [];
+  const areas = new Map(); const meals = []; const loose = []; const gym = []; const arch = [];
   for (const x of list) {
-    if (isMealType(x)) meals.push(x);
+    if (x.archived) arch.push(x);
+    else if (isPalestra(x)) gym.push(x);
+    else if (isMealType(x)) meals.push(x);
     else if (!hasRhythm(x)) loose.push(x);
     else { const c = get('categories', x.category) ? x.category : ''; if (!areas.has(c)) areas.set(c, []); areas.get(c).push(x); }
   }
   const byTime = (a, b) => (a.seriesTime ?? a.defaultStart ?? 9999) - (b.seriesTime ?? b.defaultStart ?? 9999) || a.title.localeCompare(b.title);
   const out = [...areas.entries()].sort((a, b) => (a[0] ? 0 : 1) - (b[0] ? 0 : 1) || catName(get('categories', a[0])).localeCompare(catName(get('categories', b[0]))))
     .map(([c, l]) => ({ key: `rt_${c || 'none'}`, label: c ? catName(get('categories', c)) : t('noCategory'), list: l.sort(byTime) }));
+  if (gym.length) out.push({ key: 'rt_pal', label: t('rtWorkouts'), from: t('rtFromPalestra'), href: PALESTRA_APP, list: gym.sort(byTime) });
   if (meals.length) out.push({ key: 'rt_meals', label: t('rtMeals'), from: ricetteConfigured() ? t('rtFromRicette') : '', list: meals.sort(byTime) });
   if (loose.length) out.push({ key: 'rt_loose', label: t('rtNoRhythm'), list: loose.sort((a, b) => a.title.localeCompare(b.title)) });
+  if (arch.length) out.push({ key: 'rt_arch', label: t('rtArchived'), list: arch.sort((a, b) => a.title.localeCompare(b.title)) });
   return out;
 }
-// "2–8 Nov", "Nov 2 – 8", "26 Oct – 1 Nov": the language's own way of writing a range.
+// "Nov 2–8" in English, "2–8 nov" in Italian and German; across months "Oct 26 – Nov 1", "26 ott – 1 nov".
 export function weekLabel(ws) {
-  const we = addDays(ws, 6);
-  try { return t('rtWeek', new Intl.DateTimeFormat(getLang(), { day: 'numeric', month: 'short' }).formatRange(parseDate(ws), parseDate(we))); } catch { return t('rtWeek', `${fmtDay(ws, { day: 'numeric', month: 'short' })} – ${fmtDay(we, { day: 'numeric', month: 'short' })}`); }
+  const we = addDays(ws, 6); const lang = getLang();
+  const d = (x) => String(parseDate(x).getDate());
+  const m = (x) => new Intl.DateTimeFormat(lang, { month: 'short' }).format(parseDate(x));
+  const same = ws.slice(5, 7) === we.slice(5, 7);
+  const r = lang === 'en' ? (same ? `${m(ws)} ${d(ws)}–${d(we)}` : `${m(ws)} ${d(ws)} – ${m(we)} ${d(we)}`)
+    : (same ? `${d(ws)}–${d(we)} ${m(we)}` : `${d(ws)} ${m(ws)} – ${d(we)} ${m(we)}`);
+  return t('rtWeek', r);
 }
 export function weekHeader(list, ws) {
   const { expected, placed, fix } = weekInfo(list, ws);
@@ -156,27 +173,27 @@ export function openRoutine(id) {
   const left = [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(ws, i)).filter((d) => d >= td && ['planned', 'fix', 'due'].includes(dayState(x, d, blocks)));
   const from = x.seriesFrom || x.due || '';
   const p = (x.pauses || []).filter((q) => !q.to || q.to >= td);
-  const rhythm = hasRhythm(x);
+  const rhythm = hasRhythm(x) && !x.archived;
   const row = (value, label, val) => `<button class="rt-set" value="${value}" formnovalidate><span>${esc(label)}</span><small>${esc(val)} ›</small></button>`;
   const cat = get('categories', x.category);
   openModal(`
-    <h2>${isMealType(x) ? '🍽 ' : ''}${esc(x.title)}${cat ? ` <small class="rt-area">${esc(catName(cat))}</small>` : ''}</h2>
+    <h2>${isMealType(x) ? '🍽 ' : ''}${esc(x.title)}${isPalestra(x) ? ` <small class="rt-area">${esc(t('rtFromPalestra'))}</small>` : cat ? ` <small class="rt-area">${esc(catName(cat))}</small>` : ''}</h2>
     <div class="rt-hist">
       <div class="rt-hist-h"><b>${esc(t('rtLastWeeks'))}</b>${due ? `<small>${esc(t('rtDoneOf', done, due))}</small>` : ''}</div>
       <div class="rt-days" aria-hidden="true"><span></span><span class="rt-strip">${[1, 2, 3, 4, 5, 6, 7].map((i) => `<span>${esc(dayShort(i).slice(0, 1).toUpperCase())}</span>`).join('')}</span></div>
       ${grid}
     </div>
-    <div class="field-label">${esc(t('rtRhythm'))}</div>
+    ${x.archived ? `<p class="hint">${esc(t('palArchivedNote'))}</p>` : `<div class="field-label">${esc(t('rtRhythm'))}</div>
     <div class="rt-sets">
       ${row('when', t('rtWhen'), [rhythmText(x) || t('wm_anytime'), x.pickTime ? t('rtPicked') : x.seriesTime != null ? fmtTime(x.seriesTime) : '', fmtDur(x.minutes || 30)].filter(Boolean).join(' · '))}
       ${rhythm ? row('period', t('rtPeriod'), x.repeatUntil ? t('rtFromTo', from ? relDay(from) : '…', relDay(x.repeatUntil)) : from ? t('rtFromOn', relDay(from)) : '') : ''}
       ${rhythm ? row('pause', t('rtPauses'), p.length ? p.map((q) => (q.to ? t('rtFromTo', relDay(q.from), relDay(q.to)) : t('rtFromOn', relDay(q.from)))).join(', ') : t('rtNoPause')) : ''}
-    </div>
+    </div>`}
     ${left.length ? `<div class="field-label">${esc(t('rtSkipThisWeek'))}</div>
     <div class="occ-chips">${left.map((d) => `<button class="occ-chip" value="skip:${d}" formnovalidate>${esc(relDay(d))}</button>`).join('')}</div>` : ''}
     <div class="button-row">
       <button class="btn primary" value="cancel" formnovalidate>${esc(t('doneBtn'))}</button>
-      ${!rhythm || isMealType(x) ? `<button class="btn" value="plan" formnovalidate>▶ ${esc(t('planIt'))}</button>` : ''}
+      ${(!rhythm || isMealType(x)) && !x.archived ? `<button class="btn" value="plan" formnovalidate>▶ ${esc(t('planIt'))}</button>` : ''}
       <button class="btn" value="more" formnovalidate>${esc(t('moreDetails'))}</button>
     </div>`, (form, action, e) => {
     const cur = get('tasks', x.id);

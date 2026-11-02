@@ -1,7 +1,7 @@
 // Two-way sync of local collections with JSON files in a private GitHub repository.
 // Plain collections live in data/<name>.json, monthly ones in data/<name>/<YYYY-MM>.json.
 import {
-  state, COLLECTIONS, SHARDED, RICETTE, READ_ONLY, CONTRACT_FILES, contractTooNew, shardOf, mergeLists, purgeTombstones, serialize, replaceCollection, saveMeta,
+  state, COLLECTIONS, SHARDED, RICETTE, PALESTRA, PAL_SESSIONS, PAL_CONTRACT, contractVersion, READ_ONLY, CONTRACT_FILES, contractTooNew, shardOf, mergeLists, purgeTombstones, serialize, replaceCollection, saveMeta,
 } from './store.js';
 
 // ---------- meals cooked here, counted in Ricette (contract v1: Everyday's one write to recipes.json) ----------
@@ -39,6 +39,7 @@ export function isConfigured() {
 
 function branch() { return state.settings.branch || 'main'; }
 
+export function palestraConfigured() { return isConfigured() && Boolean(state.settings.palestraRepo?.trim()); }
 export function ricetteConfigured() { return isConfigured() && Boolean(state.settings.ricetteRepo?.trim()); }
 
 function api(path, init = {}, repo = state.settings.repo) {
@@ -119,7 +120,7 @@ async function syncFile(c, shard, repo = state.settings.repo, path = pathFor(c, 
     const remote = await getFile(path, repo);
     stillCurrent();
     // The prefs decide for themselves (the marker may have just arrived in them), the rest by the prefs as synced.
-    const frozen = CONTRACT_FILES.has(c) && contractTooNew(c === 'r_prefs' ? remote.data : state.r_prefs);
+    const frozen = (CONTRACT_FILES.has(c) && contractTooNew(c === 'r_prefs' ? remote.data : state.r_prefs)) || (c === 'p_prefs' && contractVersion(remote.data) > PAL_CONTRACT);
     if (c === 'r_recipes' && cookedQueue().length && !contractTooNew(state.r_prefs)) {
       const queue = cookedQueue();
       const data = withCooked(remote.data, queue);
@@ -159,6 +160,16 @@ async function syncFile(c, shard, repo = state.settings.repo, path = pathFor(c, 
 // device, and any month the user is looking at.
 const watched = new Set();
 export function watchMonth(month) { watched.add(month); }
+// Palestra's sessions (read only): this month's file and last month's, as one local list.
+async function syncSessions(repo, now = new Date()) {
+  const out = [];
+  for (const m of [monthOffset(now, -1), monthOffset(now, 0)]) {
+    const f = await getFile(`data/sessions/${m}.json`, repo);
+    stillCurrent();
+    out.push(...(f.data || []));
+  }
+  await replaceCollection(PAL_SESSIONS, out.filter((x) => x && x.id).sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)));
+}
 
 function monthOffset(date, n) {
   const d = new Date(date.getFullYear(), date.getMonth() + n, 1);
@@ -218,7 +229,12 @@ export function syncNow() {
         if (ricetteConfigured()) {
           for (const [c, path] of Object.entries(RICETTE)) await syncFile(c, null, state.settings.ricetteRepo, path);
         }
-        await saveMeta({ dirty: again, lastSync: Date.now(), lastError: null, ricetteSynced: ricetteConfigured() ? Date.now() : state.meta.ricetteSynced });
+        if (palestraConfigured()) {
+          const repo = state.settings.palestraRepo;
+          for (const [c, path] of Object.entries(PALESTRA)) await syncFile(c, null, repo, path);
+          await syncSessions(repo);
+        }
+        await saveMeta({ dirty: again, lastSync: Date.now(), lastError: null, palestraSynced: palestraConfigured() ? Date.now() : state.meta.palestraSynced, ricetteSynced: ricetteConfigured() ? Date.now() : state.meta.ricetteSynced });
       } while (again);
       return { ok: true };
     } catch (e) {

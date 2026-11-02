@@ -1,4 +1,7 @@
 // editors.js: moved from app.js (v36). See app.js for how the modules fit together.
+import { isPalestra, PALESTRA_APP, palestraNote, startLink } from './palestra.js';
+import { routines } from './routines.js';
+import { classic, curView, RICETTE_APP, setView, viewName, viewTokens, wouldShow } from './views/impegni.js';
 import { advancedOn, catChips, catChipsMulti, catColor, catName, catsOf, readCats, esc, findCategory, fmtDay, hint, kitchen, modal, PALETTE, planSettings, quickFields, range, reasonText, relDay, route, small, toast, ui, weekdayNames } from './core.js';
 import { getLang, t } from './i18n.js';
 import { isEvent, isMealType, isSaved, isStep, withKind } from './kinds.js';
@@ -268,14 +271,24 @@ export function openTaskAdd(date) {
 export function plusKind() {
   const r = route(); const sub = ui.tasksTab || state.settings.tasksTab || 'todo';
   if (r.name === 'events') return 'event';
+  if (!classic() && r.name === 'tasks') return curView().shop ? 'shop' : (curView().f?.type || []).join() === 'repeat' ? 'saved' : 'todo';
   if (r.name === 'shop' || (r.name === 'tasks' && sub === 'shop')) return 'shop';
   if (r.name === 'tasks' && sub === 'saved') return 'saved';
   return 'todo';
 }
-export function openQuickTask({ saved = false, kind = saved ? 'saved' : 'todo', text = '' } = {}) {
+// (v55) On To do, the + adds to the view you're on: its group and "when" are typed in for you (you can
+// delete them), and it warns when what you typed wouldn't show there.
+const inViews = () => !classic() && ['tasks', 'shop'].includes(route().name);
+export function openQuickTask({ saved = false, kind = saved ? 'saved' : 'todo', text = null } = {}) {
   const isTask = kind === 'todo' || kind === 'saved';
   saved = kind === 'saved';
-  const chip = (k) => `<button class="kind-chip${k === kind ? ' on' : ''}" value="kind:${k}" formnovalidate aria-pressed="${k === kind}">${esc(t(`kind_${k}`))}</button>`;
+  const vw = inViews() ? curView() : null;
+  if (text == null) text = vw && isTask ? viewTokens(vw) : '';
+  const chip = (k) => `<button class="kind-chip${k === kind ? ' on' : ''}" value="kind:${k}" formnovalidate aria-pressed="${k === kind}">${esc(t(vw ? `kc_${k}` : `kind_${k}`))}</button>`;
+  const app = vw && isTask && vw.app ? `<div class="vw-app">${vw.app === 'palestra'
+    ? `<button class="btn" value="app-plan">▶ ${esc(t('appPlanWorkout'))}</button><a class="btn" href="${esc(PALESTRA_APP)}#/routines" target="_blank" rel="noopener">${esc(t('appNewIn', 'Palestra'))} ↗</a>`
+    : `<button class="btn" value="app-plan">▶ ${esc(t('appPlanMeal'))}</button><a class="btn" href="${esc(RICETTE_APP)}" target="_blank" rel="noopener">${esc(t('appNewIn', 'Ricette'))} ↗</a>`}</div>
+    <p class="hint">${esc(t('appStaysHint'))}</p>` : '';
   const ph = kind === 'shop' ? t('shopAddPh') : kind === 'event' ? t('addEventPh') : t('addTaskPh');
   const go = kind === 'shop' ? `<button class="btn primary big" value="shop-add"><b>+ ${esc(t('addToList'))}</b><small id="quick-slot">${esc(t('enterKeepsOpen'))}</small></button>`
     : kind === 'event' ? `<button class="btn primary big" value="event-add"><b>${esc(t('addEventBtn'))}</b><small id="quick-slot"></small></button>
@@ -286,13 +299,19 @@ export function openQuickTask({ saved = false, kind = saved ? 'saved' : 'todo', 
       <div class="two-btn"><button class="btn" value="add">${esc(t('justAdd'))}</button><button class="btn" value="when">${esc(t('chooseWhen'))}</button></div>
       <button class="linkish" value="more">${esc(t('moreDetails'))}</button>`;
   openModal(`
-    <div class="kind-chips" role="group" aria-label="${esc(t('addMenuFab'))}">${['todo', 'event', 'saved', 'meal', 'shop'].map(chip).join('')}</div>
+    ${vw ? `<h2 class="quick-where">${esc(t('addToView', viewName(vw)))}</h2>` : ''}
+    <div class="kind-chips" role="group" aria-label="${esc(t('addMenuFab'))}">${(vw ? ['todo', 'saved', 'shop'] : ['todo', 'event', 'saved', 'meal', 'shop']).map(chip).join('')}</div>
+    ${app}
     <input id="quick-q" class="quick-q" name="q" autocomplete="off" enterkeyhint="done" placeholder="${esc(ph)}" aria-label="${esc(t(`kind_${kind}`))}" value="${esc(text)}">
     <div class="quick-chips" id="quick-chips"></div>
     <p class="hint" id="quick-hint">${esc(kind === 'shop' ? t('shopQuickHint') : kind === 'event' ? t('eventQuickHint') : t('quickHint'))}</p>
     <p class="quick-done" id="quick-done" aria-live="polite"></p>
     <div class="quick-go">${go}</div>
     <div class="button-row"><button class="btn ghost" value="cancel" formnovalidate>${esc(t('close'))}</button></div>`, (form, action, e) => {
+    if (action === 'app-plan') {
+      if (vw.app === 'ricette') { setTimeout(() => { ui.mealDate = today(); openMeal(null); }, 0); return; }
+      e.preventDefault(); openWorkoutPicker(); return;
+    }
     if (action.startsWith('kind:')) {
       e.preventDefault();
       const k = action.slice(5); const txt = form.q.value;
@@ -329,7 +348,8 @@ export function openQuickTask({ saved = false, kind = saved ? 'saved' : 'todo', 
       if (q.place) chips.push(`📍 ${esc(q.place)}`);
       if (q.repeat) chips.push('↻');
     }
-    modal.querySelector('#quick-chips').innerHTML = q.title ? chips.map((c) => `<span class="qc">${c}</span>`).join('') : '';
+    if (vw && isTask && q.title && !wouldShow(vw, quickFields(q))) chips.push(`<b class="qc-warn">${esc(t('notInView', viewName(vw)))}</b>`);
+    modal.querySelector('#quick-chips').innerHTML = q.title ? chips.map((c) => (c.startsWith('<b') ? c : `<span class="qc">${c}</span>`)).join('') : '';
     modal.querySelector('#quick-hint').hidden = Boolean(input.value.trim());
     const slotEl = modal.querySelector('#quick-slot');
     if (kind === 'event') slotEl.textContent = q.title ? (q.due ? (q.time != null ? t('atTime', relDay(q.due), fmtTime(q.time)) : t('allDayOn', relDay(q.due))) : t('eventNoDate')) : '';
@@ -358,6 +378,15 @@ export function openQuickTask({ saved = false, kind = saved ? 'saved' : 'todo', 
   input.focus();
   if (text) input.setSelectionRange(text.length, text.length);
 }
+// (v55) "Plan a workout" from the Workouts view: one of Palestra's workouts, then the day and a free slot.
+function openWorkoutPicker() {
+  const list = routines().filter(isPalestra);
+  openModal(`<h2>▶ ${esc(t('appPlanWorkout'))}</h2>
+    ${list.length ? `<div class="add-opts">${list.map((x) => `<button class="add-opt" value="${esc(x.id)}"><span class="item-text">${esc(x.title)}<small>${esc(fmtDur(x.minutes || 45))}</small></span></button>`).join('')}</div>` : `<p class="hint">${esc(t('noPalWorkouts'))}</p>`}
+    <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('close'))}</button></div>`, (form, action) => {
+    const x = get('tasks', action); if (x) setTimeout(() => openPlanSaved(x, today(), { stay: true }), 0);
+  }, { cls: 'sheet' });
+}
 // An event from one line ("Concert 20 May 21:00 @Arena"); without a date the editor asks for it.
 function eventDraft(text) {
   const q = quickAdd(text || '');
@@ -385,8 +414,8 @@ export function afterAdd(x, block, { tried = false } = {}) {
   changed();
   const undo = { label: t('undo'), run: () => { for (const b of live('blocks').filter((y) => y.taskId === x.id)) remove('blocks', b.id); remove('tasks', x.id); ui.justAdded.delete(x.id); changed(); toast(t('undone')); } };
   const sv = x.kind === 'saved';
-  const here = route().name === 'tasks' && (ui.tasksTab || state.settings.tasksTab) === (sv ? 'saved' : 'todo');
-  const show = here ? [] : [{ label: t('show'), run: () => { ui.tasksTab = sv ? 'saved' : 'todo'; location.hash = '#/tasks'; render(); } }];
+  const here = route().name === 'tasks' && (!classic() || (ui.tasksTab || state.settings.tasksTab) === (sv ? 'saved' : 'todo'));
+  const show = here ? [] : [{ label: t('show'), run: () => { ui.tasksTab = sv ? 'saved' : 'todo'; if (!classic()) setView('overview'); location.hash = '#/tasks'; render(); } }];
   if (block) toast(t('addedPlanned', relDay(block.date), fmtTime(block.start)), 8000, [{ label: t('change'), run: () => openBlock(get('blocks', block.id)) }, undo]);
   else toast(sv ? t('addedSaved') : tried ? t('addedNoSlot') : t('addedToList'), 8000, [...show, undo]);
 }
@@ -985,7 +1014,7 @@ function startBox(x) {
   const running = runningBlock()?.taskId === x.id;
   const h = timeHistory(x);
   return `<div class="start-box">
-    ${running ? `<p class="hint">⏱ ${esc(t('timerRunning'))}</p>` : `<button class="btn primary start-now" value="start-now">▶ ${esc(t('startNow'))}</button>
+    ${running ? `<p class="hint">⏱ ${esc(t('timerRunning'))}</p>` : `<button class="btn primary start-now" value="start-now">▶ ${esc(t(isPalestra(x) ? 'palStart' : 'startNow'))}</button>
     <small class="hint">${esc(own ? t('startMoves', fmtTime(own.start), fmtTime(now)) : t('startNew', fmtTime(now)))}</small>`}
     ${h ? `<div class="time-hist"><div class="th-head"><b>${esc(t('realTime'))}</b><small>${esc(t('usuallyTakes', fmtDur(h.usual)))}</small></div>
       <ul>${h.entries.map((e) => { const d = e.minutes - e.planned; return `<li><span>${esc(relDay(e.date))}</span><span>${esc(fmtDur(e.minutes))}${e.planned && d ? ` <small class="${d < 0 ? 'ok' : 'warn'}">${d < 0 ? '−' : '+'}${esc(fmtDur(Math.abs(d)))}</small>` : ''}</span></li>`; }).join('')}</ul>
@@ -993,6 +1022,8 @@ function startBox(x) {
   </div>`;
 }
 // After a start: if it now runs into what comes next, say so and offer to move it.
+// A workout starts in Palestra (on that workout and this block); Everyday's timer runs alongside.
+export function openPalestra(x, b) { window.open(startLink(x, b), '_blank', 'noopener'); }
 export function afterStart(b) {
   changed();
   const ls = ui.lateStart;
@@ -1203,8 +1234,9 @@ export function openTask(task, draft = null, opts = {}) {
     <h2>${esc(heading)}</h2>
     ${x.check === 'ingredients' ? `${hint('checkStepHint')}` : ''}
     ${x.travelRole ? `<p class="hint">${esc(t('legTaskHint', t(x.travelRole === 'there' ? 'getThere' : 'comeBack')))}</p>` : ''}
+    ${palestraNote(x)}
     <label>${esc(t('title'))}<input name="title" required value="${esc(x.title)}" autocomplete="off"></label>
-    ${!isNew && !helper && !evMode && !x.done && x.id !== 'meal_check' ? startBox(x) : ''}
+    ${!isNew && !helper && !evMode && !x.done && !x.archived && x.id !== 'meal_check' ? startBox(x) : ''}
     ${evMode ? sec('when', `📅 ${esc(t('secWhen'))}`, whenSummary, whenBody, true) : ''}
     ${evMode ? sec('evtasks', `✓ ${esc(t('secEventTasks'))}`, evTasks.length ? readinessText(x.id) : '', evTasksBody, true) : ''}
     ${sec('basics', esc(t(evMode ? 'secBasicsEvent' : 'secBasics')), [fmtDur(x.steps.length ? stepTotal : x.minutes || 30), helper || evMode ? '' : t(`imp_${x.importance}`), catName0].filter(Boolean).join(' · '), basics, !evMode)}
@@ -1338,7 +1370,7 @@ export function openTask(task, draft = null, opts = {}) {
     if (action.startsWith('ev-task:')) setTimeout(() => openTask(get('tasks', action.slice(8))), 0);
     if (action === 'add-evtask') setTimeout(() => openEventTaskAdd(get('tasks', rec.id), { back: true }), 0);
     if (action === 'plan-evtasks') { syncEventTasks(); planEventTasks(get('tasks', rec.id)); setTimeout(() => openTask(get('tasks', rec.id)), 0); }
-    if (action === 'start-now') afterStart(startTask(get('tasks', rec.id)));
+    if (action === 'start-now') { const b = startTask(get('tasks', rec.id)); if (isPalestra(rec)) openPalestra(rec, b); afterStart(b); }
     if (action === 'use-usual') { const h = timeHistory(rec); if (h) { upsert('tasks', { ...get('tasks', rec.id), minutes: h.usual, lenSet: true }); setTimeout(() => openTask(get('tasks', rec.id)), 0); } }
     if (action === 'plan') {
       const date = x.planDate || (rec.due && rec.due > today() ? rec.due : today());
@@ -1588,7 +1620,7 @@ export function openBlock(block, defaults = {}) {
     ${isShop ? '' : `<div class="field-label">${esc(t('category'))}</div>${catChips(b.category)}`}
     <label>${esc(t('notes'))}<textarea name="notes" rows="2">${esc(b.notes || '')}</textarea></label>
     <label class="check"><input type="checkbox" name="allowOverlap" ${b.allowOverlap ? 'checked' : ''}> ${esc(t('allowOverlap'))}</label>
-    ${!isNew && !status && !b.startedAt && b.date >= today() && !isShop ? `<button class="btn primary start-now" value="block-start" formnovalidate>▶ ${esc(t('startNow'))}</button>` : ''}
+    ${!isNew && !status && !b.startedAt && b.date >= today() && !isShop ? `<button class="btn primary start-now" value="block-start" formnovalidate>▶ ${esc(t(isPalestra(task) ? 'palStart' : 'startNow'))}</button>` : ''}
     ${b.startedAt && !b.endedAt ? `<p class="hint">⏱ ${esc(t('timerRunning'))}</p>` : b.endedAt ? `<p class="hint">⏱ ${esc(t('realOf', fmtDur(b.minutes), fmtDur(b.plannedMinutes || b.minutes)))}</p>` : ''}
     ${isShop || isNew ? '' : task ? `<button class="btn small edit-task" value="edit-task" formnovalidate>${isEvent(task) ? '📅' : '▤'} ${esc(t(isEvent(task) ? 'editEventBtn' : 'editTaskSteps', task.title))}</button>`
     : `<button class="btn small edit-task" value="to-task" formnovalidate>▤ ${esc(t('makeTask'))}</button>`}
@@ -1600,7 +1632,7 @@ export function openBlock(block, defaults = {}) {
       <button class="btn danger" value="delete" formnovalidate>${esc(t('delete'))}</button>`}
     </div>`, (form, action, e) => {
     if (stepAction(b, action, e, openBlock)) return;
-    if (action === 'block-start') { afterStart(startBlock(get('blocks', b.id))); return; }
+    if (action === 'block-start') { const nb = startBlock(get('blocks', b.id)); if (isPalestra(task)) openPalestra(task, nb); afterStart(nb); return; }
     if (action === 'edit-task') { setTimeout(() => openTask(get('tasks', task.id), null, { fromOcc: b.occ || null }), 0); return; }
     if (action === 'to-task') {
       // A plain block becomes a task (same title, length, category), so it can get steps and rules.

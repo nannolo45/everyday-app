@@ -14,7 +14,7 @@
 import { moveWeek, openRoutine } from './routines.js';
 import { $, findCategory, fmtDay, modal, PPM, quickFields, range, relDay, route, seedCategories, TAB_OF, TABS, toast, ui, view } from './core.js';
 import { setupDrag } from './drag.js';
-import { doShift, finishTimer, openAddMenu, openPickSheet, openQuickTask, plusKind, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, openMeal, openPlanSaved, openSavedPicker, openShopRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
+import { afterStart, openPalestra, doShift, finishTimer, openAddMenu, openPickSheet, openQuickTask, plusKind, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, openMeal, openPlanSaved, openSavedPicker, openShopRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
 import { t } from './i18n.js';
 import { isEvent } from './kinds.js';
 import { anchorOffset, autoChecks, checklistLeft, checkMissed, conflictsOn, eventOf, followParent, migrateBlocksToEvents, normalizeKinds, planTask, saveEvent, seedMeals, setOutcome, setStepOutcome, setTaskDone, syncEventTasks, travelTasks, trySetBlockDone, tryStep } from './model.js';
@@ -25,13 +25,15 @@ import { applySharedSettings, COLLECTIONS, get, live, load, onChange, remove, RI
 import { isConfigured, isSyncing, removeCalendarData } from './sync.js';
 import { applyTravel, ensureLegTasks, LEGS, legTemplate, pruneCache, scheduleTravelRefresh, setLegTask, travelBusy, travelCache, travelCfg, travelTimer } from './travel-plan.js';
 import { setupTrayDrag } from './tray.js';
-import { elapsedText, pauseTimer, resumeTimer, runningBlock } from './timer.js';
+import { elapsedText, pauseTimer, resumeTimer, runningBlock, startBlock } from './timer.js';
 import { fixAll, fixOcc, fixTimes, laterWeek, skipOcc } from './weekpick.js';
-import { showSteps } from './views/planner.js';
+import { openEventFilters, prepareEvents } from './views/events.js';
+import { classic, curView, openFilters, openPick, openSort, openTriage, openViews, setView, viewList } from './views/impegni.js';
+import { agendaAdd, agendaPlan, openGapFits, planStyle, showSteps } from './views/planner.js';
 import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName, SHOPS } from './views/shop.js';
 import { openTaskTools, taskFilter } from './views/tasks.js';
 import { clearSearch, syncDateText, tidyTime } from './widgets.js';
-import { applyLang, exportData, gcalNow, handleShortcut, saveGithub, saveRicette, showUpdateBar, wipeLocalData } from './connections.js';
+import { applyLang, exportData, gcalNow, handleShortcut, saveGithub, saveRicette, savePalestra, showUpdateBar, wipeLocalData } from './connections.js';
 
 view.addEventListener('focusout', () => setTimeout(() => {
   if (ui.renderLater && !typing()) { ui.renderLater = false; renderIfSafe(); }
@@ -99,6 +101,7 @@ view.addEventListener('submit', (e) => {
     $('#shop-add-input')?.focus();
   } else if (form.id === 'gh-form') saveGithub(form);
   else if (form.id === 'ric-form') saveRicette(form);
+  else if (form.id === 'pal-form') savePalestra(form);
 });
 
 view.addEventListener('input', (e) => {
@@ -170,7 +173,7 @@ view.addEventListener('change', (e) => {
     // "Breathing room" is one number: the margin after each task and the gap the planner keeps between blocks.
     const breath = Number(f.taskBuffer) || 0;
     saveSettings({
-      dayStart, dayEnd: Math.max(dayEnd, dayStart + 1), buffer: Math.min(breath, 15), taskBuffer: breath, maxLoad: Number(f.maxLoad), splitOver: Number(f.splitOver ?? 4), weekCardDay: Number(f.weekCardDay ?? 0), weekCardHour: Number(f.weekCardHour ?? 18), defaultView: f.defaultView, freeWeekends: el.form.freeWeekends.checked,
+      dayStart, dayEnd: Math.max(dayEnd, dayStart + 1), buffer: Math.min(breath, 15), taskBuffer: breath, maxLoad: Number(f.maxLoad), splitOver: Number(f.splitOver ?? 4), weekCardDay: Number(f.weekCardDay ?? 0), weekCardHour: Number(f.weekCardHour ?? 18), defaultView: f.defaultView, planStyle: f.planStyle || planStyle(), freeWeekends: el.form.freeWeekends.checked,
       autoHours: { wd: hr('ahWdF', 'ahWdT', autoHoursFor('2026-11-02')), we: hr('ahWeF', 'ahWeT', autoHoursFor('2026-11-07')) },
     });
     if (el.name === 'defaultView') ui.view = null;
@@ -214,7 +217,7 @@ view.addEventListener('click', (e) => {
   switch (action) {
     case 'plan-task': {
       const date = btn.dataset.date || currentDate();
-      const b = planTask(get('tasks', id), date);
+      const b = planTask(get('tasks', id), date, btn.dataset.start ? Number(btn.dataset.start) : null);
       toast(t('plannedToast', relDay(date), fmtTime(b.start)));
       changed();
       warnConflicts(get('blocks', b.id));
@@ -238,7 +241,6 @@ view.addEventListener('click', (e) => {
     case 'filter-cat': saveSettings({ taskFilter: { ...taskFilter(), cat: taskFilter().cat === id ? '' : id } }); render(); break;
     case 'wipe-local': if (confirm(t('wipeLocalConfirm'))) { wipeLocalData().then(() => { toast(t('wipedLocal')); changed(); }); } break;
     case 'filter-clear': saveSettings({ taskFilter: { fix: false, recurring: false, place: false, cat: '' } }); render(); break;
-    case 'compact': saveSettings({ compact: !state.settings.compact }); render(); break;
     case 'import': openImport(); break;
     case 'timer-pause': pauseTimer(runningBlock()); changed(); break;
     case 'timer-resume': resumeTimer(runningBlock()); changed(); break;
@@ -253,6 +255,7 @@ view.addEventListener('click', (e) => {
     case 'week-later': laterWeek(id); render(); break;
     case 'task-tools': openTaskTools(id || 'todo'); break;
     case 'filter-off': saveSettings({ taskFilter: { ...taskFilter(), [id]: id === 'cat' ? '' : false } }); render(); break;
+    case 'pal-start': { const b = get('blocks', id); const x = b && get('tasks', b.taskId); if (!x) break; const nb = startBlock(b); openPalestra(x, nb); afterStart(nb); break; }
     case 'routine-open': openRoutine(id); break;
     case 'routine-week': moveWeek(id); render(); break;
     case 'routine-review': ui.routineWeek = id; ui.tasksTab = 'saved'; saveSettings({ tasksTab: 'saved' }); location.hash = '#/tasks'; render(); window.scrollTo(0, 0); break;
@@ -278,6 +281,15 @@ view.addEventListener('click', (e) => {
       break;
     }
     case 'assign-range-clear': ui.assign.range = null; render(); break;
+    case 'ev-prep': prepareEvents(); break;
+    case 'ev-prep-add': addGhosts(); ui.assign.evPrep = false; break;
+    case 'ev-prep-cancel': ui.assign.ghosts = []; ui.assign.evPrep = false; render(); break;
+    case 'ev-filters': openEventFilters(); break;
+    case 'ev-new': openQuickTask({ kind: 'event' }); break;
+    case 'ag-plan': agendaPlan(); break;
+    case 'ag-add': agendaAdd(); break;
+    case 'ag-cancel': ui.assign.ghosts = []; ui.assign.fix = null; render(); break;
+    case 'ag-gap': openGapFits(btn.dataset.date, Number(btn.dataset.start), Number(btn.dataset.min)); break;
     case 'assign-clear': ui.assign.ghosts = []; render(); break;
     case 'assign-add': addGhosts(); break;
     case 'ghost-rm': ui.assign?.ghosts.splice(Number(btn.dataset.i), 1); render(); break;
@@ -331,6 +343,13 @@ view.addEventListener('click', (e) => {
     case 'toggle-helpers': ui.showHelpers = !ui.showHelpers; render(); break;
     case 'toggle-saved': ui.showSaved = !ui.showSaved; render(); break;
     case 'tasks-tab': if (id !== 'shop') leaveShop(); ui.tasksTab = id; saveSettings({ tasksTab: id }); if (route().name === 'shop' && id !== 'shop') location.hash = '#/tasks'; else render(); window.scrollTo(0, 0); break;
+    case 'vw-tab': { const v = viewList().find((y) => y.id === id); if (!v?.shop) leaveShop(); setView(id); if (route().name === 'shop' && !v?.shop) location.hash = '#/tasks'; else render(); window.scrollTo(0, 0); break; }
+    case 'vw-views': openViews(); break;
+    case 'vw-filters': openFilters(); break;
+    case 'vw-sort': openSort(); break;
+    case 'vw-triage': openTriage(); break;
+    case 'vw-row': ui.openRow = ui.openRow === id ? null : id; render(); break;
+    case 'vw-pick': openPick(id, btn.dataset.k); break;
     case 'prep-del': if (confirm(t('confirmDeleteTask'))) { remove('tasks', id); changed(); } break;
     case 'fold': {
       // Done tasks start folded; everything else starts open. The choice is remembered.
@@ -353,6 +372,7 @@ view.addEventListener('click', (e) => {
     case 'gcal-now': gcalNow(); break;
     case 'leg-edit': { ensureLegTasks(); const x = legTemplate(btn.dataset.kind); if (x) openTask(x); break; }
     case 'gcal-remove': if (confirm(t('gcalRemoveConfirm'))) { removeCalendarData().then((n) => { toast(t('gcalRemoved', n)); changed(); }).catch(() => { toast(t('err_network')); }); } break;
+    case 'pal-off': saveSettings({ palestraRepo: '' }).then(() => { ui.palMsg = ''; render(); }); break;
     case 'ric-off': saveSettings({ ricetteRepo: '' }).then(() => { ui.ricMsg = ''; render(); }); break;
     case 'export': exportData(); break;
     default: break;
@@ -505,7 +525,7 @@ async function boot() {
   });
   let lastTab = TAB_OF[route().name] || 'today';
   window.addEventListener('hashchange', () => {
-    if (!(route().name === 'shop' || (route().name === 'tasks' && ui.tasksTab === 'shop'))) leaveShop(); // leaving the list ends Reorder and Select
+    if (!(route().name === 'shop' || (route().name === 'tasks' && (classic() ? ui.tasksTab === 'shop' : curView().shop)))) leaveShop(); // leaving the list ends Reorder and Select
     const tab = TAB_OF[route().name] || 'today';
     if (tab === 'plan' && lastTab !== 'plan') ui.scrolledFor = null; // back on the planner: jump to now again
     // Back to today from another day (the "Today" button): show now again.

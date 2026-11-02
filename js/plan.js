@@ -63,6 +63,7 @@ const DAY_WORDS = [
   ['fri', 'friday', 'ven', 'venerdi', 'venerdì', 'fr', 'freitag'], ['sat', 'saturday', 'sab', 'sabato', 'samstag'],
 ];
 const dayIndex = (w) => DAY_WORDS.findIndex((ws) => ws.includes(w.toLowerCase()));
+const WEEK_WORDS = ['this week', 'questa settimana', 'diese woche', 'sta settimana'];
 const REL_DAYS = { today: 0, oggi: 0, heute: 0, tomorrow: 1, domani: 1, morgen: 1 };
 function nextWeekday(from, wd) { let d = from; for (let i = 0; i < 7; i++) { d = addDays(d, 1); if (weekday(d) === wd) return d; } return from; }
 // Month words (index + 1 = month), with the usual short forms, in the three languages.
@@ -126,6 +127,7 @@ export function quickAdd(text, todayStr = today()) {
     else if ((m = w.match(/^#(\S+)$/))) { if (!out.category) out.category = m[1]; else (out.moreCats ||= []).push(m[1]); }
     else if (!out.repeat && ['ogni', 'every', 'jeden'].includes(lw) && words[i + 1] && dayIndex(words[i + 1]) >= 0) { const wd = dayIndex(words[i + 1]); out.repeat = 'weekly'; out.repeatDays = [((wd + 6) % 7) + 1]; out.due = out.due || (weekday(todayStr) === wd ? todayStr : nextWeekday(todayStr, wd)); i++; }
     else if (!out.due && ['entro', 'by', 'bis'].includes(lw) && words[i + 1] && (dayIndex(words[i + 1]) >= 0 || REL_DAYS[words[i + 1].toLowerCase()] != null)) { const n = words[i + 1].toLowerCase(); out.due = REL_DAYS[n] != null ? addDays(todayStr, REL_DAYS[n]) : nextWeekday(todayStr, dayIndex(n)); i++; }
+    else if (!out.due && WEEK_WORDS.includes(`${lw} ${(words[i + 1] || '').toLowerCase()}`)) { out.due = addDays(weekStartOf(todayStr), 6); i++; } // (v55) "questa settimana": by Sunday
     else if (!out.due && REL_DAYS[lw] != null) out.due = addDays(todayStr, REL_DAYS[lw]);
     else if (!out.due && dayIndex(lw) >= 0 && kept.length) out.due = nextWeekday(todayStr, dayIndex(lw));
     else kept.push(w);
@@ -148,8 +150,15 @@ const weekStartOf = (s) => addDays(s, -(isoDay(s) - 1));
 const monthsBetween = (a, b) => { const x = parseDate(a); const y = parseDate(b); return (y.getFullYear() - x.getFullYear()) * 12 + (y.getMonth() - x.getMonth()); };
 const sameDayOfMonth = (anchor, s) => { const d = parseDate(anchor).getDate(); const m = parseDate(s); const last = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate(); return m.getDate() === Math.min(d, last); };
 
+// (v54) A rule can change on a date: `next` {from, repeat, repeatDays, timesN, pickTime, seriesTime…}
+// takes over from `from` on (Palestra's plan made active "from Monday"). ruleAt gives the rule of a day.
+export function ruleAt(task, s) {
+  const nx = task?.next;
+  return nx?.from && s >= nx.from ? { ...task, ...nx, next: null, seriesFrom: nx.from, due: nx.from } : task;
+}
 // Is `s` an occurrence of the task's rule? (Ignores `skipped` and `repeatUntil`.)
 export function isOccurrence(task, s) {
+  if (task.next?.from && s >= task.next.from) return isOccurrence(ruleAt(task, s), s);
   const anchor = task.seriesFrom || task.due;
   if (!task.repeat || !anchor || s < anchor) return false;
   const n = Math.max(1, Number(task.every) || 1);
@@ -172,8 +181,9 @@ export const inPause = (task, d) => (task.pauses || []).some((p) => p.from && d 
 // The occurrences between two dates (inclusive), honouring `skipped`, `repeatUntil` and `pauses`.
 export function occurrences(task, from, to) {
   const out = [];
-  if (!task.repeat || !REPEATS.includes(task.repeat)) return out;
-  const anchor = task.seriesFrom || task.due;
+  const nx = task.next?.from && REPEATS.includes(task.next.repeat) ? task.next : null;
+  if (!REPEATS.includes(task.repeat) && !nx) return out;
+  const anchor = REPEATS.includes(task.repeat) ? (task.seriesFrom || task.due) : nx.from;
   if (!anchor) return out;
   const start = from > anchor ? from : anchor;
   const end = task.repeatUntil && task.repeatUntil < to ? task.repeatUntil : to;

@@ -1,17 +1,19 @@
 // views/planner.js: moved from app.js (v36). See app.js for how the modules fit together.
-import { cardRows, weekCardHtml } from '../weekpick.js';
-import { catColor, esc, fmtDay, hint, PPM, range, reasonText, relDay, ui } from '../core.js';
+import { cardRows, fixAll, toFix, weekCardHtml } from '../weekpick.js';
+import { openAutoPlanner } from '../editors.js';
+import { catColor, esc, fmtDay, hint, PPM, range, reasonText, relDay, toast, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { isEvent } from '../kinds.js';
+import { planTask } from '../model.js';
 import { alreadyPlanned, autoApply, autoChecks, blocksOn, blockTimeText, checklistLeft, checklistOf, checkMissed, conflictsOn, conflictText, eventsOn, ISSUE_SEC, issueText, linkFor, nextPlanned, outcomeOf, partsLeft, plannedWhen, prereqsOf, splitsSteps, stepTimes, taskDayOf, taskIssues, timedEventsOn, timesLeft } from '../model.js';
 import { addDays, dateStr, dayTotals, fmtDur, fmtTime, importanceOf, layoutBlocks, parseDate, sortTasks, today, weekday } from '../plan.js';
-import { autoHoursFor, hoursShort, inRange, loadOf, selecting, spreadLabel, trayTasks } from '../planning.js';
-import { currentDate } from '../shell.js';
+import { addGhostList, autoHoursFor, hoursShort, inRange, loadOf, selecting, spreadLabel, trayTasks } from '../planning.js';
+import { changed, currentDate } from '../shell.js';
 import { matchesQ } from '../shoplist.js';
 import { get, live, state } from '../store.js';
 import { watchMonth } from '../sync.js';
 import { MODE_ICON } from '../travel.js';
-import { searchBox, windowsText } from '../widgets.js';
+import { openModal, searchBox, windowsText } from '../widgets.js';
 import { DATE_GROUPS, dateBuckets, filterBar, sortPicker, sortTaskList, taskFilter, taskGroupsCfg, taskHay } from './tasks.js';
 
 // "Already planned": a folded list at the bottom of the planning panels, each one a link to its day.
@@ -63,10 +65,11 @@ export function viewPlan(date) {
   const showToday = v === 'day' ? date !== td : v === 'week' ? weekStart(date) !== weekStart(td) : date.slice(0, 7) !== td.slice(0, 7);
   // One drawer of tasks to plan sits under every view; "Plan" runs the guided flow.
   if (!ui.assign) ui.assign = { sel: new Set(), ghosts: [], range: null, opts: false, open: false, q: '' };
+  const ag = planStyle() === 'agenda';
   const head = `
   <div class="plan-top">
     <div class="view-switch" role="tablist">${VIEWS.map((k) => `<button type="button" role="tab" class="${k === v ? 'on' : ''}" data-action="view" data-id="${k}" aria-selected="${k === v}">${esc(t(`v_${k}`))}</button>`).join('')}</div>
-    ${v === 'day' ? `<button class="steps-switch" type="button" role="switch" data-action="toggle-steps" aria-checked="${showSteps()}" aria-pressed="${showSteps()}" title="${esc(t(showSteps() ? 'hideSteps' : 'showSteps'))}"><span class="sw" aria-hidden="true"></span>${esc(t('steps'))}</button>` : ''}
+    ${v === 'day' && !ag ? `<button class="steps-switch" type="button" role="switch" data-action="toggle-steps" aria-checked="${showSteps()}" aria-pressed="${showSteps()}" title="${esc(t(showSteps() ? 'hideSteps' : 'showSteps'))}"><span class="sw" aria-hidden="true"></span>${esc(t('steps'))}</button>` : ''}
   </div>
   <div class="day-head">
     <a class="round" href="#/plan/${prev}" aria-label="${esc(t('previous'))}">‹</a>
@@ -77,11 +80,12 @@ export function viewPlan(date) {
     <input type="date" id="day-picker" value="${date}" tabindex="-1" aria-hidden="true">
     ${v === 'day' ? loadBar(date) : ''}
   </div>
-  <div class="day-actions">
+  ${ag ? (showToday ? `<div class="day-actions"><a class="btn small" href="#/plan/${td}">${esc(t('today'))}</a></div>` : '') : `<div class="day-actions">
     ${showToday ? `<a class="btn small" href="#/plan/${td}">${esc(t('today'))}</a>` : ''}
     <button class="btn small primary" type="button" data-action="auto">✦ ${esc(t('planBtn'))}</button>
     <button class="btn small" type="button" data-action="add-menu">＋ ${esc(t('addMenu'))}</button>
-  </div>`;
+  </div>`}`;
+  if (ag) return `${head}<section class="plan-main agenda-main">${v === 'week' ? agendaWeek(date) : v === 'month' ? viewMonth(date) : agendaDay(date)}</section>`;
   const main = v === 'week' ? viewWeek(date) : v === 'month' ? viewMonth(date) : viewDay(date);
   return `${head}<section class="plan-main">${main}</section>${trayHtml()}`;
 }
@@ -392,4 +396,110 @@ export function assignGhostHtml(g, startMin) {
   const short = (g.minutes + (g.lead || 0)) * P < 54;
   return `<div class="block ghost assign${short ? ' short' : ''}" data-action="ghost-rm" data-i="${g.i}" data-start="${g.start - (g.lead || 0)}" data-minutes="${g.minutes + (g.lead || 0)}" title="${esc(ghostTip(g))}" style="--c:${esc(catColor(task?.category) || 'var(--accent)')};top:${(g.start - (g.lead || 0) - startMin) * P}px;height:${Math.max((g.minutes + (g.lead || 0)) * P, 16)}px;left:1px;right:3px">
     <div class="blk-body"><div class="blk-title">${esc(ghostTitle(g))} <span class="ghost-x">✕</span></div><div class="blk-time">${range(g.start, g.minutes)}</div>${ghostWhy(g) && !short ? `<div class="blk-why">✦ ${esc(ghostWhy(g))}</div>` : ''}</div></div>`;
+}
+
+// ---------- (v55) the agenda: the day as a list, with the free time between ----------
+// Settings → Planner chooses it ("Agenda", the default) or the hour timeline. The old suites keep the timeline.
+export function planStyle() {
+  const s = state.settings.planStyle; if (s === 'agenda' || s === 'hours') return s;
+  try { if (localStorage.getItem('everyday-classic') === '1') return 'hours'; } catch { /* no storage */ }
+  return 'agenda';
+}
+const weekEndOf = (d) => addDays(weekStart(d), 6);
+// The routines' proposals ("to set" this week), kept while the proposals are on screen.
+function fixProps() {
+  const out = [];
+  for (const r of ui.assign?.fix || []) {
+    if (r.date && r.options?.[0]) out.push({ fix: true, taskId: r.x.id, title: r.x.title, date: r.date, start: r.options[0].start, minutes: r.x.minutes || 30, category: r.x.category });
+    for (const p of r.placements || []) out.push({ fix: true, taskId: r.x.id, title: r.x.title, date: p.date, start: p.start, minutes: p.minutes, category: r.x.category });
+  }
+  return out;
+}
+export function agendaPlan() {
+  const td = today();
+  if (!ui.assign) ui.assign = { sel: new Set(), ghosts: [], range: null, opts: false, open: false, q: '' };
+  ui.assign.fix = cardRows(td, weekEndOf(td));
+  if (trayTasks().length) openAutoPlanner(); else render();
+}
+export function agendaAdd() {
+  const n = addGhostList(ui.assign?.ghosts || []) + fixAll(ui.assign?.fix || []);
+  ui.assign.ghosts = []; ui.assign.fix = null;
+  toast(t('assignAdded', n)); changed();
+}
+// One card for both: what's still to plan and the routines still to set; then the proposals.
+export function planCard() {
+  const td = today();
+  const props = (ui.assign?.ghosts?.length || 0) + fixProps().length;
+  if (props) return `<div class="ag-card-top on"><b>✦ ${esc(t('agProposals', props))}</b><button class="btn small" type="button" data-action="ag-cancel">${esc(t('cancel'))}</button><button class="btn small primary" type="button" data-action="ag-add">${esc(t('add'))}</button></div>`;
+  const nPlan = trayTasks().length; const nFix = toFix(td, weekEndOf(td)).length;
+  if (!nPlan && !nFix) return `<p class="ag-ok">✓ ${esc(t('agAllPlanned'))}</p>`;
+  return `<div class="ag-card-top"><span>${[nPlan ? t('agToPlan', nPlan) : '', nFix ? t('agToFix', nFix) : ''].filter(Boolean).map((s) => `<b>${esc(s)}</b>`).join(' · ')}</span><button class="btn small primary" type="button" data-action="ag-plan">✦ ${esc(t('planBtn'))}</button></div>`;
+}
+function agItems(date) {
+  const ghosts = ghostsOn(date).map((g) => ({ k: 'ghost', g, start: g.start, minutes: g.minutes || 30 }));
+  const fixes = fixProps().filter((f) => f.date === date).map((f) => ({ k: 'fix', g: f, start: f.start, minutes: f.minutes }));
+  return [...blocksOn(date).map((b) => ({ k: 'block', b, start: b.start, minutes: b.minutes || 0 })),
+    ...timedEventsOn(date).map((e) => ({ k: 'event', e, start: e.start, minutes: e.minutes || 0 })), ...ghosts, ...fixes]
+    .sort((a, b) => a.start - b.start);
+}
+const lenBar = (m) => `<span class="ag-len"><i style="width:${Math.min(100, Math.round((m / 180) * 100))}%"></i><b>${esc(fmtDur(m))}</b></span>`;
+function agRow(it) {
+  const end = it.start + it.minutes;
+  const time = `<span class="ag-time">${esc(fmtTime(it.start))}<small>${it.minutes ? esc(fmtTime(end)) : ''}</small></span>`;
+  if (it.k === 'ghost' || it.k === 'fix') {
+    const g = it.g;
+    return `<li class="ag-row ghost" style="--c:${esc(catColor(g.category || get('tasks', g.taskId)?.category) || 'var(--accent)')}">${time}<span class="ag-c"><span class="ag-t">${esc(it.k === 'ghost' ? ghostTitle(g) : g.title)}</span><small>${esc(it.k === 'ghost' ? ghostWhy(g) : t('agToFix', 1))}</small>${lenBar(it.minutes)}</span>${it.k === 'ghost' ? `<button class="icon" type="button" data-action="ghost-rm" data-i="${g.i}" aria-label="${esc(t('remove'))}">✕</button>` : ''}</li>`;
+  }
+  if (it.k === 'event') {
+    const e = it.e;
+    return `<li class="ag-row ev" style="--c:${esc(e.color || 'var(--muted)')}">${time}<button class="ag-c" type="button" data-action="event" data-id="${esc(e.id)}"><span class="ag-t">📅 ${esc(e.title)}</span>${e.location ? `<small>📍 ${esc(e.location)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
+  }
+  const b = it.b; const st = outcomeOf(b);
+  return `<li class="ag-row${st ? ` is-${st}` : ''}" style="--c:${esc(catColor(b.category) || 'var(--accent)')}">${time}<button class="ag-c" type="button" data-action="open-block" data-id="${esc(b.id)}"><span class="ag-t">${st === 'done' ? '✓ ' : ''}${esc(b.title)}</span>${b.place ? `<small>📍 ${esc(b.place)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
+}
+const gapRow = (date, start, min) => `<li class="ag-gap"><button type="button" data-action="ag-gap" data-date="${date}" data-start="${start}" data-min="${min}"><span class="ag-time">${esc(fmtTime(start))}</span><span>${esc(t('agFree', fmtDur(min)))} · <u>${esc(t('agFits'))}</u></span></button></li>`;
+export function agendaDay(date) {
+  prepareDays([date]);
+  const td = today();
+  const allDay = eventsOn(date).filter((e) => e.allDay);
+  const items = agItems(date);
+  const [h0, h1] = autoHoursFor(date);
+  const now = new Date(); const nowM = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 15) * 15;
+  let cur = date === td ? Math.max(h0, nowM) : h0;
+  const gaps = date >= td;
+  const rows = [];
+  for (const it of items) {
+    if (gaps && it.start - cur >= 30 && cur < h1) rows.push(gapRow(date, cur, Math.min(it.start, h1) - cur));
+    rows.push(agRow(it));
+    cur = Math.max(cur, it.start + it.minutes);
+  }
+  if (gaps && h1 - cur >= 30) rows.push(gapRow(date, cur, h1 - cur));
+  return `${planCard()}${conflictBanner(date)}
+    ${allDay.length ? `<div class="allday">${allDay.map((e) => `<button class="allday-chip" type="button" data-action="event" data-id="${esc(e.id)}" style="--c:${esc(e.color)}">${esc(e.title)}</button>`).join('')}</div>` : ''}
+    ${items.length ? '' : `<p class="empty ag-empty">${esc(t('agEmpty'))}</p>`}
+    <ul class="agenda">${rows.join('')}</ul>`;
+}
+export function agendaWeek(date) {
+  const td = today();
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart(date), i));
+  prepareDays(days.filter((d) => d >= td).length ? days : [days[0]]);
+  return `${planCard()}<ul class="ag-week">${days.map((d) => {
+    const items = agItems(d); const ad = eventsOn(d).filter((e) => e.allDay);
+    const chips = [...ad.map((e) => `<span class="ag-chip ev">${esc(e.title)}</span>`), ...items.slice(0, 5).map((it) => { const title = it.k === 'block' ? it.b.title : it.k === 'event' ? it.e.title : it.k === 'ghost' ? ghostTitle(it.g) : it.g.title; return `<span class="ag-chip${it.k === 'ghost' || it.k === 'fix' ? ' ghost' : ''}" style="--c:${esc(catColor(it.b?.category || it.g?.category) || 'var(--accent)')}"><b>${esc(fmtTime(it.start))}</b> ${esc(title)}</span>`; })];
+    if (items.length > 5) chips.push(`<span class="ag-chip more">+${items.length - 5}</span>`);
+    return `<li><button type="button" class="ag-day${d === td ? ' today' : ''}${d < td ? ' past' : ''}" data-action="view-day" data-id="${d}">
+      <span class="ag-dn"><small>${esc(fmtDay(d, { weekday: 'short' }))}</small><b>${parseDate(d).getDate()}</b></span>
+      <span class="ag-dc">${loadBar(d)}<span class="ag-chips">${chips.join('') || `<small class="hint">${esc(t('agWeekFree'))}</small>`}</span></span></button></li>`;
+  }).join('')}</ul>`;
+}
+// "What fits?": the things still to plan that fit in a free stretch; one tap plans it there.
+export function openGapFits(date, start, min) {
+  const list = trayTasks().filter((x) => (x.minutes || 30) <= min);
+  openModal(`<h2>${esc(t('agFitsTitle', fmtDur(min), fmtTime(start)))}</h2><p class="hint">${esc(relDay(date))}</p>
+    ${list.length ? `<div class="add-opts">${list.map((x) => `<button class="add-opt" value="${esc(x.id)}"><span class="item-text">${esc(x.title)}<small>${esc(trayInfo(x))}</small></span></button>`).join('')}</div>` : `<p class="hint">${esc(t('agNothingFits'))}</p>`}
+    <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('close'))}</button></div>`, (form, action) => {
+    const x = get('tasks', action); if (!x) return;
+    const b = planTask(x, date, start);
+    toast(t('plannedToast', relDay(date), fmtTime(b.start))); changed();
+  }, { cls: 'sheet' });
 }

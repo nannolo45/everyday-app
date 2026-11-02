@@ -4,7 +4,7 @@ import { t } from './i18n.js';
 import { isEvent, isMealType, isSaved, isStep, isTodo, needsKind, withKind } from './kinds.js';
 import { addQuantities, formatQty } from './parse.js';
 import { sameFood } from './foods.js';
-import { addDays, autoTemplatesFor, completeTask, fmtDur, fmtTime, freeSlot, importanceOf, nextOccurrence, nowMinutes, occurrences, parseDate, reopenTask, REPEATS, templateBlocks, today } from './plan.js';
+import { addDays, autoTemplatesFor, completeTask, fmtDur, fmtTime, freeSlot, importanceOf, nextOccurrence, nowMinutes, occurrences, parseDate, reopenTask, REPEATS, ruleAt, templateBlocks, today } from './plan.js';
 import { prepMinutes } from './recipes.js';
 import { findConflicts, placeGroceries, placePrep, windowOn, WINDOWS } from './smart.js';
 import { contractTooNew, get, has, live, remove, state, uid, upsert } from './store.js';
@@ -240,15 +240,17 @@ export function planTask(task, date, start = null, extra = {}) {
 // (`seriesId` = the task, `occ` = the date). Blocks still `auto` follow the series (time, length,
 // title); one you change on its own stops following. Rules live in plan.js (occurrences()).
 export const SERIES_DAYS = 56;
-export const isSeries = (x) => Boolean(x && REPEATS.includes(x.repeat) && !isStep(x));
+export const isSeries = (x) => Boolean(x && (REPEATS.includes(x.repeat) || REPEATS.includes(x.next?.repeat)) && !isStep(x));
+// The fixed time of a series on a day (its own, or the next rule's from that rule's date on).
+const seriesTimeOn = (task, d) => ruleAt(task, d).seriesTime;
 export const seriesBlocks = (taskId) => live('blocks').filter((b) => b.seriesId === taskId);
 export function ensureSeries(task) {
-  if (!isSeries(task) || task.seriesTime == null || task.done) return;
+  if (!isSeries(task) || (task.seriesTime == null && task.next?.seriesTime == null) || task.done) return;
   const td = today();
-  const want = occurrences(task, td, addDays(td, SERIES_DAYS));
+  const want = occurrences(task, td, addDays(td, SERIES_DAYS)).filter((d) => seriesTimeOn(task, d) != null && !ruleAt(task, d).pickTime);
   const have = new Map(seriesBlocks(task.id).map((b) => [b.occ, b]));
-  const start = Math.max(0, task.seriesTime - anchorOffset(null, task));
   for (const d of want) {
+    const start = Math.max(0, seriesTimeOn(task, d) - anchorOffset(null, task));
     const b = have.get(d);
     if (!b) { planTask(task, d, start, { seriesId: task.id, occ: d, auto: true, series: true }); continue; }
     if (b.auto && !outcomeOf(b) && (b.start !== start || b.minutes !== task.minutes || b.title !== task.title || (b.category || null) !== (task.category || null))) {
@@ -258,7 +260,7 @@ export function ensureSeries(task) {
   const wantSet = new Set(want);
   for (const [d, b] of have) if (d >= td && !wantSet.has(d) && b.auto && !outcomeOf(b)) remove('blocks', b.id);
 }
-export function ensureAllSeries() { for (const x of live('tasks').filter((y) => isSeries(y) && y.seriesTime != null && !y.done)) ensureSeries(x); syncEventTasks(); publishTrips(); }
+export function ensureAllSeries() { for (const x of live('tasks').filter((y) => isSeries(y) && (y.seriesTime != null || y.next?.seriesTime != null) && !y.done)) ensureSeries(x); syncEventTasks(); publishTrips(); }
 // The grocery trips to come, shared with Ricette (prefs record {id: 'trips', value}) so its list can show them:
 // [{id, date, start, minutes, shops}] in time order (shops = shop ids; [] = a trip for anywhere). Written only
 // when it changed, never while the contract is newer than Everyday's.
@@ -705,7 +707,7 @@ export function seedMeals() {
 // ---------- saved tasks ----------
 // Tasks that come back often, at different times: meals (with recipes), the gym, cleaning…
 // They're the "routine" tasks, grouped by category. "+ From saved" puts one on the plan.
-export function savedTasks() { return live('tasks').filter(isSaved); }
+export function savedTasks() { return live('tasks').filter((x) => isSaved(x) && !x.archived); }
 export function savedGroups() {
   const cats = categories();
   const order = (id) => { const i = cats.findIndex((c) => c.id === id); return i < 0 ? 999 : i; };

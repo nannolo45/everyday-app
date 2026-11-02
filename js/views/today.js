@@ -1,5 +1,6 @@
 // views/today.js: moved from app.js (v36). See app.js for how the modules fit together.
 import { runningBlock } from '../timer.js';
+import { isPalestra } from '../palestra.js';
 import { catColor, esc, fmtDay, planSettings, relDay, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { isEvent } from '../kinds.js';
@@ -53,7 +54,7 @@ export function viewToday() {
     const status = started ? t('untilTime', fmtTime(card.start + card.minutes)) : inMin <= 0 ? t('nowLabel') : lg && lg.trip > 0 ? t('leaveIn', fmtDur(inMin)) : t('startsIn', fmtDur(inMin));
     const legDone = lg && card.stepState?.[lg.step.id] === 'done';
     const main = card.isEvent ? '' : `<div class="now-actions">
-        ${lg && lg.trip > 0 && !legDone && now < lg.start ? `<button class="btn primary" type="button" data-action="now-left" data-id="${esc(card.id)}" data-step="${esc(lg.step.id)}">${esc(t('leftNow'))}</button>` : `<button class="btn primary" type="button" data-action="now-done" data-id="${esc(card.id)}">${esc(t('markDone'))}</button>`}
+        ${isPalestra(task) && !card.startedAt && !(lg && lg.trip > 0 && !legDone && now < lg.start) ? `<button class="btn primary" type="button" data-action="pal-start" data-id="${esc(card.id)}">▶ ${esc(t('palStart'))}</button>` : lg && lg.trip > 0 && !legDone && now < lg.start ? `<button class="btn primary" type="button" data-action="now-left" data-id="${esc(card.id)}" data-step="${esc(lg.step.id)}">${esc(t('leftNow'))}</button>` : `<button class="btn primary" type="button" data-action="now-done" data-id="${esc(card.id)}">${esc(t('markDone'))}</button>`}
         <button class="btn" type="button" data-action="now-move" data-id="${esc(card.id)}">${esc(t('move'))}</button>
         ${place ? `<a class="btn icon-btn" href="${esc(mapsHref(task))}" target="_blank" rel="noopener" aria-label="${esc(t('openMaps'))}">📍</a>` : ''}
       </div>`;

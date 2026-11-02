@@ -1,4 +1,5 @@
 // shell.js: moved from app.js (v36). See app.js for how the modules fit together.
+import { applyPalestra, publishPlanned } from './palestra.js';
 import { $, modal, PPM, route, TAB_OF, ui, view } from './core.js';
 import { t } from './i18n.js';
 import { ensureAllSeries, migrateBlocksToEvents, normalizeKinds } from './model.js';
@@ -15,7 +16,7 @@ import { lateBannerHtml, timerBarHtml } from './timer.js';
 import { todayRows, weekCardHtml } from './weekpick.js';
 import { viewSettings } from './views/settings.js';
 import { viewTasks } from './views/tasks.js';
-import { currentView, viewPlan } from './views/planner.js';
+import { currentView, planStyle, viewPlan } from './views/planner.js';
 import { viewEvents } from './views/events.js';
 import { viewToday } from './views/today.js';
 
@@ -45,7 +46,9 @@ export async function runSync() {
   // Plan changed and Google Calendar is set up: push it there soon (at most every 10 minutes).
   if (planChanged && !state.meta.lastError && get('gcal', 'status') && Date.now() - (ui.lastDispatch || 0) > 600_000) gcalNow(true);
   migrateBlocksToEvents();
+  if (!state.meta.lastError) applyPalestra();
   ensureAllSeries();
+  publishPlanned();
   updateSyncBadge();
   renderIfSafe();
   scheduleTravelRefresh();
@@ -115,12 +118,12 @@ export function render() {
   let sel = null; try { sel = typed != null ? [active.selectionStart, active.selectionEnd] : null; } catch { /* not a text field */ }
   for (const a of document.querySelectorAll('nav a')) a.classList.toggle('active', a.dataset.tab === (TAB_OF[r.name] || 'today'));
   $('#gear')?.classList.toggle('active', r.name === 'settings');
-  document.body.classList.toggle('compact', Boolean(state.settings.compact));
+  document.body.classList.remove('compact'); // (v54) Compact is gone: rows are one line of facts anyway
   document.body.dataset.route = r.name === 'shop' ? 'tasks' : r.name; // (v52) list styles shared by To do, Saved, Shopping
   // The + button: on Oggi, Eventi and Attività (the shopping list and the Planner have their own).
   const fab = $('#fab');
   if (fab) {
-    fab.hidden = !['today', 'events', 'tasks', 'shop'].includes(r.name); // (the Planner has + Add)
+    fab.hidden = !['today', 'events', 'tasks', 'shop', 'plan'].includes(r.name) || (r.name === 'plan' && planStyle() === 'hours'); // (v55) the agenda Planner has the + too
     fab.setAttribute('aria-label', t('addMenuFab')); fab.title = t('addMenuFab');
   }
   updateShopCount();

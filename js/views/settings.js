@@ -1,16 +1,17 @@
 // views/settings.js: moved from app.js (v36). See app.js for how the modules fit together.
 import { advancedListsHtml } from './tasks.js';
-import { advancedOn, APP_VERSION, categories, catName, esc, fmtDay, route, ui, weekdayNames } from '../core.js';
+import { isPalestra, lastSessionAt, PALESTRA_APP, palestraTooNew } from '../palestra.js';
+import { advancedOn, APP_VERSION, categories, catName, esc, fmtDay, relDay, route, ui, weekdayNames } from '../core.js';
 import { getLang, LANGS, t } from '../i18n.js';
 import { kindOf } from '../kinds.js';
-import { addDays, fmtDur, fmtTime } from '../plan.js';
+import { addDays, dateStr, fmtDur, fmtTime } from '../plan.js';
 import { autoHoursFor, tripMode } from '../planning.js';
 import { changed } from '../shell.js';
 import { contractTooNew, get, live, state } from '../store.js';
-import { isConfigured, ricetteConfigured } from '../sync.js';
+import { isConfigured, palestraConfigured, ricetteConfigured } from '../sync.js';
 import { ensureLegTasks, LEGS, legTemplate, travelCfg } from '../travel-plan.js';
 import { MODE_ICON, MODES as TRAVEL_MODES } from '../travel.js';
-import { glance, GLANCE, VIEWS } from './planner.js';
+import { glance, GLANCE, planStyle, VIEWS } from './planner.js';
 import { shopsList } from './shop.js';
 import { taskGroupsCfg } from './tasks.js';
 import { TIME24, windowsText } from '../widgets.js';
@@ -53,6 +54,7 @@ export function settingsHtml(s, msg) {
       <label>${esc(t('weekCardDay'))}<select name="weekCardDay">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<option value="${d}" ${d === Number(s.weekCardDay ?? 0) ? 'selected' : ''}>${esc(fmtDay(addDays('2026-11-01', d), { weekday: 'long' }))}</option>`).join('')}</select></label>
       <label>${esc(t('weekCardHour'))}<select name="weekCardHour">${hourOpts(s.weekCardHour ?? 18, 0, 23)}</select></label>
     </div>${why('weekCardWhy')}
+    <label>${esc(t('planStyleL'))}<select name="planStyle">${['agenda', 'hours'].map((v) => `<option value="${v}" ${v === planStyle() ? 'selected' : ''}>${esc(t(`ps_${v}`))}</option>`).join('')}</select></label>
     <label>${esc(t('defaultView'))}<select name="defaultView">${VIEWS.map((v) => `<option value="${v}" ${v === currentViewDefault() ? 'selected' : ''}>${esc(t(`v_${v}`))}</option>`).join('')}</select></label>
   </form>`;
   const travelCard = `
@@ -109,9 +111,25 @@ export function settingsHtml(s, msg) {
     ${ui.ricMsg ? `<p class="conn ${ui.ricMsg === 'connected' ? 'good' : 'bad'}">${esc(t(ui.ricMsg))}</p>` : ''}
     <div class="button-row"><button class="btn primary" ${isConfigured() ? '' : 'disabled'}>${esc(t('connect'))}</button></div>
   </form>`;
+  const nPal = live('tasks').filter((x) => isPalestra(x) && !x.archived).length; const lastS = lastSessionAt();
+  const palestra = palestraConfigured() ? `
+  <div class="conn-card">
+    <div class="conn-main"><span class="ok-dot"></span><div><b>${esc(s.owner)}/${esc(s.palestraRepo)}</b>
+      <small>${esc(t('palStatus', nPal, lastS ? relDay(dateStr(new Date(lastS))) : ''))}</small>${palestraTooNew() ? `<p class="sl-frozen" role="alert">⚠ ${esc(t('palContract'))}</p>` : ''}</div></div>
+    ${ui.palMsg && ui.palMsg !== 'connected' ? `<p class="conn bad">${esc(t(ui.palMsg))}</p>` : ''}
+    <div class="button-row"><a class="btn small" href="${esc(PALESTRA_APP)}" target="_blank" rel="noopener">${esc(t('palOpen'))} ↗</a><button class="btn small ghost" type="button" data-action="pal-off">${esc(t('disconnect'))}</button></div>
+  </div>` : `
+  <form class="form" id="pal-form">
+    <p class="hint">${esc(t('palWhy'))}</p>
+    <label>${esc(t('palRepo'))}<input name="palestraRepo" value="${esc(s.palestraRepo || 'palestra-data')}" autocomplete="off" autocapitalize="off" spellcheck="false" ${isConfigured() ? '' : 'disabled'}>
+      <small>${esc(isConfigured() ? t('ricetteRepoHint') : t('ricetteNeedsSync'))}</small></label>
+    ${ui.palMsg ? `<p class="conn ${ui.palMsg === 'connected' ? 'good' : 'bad'}">${esc(t(ui.palMsg))}</p>` : ''}
+    <div class="button-row"><button class="btn primary" ${isConfigured() ? '' : 'disabled'}>${esc(t('connect'))}</button></div>
+  </form>`;
   const connections = `
   <h4>${esc(t('sync'))}</h4>${github}
   <h4>${esc(t('ricette'))}</h4>${ricette}
+  <h4>${esc(t('palestra'))}</h4>${palestra}
   <h4>${esc(t('gcal'))}</h4>${gcalSection()}`;
   const cats = `
   ${why('catsWhy')}

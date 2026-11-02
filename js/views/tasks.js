@@ -1,8 +1,8 @@
 // views/tasks.js: moved from app.js (v36). See app.js for how the modules fit together.
-import { advancedOn, categories, catName, catsOf, esc, hint, modal, relDay, ui } from '../core.js';
+import { categories, catName, catsOf, esc, hint, modal, relDay, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { isMealType, isSaved, isStep, isTodo } from '../kinds.js';
-import { alreadyPlanned, eventOf, nextPlanned, offsetText, openTasks, prepOf, prereqsOf, savedGroups, savedInfo, taskIssues, templates, timesDone } from '../model.js';
+import { alreadyPlanned, eventOf, nextPlanned, offsetText, openTasks, prepOf, prereqsOf, taskIssues, templates, timesDone } from '../model.js';
 import { addDays, fmtDur, fmtTime, groupTasks, importanceOf, sortTasks, today } from '../plan.js';
 import { isRoutine, legend, routineGroups, routineRow, routines, weekHeader } from '../routines.js';
 import { fold, matchesQ } from '../shoplist.js';
@@ -14,6 +14,7 @@ import { impBadge, issueBadge, weekStart } from './planner.js';
 import { SH, viewShop } from './shop.js';
 import { grip, openModal, repeatText, searchBox, windowsText } from '../widgets.js';
 import { daysLabel } from './settings.js';
+import { classic, viewImpegni, viewList } from './impegni.js';
 
 // ---------- view: tasks ----------
 
@@ -94,8 +95,6 @@ export function filterBar() {
 function filterCount() { const f = taskFilter(); return ['fix', 'recurring', 'place', 'cat'].filter((k) => f[k]).length; }
 // (v52) One toolbar for the three lists: search, one ⇅ button (sort and filters in a sheet), and the
 // filters that are on as chips you can take off.
-// A saved task's row (v52: the same shape as a to-do row, with ▶ to plan it).
-const savedRow = (tp) => `<li><button class="task-main" type="button" data-action="task-edit" data-id="${esc(tp.id)}"><span class="item-text">${isMealType(tp) ? '🍽 ' : ''}${esc(tp.title)}<small>${esc(savedInfo(tp))}</small></span>${impBadge(tp) ? `<span class="imp-r">${impBadge(tp)}</span>` : ''}</button><button class="icon saved-plan" type="button" data-action="saved-plan" data-id="${esc(tp.id)}" aria-label="${esc(t('planSaved', tp.title))}" title="${esc(t('planSaved', tp.title))}">▶</button></li>`;
 function toolBar(search, label, tab) {
   const f = taskFilter(); const n = filterCount();
   const on = [['fix', `⚠ ${t('f_fix')}`], ['recurring', `↻ ${t('f_recurring')}`], ['place', `📍 ${t('f_place')}`]].filter(([k]) => f[k]);
@@ -105,20 +104,18 @@ function toolBar(search, label, tab) {
   return `<div class="task-tools">${search}<button class="btn small tools-btn${n ? ' on' : ''}" type="button" data-action="task-tools" data-id="${tab}">${esc(label)}${n ? ` · ${n}` : ''}</button></div>
   ${chips ? `<div class="sl-chips active-filters">${chips}</div>` : ''}`;
 }
-// The ⇅ sheet: sorting (To do), compact rows, the filters. Changes show behind it at once.
+// The ⇅ sheet: sorting (To do) and the filters (v54: no Compact, every row is one line of facts). Changes show behind it at once.
 export function openTaskTools(tab = 'todo') {
   const mode = state.settings.taskSort || 'smart';
   openModal(`
     <h2>⇅ ${esc(t('sortFilter'))}</h2>
-    ${tab === 'todo' ? `<label>${esc(t('sortBy'))}${sortPicker('task-sort', mode)}</label>
-    <label class="check"><input type="checkbox" name="compact" ${state.settings.compact ? 'checked' : ''}> <span>≡ ${esc(t('compact'))}</span></label>` : ''}
+    ${tab === 'todo' ? `<label>${esc(t('sortBy'))}${sortPicker('task-sort', mode)}</label>` : ''}
     <div class="field-label">${esc(t('filters'))}</div>
     ${filterBar()}
     <div class="button-row"><button class="btn primary" value="cancel">${esc(t('doneBtn'))}</button></div>`, () => {}, { cls: 'sheet' });
   const form = modal.querySelector('form');
   form.addEventListener('change', (e) => {
     if (e.target.id === 'task-sort') saveSettings({ taskSort: e.target.value });
-    if (e.target.name === 'compact') saveSettings({ compact: e.target.checked });
     render();
   });
   form.addEventListener('click', (e) => {
@@ -146,6 +143,10 @@ export function foldBtn(key, label, n, { open = !folded(key) } = {}) {
   return `<button class="fold" type="button" data-action="fold" data-id="${esc(key)}" aria-expanded="${open}"><span class="fold-ico">▸</span> ${esc(label)} <small>${n}</small></button>`;
 }
 export function viewTasks(force = null) {
+  if (!classic()) { // (v55) saved views
+    if (force === 'shop') { const v = viewList().find((y) => y.shop); if (v) ui.view2 = v.id; }
+    return viewImpegni();
+  }
   const td = today();
   const all = live('tasks');
   const tab = force || ui.tasksTab || state.settings.tasksTab || 'todo'; // the part you used last is remembered
@@ -169,7 +170,7 @@ export function viewTasks(force = null) {
     ${q && !list.length ? `<p class="empty">${esc(t('noMatch'))}</p>` : ''}
     ${!q && !list.length && !freshS.length ? `<p class="empty">${esc(t('rtEmpty'))}</p>` : ''}
     ${groups.map((g) => `<section class="fold-sec rt-sec">
-      <div class="rt-gh">${foldBtn(g.key, g.label, g.list.length, { open: !isFolded(g.key) })}${g.from ? `<small class="rt-from">${esc(g.from)}</small>` : ''}</div>
+      <div class="rt-gh">${foldBtn(g.key, g.label, g.list.length, { open: !isFolded(g.key) })}${g.from ? (g.href ? `<a class="rt-from" href="${esc(g.href)}" target="_blank" rel="noopener">${esc(g.from)} ↗</a>` : `<small class="rt-from">${esc(g.from)}</small>`) : ''}</div>
       ${isFolded(g.key) ? '' : `<ul class="list saved routines">${g.list.map((x) => routineRow(x, ws)).join('')}</ul>`}
     </section>`).join('')}
     ${list.length ? legend() : ''}

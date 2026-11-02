@@ -19,9 +19,15 @@ export const RICETTE = {
   // the user's own foods and extra names for built-in ones (Ricette v40): Ricette writes it, Everyday reads it
   r_foods: 'data/foods.json',
 };
+// Local copies of Palestra's data (v54): its workouts and sessions are only read; its prefs are shared
+// both ways, record by record (Everyday writes `planned`, Palestra the rest: contract, activePlan…).
+// Sessions come one file per month (data/sessions/YYYY-MM.json): Everyday reads this month and the last.
+export const PALESTRA = { p_routines: 'data/routines.json', p_prefs: 'data/prefs.json' };
+export const PAL_SESSIONS = 'p_sessions';
+export const PAL_CONTRACT = 1;
 // Written only by others: Ricette's recipes and foods, and the Google Calendar sync (events + its status).
 // (Ricette's prefs are shared both ways: list view and department order, one record per setting.)
-export const READ_ONLY = new Set(['r_recipes', 'r_folders', 'r_tagdefs', 'r_foods', 'events', 'gcal']);
+export const READ_ONLY = new Set(['r_recipes', 'r_folders', 'r_tagdefs', 'r_foods', 'events', 'gcal', 'p_routines']);
 // Data contract with Ricette (its prefs record {id: 'contract', value}). Everyday follows version 1;
 // when Ricette's data says a higher one, Everyday keeps reading the shared files but stops writing them
 // (and asks to update the app), so an older Everyday never damages data it doesn't understand.
@@ -32,7 +38,7 @@ export function contractVersion(prefs = state.r_prefs) {
   return Number(m?.value) || 0;
 }
 export const contractTooNew = (prefs) => contractVersion(prefs) > CONTRACT;
-const ALL = [...COLLECTIONS, ...Object.keys(RICETTE)];
+const ALL = [...COLLECTIONS, ...Object.keys(RICETTE), ...Object.keys(PALESTRA), PAL_SESSIONS];
 const TOMBSTONE_TTL = 90 * 24 * 3600 * 1000;
 
 const DB_NAME = 'everyday';
@@ -77,7 +83,7 @@ export const state = {
   tasks: [], blocks: [], templates: [], categories: [], events: [], gcal: [], shopping: [], shops: [], config: [], r_recipes: [], r_folders: [], r_tagdefs: [], r_prefs: [], r_pantry: [], r_shopping: [], r_shops: [], r_foods: [],
   settings: {
     lang: '', owner: '', repo: '', branch: 'main', token: '',
-    dayStart: 6, dayEnd: 23, snap: 15, buffer: 5, maxLoad: 8, splitOver: 4, ricetteRepo: '',
+    dayStart: 6, dayEnd: 23, snap: 15, buffer: 5, maxLoad: 8, splitOver: 4, ricetteRepo: '', palestraRepo: '',
   },
   // dirtyShards: {"blocks/2026-10": stamp} = months edited here and not yet uploaded
   // syncedShards: {"blocks/2026-10": time} = months this device has downloaded at least once

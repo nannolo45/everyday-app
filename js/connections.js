@@ -107,6 +107,20 @@ export async function saveRicette(form) {
   render();
 }
 
+// (v54) Palestra: the data repository's name; same user and token.
+export async function savePalestra(form) {
+  const repo = form.palestraRepo.value.trim();
+  if (!repo) return;
+  const res = await testConnection(repo);
+  ui.palMsg = res.ok ? 'connected' : `err_${res.error}`;
+  if (res.ok) {
+    await saveSettings({ palestraRepo: repo });
+    await runSync();
+    if (state.meta.lastError) ui.palMsg = `err_${state.meta.lastError}`;
+  }
+  render();
+}
+
 export function exportData() {
   const data = {};
   for (const c of COLLECTIONS) data[c] = state[c];
