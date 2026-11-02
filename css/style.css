@@ -1,14 +1,16 @@
 :root {
-  --bg: #f6f4ef;
+  /* (v61) light theme "Pulito": cool neutral page, white cards with a soft shadow, white bars */
+  --bg: #f3f5f5;
   --surface: #ffffff;
-  --ink: #1f2a2b;
-  --muted: #6c7676;
-  --line: #e2e0d8;
-  --accent: #2f6b6f;
+  --ink: #162021;
+  --muted: #5d696a;
+  --line: #dde3e3;
+  --accent: #22686c;
   --accent-ink: #ffffff;
-  --accent-soft: #dcebea;
+  --accent-soft: #dcecea;
   --green: #3f8f5a;
-  --warn: #c98a12;
+  --warn: #b5780c;
+  --lift: 0 1px 2px rgba(15, 35, 36, .07), 0 2px 6px rgba(15, 35, 36, .04);
   --danger: #a8322a;
   --radius: 14px;
   --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
@@ -19,7 +21,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #151a1b; --surface: #1f2627; --ink: #e9eeec; --muted: #94a09f; --line: #313b3c;
-    --accent: #6fb7b4; --accent-ink: #102021; --accent-soft: #23393a; --green: #7cc28f;
+    --accent: #6fb7b4; --accent-ink: #102021; --accent-soft: #23393a; --green: #7cc28f; --warn: #c98a12;
   }
 }
 
@@ -1438,3 +1440,13 @@ body.is-wide.wide-pane #fab { right: calc(var(--pane) + 28px); }
 .gear.active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
 .gear-label { display: none; }
 @media (min-width: 1100px) { .gear { padding: 0 14px 0 11px; } .gear-label { display: inline; } }
+
+/* ---------- v61: light theme "Pulito" — cards lift off the page; bars are white ---------- */
+@media (prefers-color-scheme: light) {
+  .list, .ag-c, .ev2-card, .vw-card, .ag-card-top, .card, .ag-day, .now-card, .set-list, .week-card, .seg, .gear, .search, .to-plan, .tray { box-shadow: var(--lift); }
+  .ag-row.ghost .ag-c, .ev2.imported .ev2-card { box-shadow: none; }
+  .top { background: color-mix(in srgb, #fff 88%, transparent); }
+  .tabs { background: #fff; }
+  .rail, .pane { background: #fff; }
+  .pane { background: color-mix(in srgb, var(--bg) 55%, #fff); }
+}
