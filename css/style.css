@@ -1351,7 +1351,7 @@ dialog.tri .tri-go .btn { flex: 1; }
 .ag-gap u { color: var(--accent); text-decoration: none; }
 .ag-week { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .ag-day { width: 100%; display: flex; flex-direction: row; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
-.ag-day.today { border-color: var(--accent); }
+.ag-day.is-today { border-color: var(--accent); }
 .ag-day.past { opacity: .6; }
 .ag-dn { flex: none; width: 38px; display: flex; flex-direction: column; align-items: center; }
 .ag-dn small { color: var(--muted); font-size: .75rem; text-transform: capitalize; }
@@ -1384,3 +1384,51 @@ dialog.tri .tri-go .btn { flex: 1; }
 .ev2-ghost small { color: var(--muted); margin-left: auto; }
 .ev2-gap button { width: 100%; display: flex; gap: 8px; justify-content: space-between; margin-left: 54px; width: calc(100% - 54px); padding: 8px 12px; border: 1px dashed var(--line); border-radius: 12px; background: none; color: var(--muted); font: inherit; font-size: .84rem; cursor: pointer; }
 .ev2-gap u { color: var(--accent); text-decoration: none; }
+
+/* ---------- v56: wide screens — rail · tab · pane (views/wide.js) ---------- */
+body.is-wide { --pane: 380px; --hdr: 57px; padding-bottom: 0; }
+body.is-wide .tabs { display: none; }
+body.is-wide main { max-width: none; padding: 0; }
+body.is-wide .vw-tabs { display: none; }
+body.is-wide #fab { right: 28px; bottom: 24px; }
+body.is-wide.wide-pane #fab { right: calc(var(--pane) + 28px); }
+.wide { display: grid; grid-template-columns: 224px minmax(0, 1fr) var(--pane); min-height: calc(100vh - var(--hdr)); }
+.wide.no-pane { grid-template-columns: 224px minmax(0, 1fr); }
+.rail { position: sticky; top: var(--hdr); height: calc(100vh - var(--hdr)); overflow: auto; border-right: 1px solid var(--line); padding: 14px 10px 24px; display: flex; flex-direction: column; gap: 2px; }
+.rl-tab { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; color: var(--muted); text-decoration: none; font-weight: 600; font-size: .95rem; }
+.rl-tab:hover, .rl-sub:hover, .rl-day:hover { background: var(--surface); }
+.rl-tab.on { color: var(--accent); background: var(--accent-soft); }
+.rl-ico svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; display: block; }
+.rl-tab .nbadge { margin-left: auto; }
+.rl-sub { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px 6px 39px; border: 0; border-radius: 9px; background: none; color: var(--ink); font: inherit; font-size: .88rem; text-align: left; cursor: pointer; }
+.rl-sub span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rl-sub small { color: var(--muted); font-size: .75rem; }
+.rl-sub.on { background: var(--surface); box-shadow: inset 3px 0 0 var(--accent); font-weight: 600; }
+.rl-edit { color: var(--muted); }
+.rl-sep { height: 1px; background: var(--line); margin: 12px 6px; }
+.rl-lab { font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 10px 4px; }
+.rl-day { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 0; padding: 5px 10px; border: 0; border-radius: 9px; background: none; color: var(--ink); font: inherit; font-size: .86rem; text-align: left; cursor: pointer; text-transform: capitalize; }
+.rl-day > span:first-child { width: 64px; flex: none; }
+.rl-day .load { margin: 0; }
+.rl-day.on { background: var(--surface); }
+.wide-main { min-width: 0; width: 100%; max-width: 920px; margin: 0 auto; padding: 16px 28px 96px; }
+.wide-main:has(.ag-week, .week, .m-grid) { max-width: 1200px; }
+.pane { position: sticky; top: var(--hdr); height: calc(100vh - var(--hdr)); overflow: auto; border-left: 1px solid var(--line); padding: 18px 20px 32px; background: color-mix(in srgb, var(--surface) 40%, var(--bg)); }
+.pane h2 { margin: 0 0 6px; font-size: 1.25rem; }
+.pn-h small { color: var(--muted); font-weight: 400; font-size: .9rem; }
+.pn-empty { margin-top: 40px; text-align: center; }
+.pn-miss { color: var(--warn); font-size: .85rem; margin: 0 0 6px; }
+.pane .field-label { margin-top: 14px; }
+.mchip.plain { border-style: solid; border-color: var(--line); color: var(--ink); }
+.vw-miss.big .mchip.plain.set, .vw-miss.big .mchip.set { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.pn-now { align-self: center; font-size: .82rem; color: var(--muted); margin-left: 4px; }
+.pn-kv { display: grid; grid-template-columns: 110px 1fr; gap: 6px 10px; margin: 16px 0; font-size: .9rem; }
+.pn-kv dt { color: var(--muted); }
+.pn-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.pane .button-row.left { justify-content: flex-start; flex-wrap: wrap; gap: 8px; }
+.pn-list li.pn-on { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.pn-list .task-main { padding-right: 8px; }
+.pane .list.tasks li { min-height: 48px; }
+.ag-gap.fits button > span:last-child { border-color: var(--accent); border-style: solid; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink); }
+.ag-gap.nofit { opacity: .35; }
+.load.empty { padding: 0; text-align: inherit; } /* (v56) not the empty-state .empty */
