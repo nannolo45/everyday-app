@@ -28,6 +28,7 @@ import { setupTrayDrag } from './tray.js';
 import { elapsedText, pauseTimer, resumeTimer, runningBlock, startBlock } from './timer.js';
 import { fixAll, fixOcc, fixTimes, laterWeek, skipOcc } from './weekpick.js';
 import { openEventFilters, prepareEvents } from './views/events.js';
+import { placePicked, wideClick } from './views/wide.js';
 import { classic, curView, openFilters, openPick, openSort, openTriage, openViews, setView, viewList } from './views/impegni.js';
 import { agendaAdd, agendaPlan, openGapFits, planStyle, showSteps } from './views/planner.js';
 import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName, SHOPS } from './views/shop.js';
@@ -213,6 +214,7 @@ view.addEventListener('click', (e) => {
     return;
   }
   const { action, id } = btn.dataset;
+  if (wideClick(btn)) return; // (v56) the pane on wide screens
   if (shopClick(btn, { planTrips: planTripsNow, shareList: shareShopList })) return; // the shopping list (views/shop.js)
   switch (action) {
     case 'plan-task': {
@@ -289,7 +291,7 @@ view.addEventListener('click', (e) => {
     case 'ag-plan': agendaPlan(); break;
     case 'ag-add': agendaAdd(); break;
     case 'ag-cancel': ui.assign.ghosts = []; ui.assign.fix = null; render(); break;
-    case 'ag-gap': openGapFits(btn.dataset.date, Number(btn.dataset.start), Number(btn.dataset.min)); break;
+    case 'ag-gap': if (placePicked(btn.dataset.date, Number(btn.dataset.start), Number(btn.dataset.min))) break; openGapFits(btn.dataset.date, Number(btn.dataset.start), Number(btn.dataset.min)); break;
     case 'assign-clear': ui.assign.ghosts = []; render(); break;
     case 'assign-add': addGhosts(); break;
     case 'ghost-rm': ui.assign?.ghosts.splice(Number(btn.dataset.i), 1); render(); break;

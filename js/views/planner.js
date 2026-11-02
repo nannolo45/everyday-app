@@ -457,7 +457,11 @@ function agRow(it) {
   const b = it.b; const st = outcomeOf(b);
   return `<li class="ag-row${st ? ` is-${st}` : ''}" style="--c:${esc(catColor(b.category) || 'var(--accent)')}">${time}<button class="ag-c" type="button" data-action="open-block" data-id="${esc(b.id)}"><span class="ag-t">${st === 'done' ? '✓ ' : ''}${esc(b.title)}</span>${b.place ? `<small>📍 ${esc(b.place)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
 }
-const gapRow = (date, start, min) => `<li class="ag-gap"><button type="button" data-action="ag-gap" data-date="${date}" data-start="${start}" data-min="${min}"><span class="ag-time">${esc(fmtTime(start))}</span><span>${esc(t('agFree', fmtDur(min)))} · <u>${esc(t('agFits'))}</u></span></button></li>`;
+const gapRow = (date, start, min) => {
+  const pick = ui.pick && get('tasks', ui.pick); // (v56) something picked in the pane: where it fits lights up
+  const fits = pick && (pick.minutes || 30) <= min;
+  return `<li class="ag-gap${pick ? (fits ? ' fits' : ' nofit') : ''}"><button type="button" data-action="ag-gap" data-date="${date}" data-start="${start}" data-min="${min}"><span class="ag-time">${esc(fmtTime(start))}</span><span>${esc(t('agFree', fmtDur(min)))} · <u>${esc(fits ? t('agHere') : t('agFits'))}</u></span></button></li>`;
+};
 export function agendaDay(date) {
   prepareDays([date]);
   const td = today();
@@ -487,7 +491,7 @@ export function agendaWeek(date) {
     const items = agItems(d); const ad = eventsOn(d).filter((e) => e.allDay);
     const chips = [...ad.map((e) => `<span class="ag-chip ev">${esc(e.title)}</span>`), ...items.slice(0, 5).map((it) => { const title = it.k === 'block' ? it.b.title : it.k === 'event' ? it.e.title : it.k === 'ghost' ? ghostTitle(it.g) : it.g.title; return `<span class="ag-chip${it.k === 'ghost' || it.k === 'fix' ? ' ghost' : ''}" style="--c:${esc(catColor(it.b?.category || it.g?.category) || 'var(--accent)')}"><b>${esc(fmtTime(it.start))}</b> ${esc(title)}</span>`; })];
     if (items.length > 5) chips.push(`<span class="ag-chip more">+${items.length - 5}</span>`);
-    return `<li><button type="button" class="ag-day${d === td ? ' today' : ''}${d < td ? ' past' : ''}" data-action="view-day" data-id="${d}">
+    return `<li><button type="button" class="ag-day${d === td ? ' is-today' : ''}${d < td ? ' past' : ''}" data-action="view-day" data-id="${d}">
       <span class="ag-dn"><small>${esc(fmtDay(d, { weekday: 'short' }))}</small><b>${parseDate(d).getDate()}</b></span>
       <span class="ag-dc">${loadBar(d)}<span class="ag-chips">${chips.join('') || `<small class="hint">${esc(t('agWeekFree'))}</small>`}</span></span></button></li>`;
   }).join('')}</ul>`;

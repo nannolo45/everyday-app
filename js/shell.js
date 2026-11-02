@@ -18,6 +18,7 @@ import { viewSettings } from './views/settings.js';
 import { viewTasks } from './views/tasks.js';
 import { currentView, planStyle, viewPlan } from './views/planner.js';
 import { viewEvents } from './views/events.js';
+import { isWide, wideWrap } from './views/wide.js';
 import { viewToday } from './views/today.js';
 
 // ---------- sync scheduling ----------
@@ -138,6 +139,10 @@ export function render() {
   }
   // A running timer shows on every tab (not Settings); a late start's offer on Today.
   if (r.name !== 'settings') html = timerBarHtml() + (r.name === 'today' ? lateBannerHtml() + todayFixCard() : '') + html;
+  // (v56) Wide screens: a rail on the left and a pane on the right (views/wide.js).
+  const wide = isWide(); document.body.classList.toggle('is-wide', wide);
+  if (wide) html = wideWrap(html);
+  document.body.classList.toggle('wide-pane', wide && !html.includes('<div class="wide no-pane'));
   // Nothing changed (e.g. a sync that found no news): leave the page alone. Replacing it
   // anyway is what made the screen flicker and fields lose what you were typing.
   if (html === ui.lastHtml && view.childElementCount) { positionNow(); settleScroll(r); return; }
