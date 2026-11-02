@@ -1464,3 +1464,90 @@ body.is-wide.wide-pane #fab { right: calc(var(--pane) + 28px); }
 /* (v63) the + sheet: Aggiungi first; the two ways to plan under it, each with a line on what it does */
 .quick-go .two-btn .btn.two-line { flex-direction: column; gap: 2px; min-height: 58px; padding: 8px 10px; line-height: 1.2; }
 .quick-go .two-btn .btn.two-line small { font-weight: 500; font-size: .75rem; color: var(--muted); }
+
+/* (v66) the week grid ("Quando") */
+dialog.wg-sheet .wg-top { display: flex; align-items: center; gap: 10px; }
+dialog.wg-sheet .wg-top h2 { margin: 6px 0; flex: 1; }
+dialog.wg-sheet .wg-sub { margin: 0 0 8px; }
+.wg-sheet .mchip, .ed-chips .mchip, .ed-pop .mchip, .quick-pick .mchip, .quick-pop .mchip, .rv .mchip { color: var(--ink); border: 1px solid var(--line); border-style: solid; background: var(--surface); }
+.wg-sheet .mchip.set, .quick-pop .mchip.set { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.wg-quick { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+.wg-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 0 4px; }
+.wg-nav .icon { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+.wg-nav .icon:disabled { opacity: .35; }
+.wg { display: grid; grid-template-columns: 50px repeat(3, minmax(0, 1fr)); gap: 5px; }
+.wg-h { font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); text-align: center; align-self: end; padding-bottom: 2px; }
+.wg-d { font-size: .86rem; font-weight: 600; display: flex; flex-direction: column; justify-content: center; line-height: 1.15; }
+.wg-d small { font-weight: 400; color: var(--muted); font-size: .72rem; }
+.wg-d.today { color: var(--accent); }
+.wg-c { border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 10px; min-height: 46px; padding: 4px; font: inherit; font-size: .74rem; line-height: 1.2; cursor: pointer; text-align: center; }
+.wg-c:hover:not(:disabled) { border-color: var(--accent); }
+.wg-c.full { background: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--muted) 12%, transparent) 6px 12px), var(--surface); }
+.wg-c.past { opacity: .35; cursor: default; }
+.wg-c.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: .84rem; }
+.wg-c.on small { display: block; font-weight: 500; font-size: .7rem; color: inherit; opacity: .8; }
+.wg-c.was { outline: 2px dashed var(--accent); outline-offset: -3px; }
+.seg.wg-mode { margin-bottom: 4px; }
+.wg-more { display: inline-block; margin: 2px 0 6px; font-size: .88rem; }
+.wg-picked { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 4px; }
+.wg-pk { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font-size: .9rem; }
+.wg-pk > span { flex: 1; }
+.wg-times { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 4px 4px; }
+.wg-go .btn { flex: 1; }
+.wg-go .btn:disabled { opacity: .5; }
+
+/* (v66) the short task sheet */
+.ed-chips { display: flex; flex-wrap: wrap; gap: 7px; margin: 10px 0 4px; }
+.ed-chips .mchip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; }
+.ed-chips .mchip:not(.set) { border-style: dashed; color: var(--muted); }
+.ed-chips .mchip.set { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.ed-chips .mchip[aria-expanded="true"] { border-color: var(--accent); }
+.ed-pop { margin: 8px 0 6px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.ed-pop label { margin: 0; }
+.ed-plan { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ed-plan li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.ed-plan li > span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ed-plan li small { color: var(--muted); }
+.ed-more-h { margin-top: 18px; }
+.ed-more { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); padding: 0 12px; }
+.ed-more > details.ed-sec { border: 0; border-bottom: 1px solid var(--line); margin: 0; border-radius: 0; background: none; }
+.ed-more > details.ed-sec:last-child { border-bottom: 0; }
+.ed-more > details.ed-sec > summary small { text-align: right; }
+
+/* (v66) Rivedi */
+.rv-dots { display: flex; gap: 5px; margin: 6px 0 2px; }
+.rv-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.rv-dots i.on { background: var(--accent); }
+.rv-del { display: block; margin: 18px 0 4px; }
+.danger-text { color: var(--danger); }
+.ok-text { color: var(--green); }
+
+/* (v66) the + sheet's taps */
+.quick-pick { display: flex; gap: 6px; margin: 4px 0; }
+.quick-pop { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.quick-pop .mchip { display: inline-flex; align-items: center; gap: 6px; }
+
+/* (v66) the Planner's list and search (pane and phone) */
+.fd { display: flex; flex-direction: column; gap: 8px; }
+.fd .search-box { margin: 0; flex: none; max-width: none; } /* (a column: no 200px flex-basis) */
+.seg.fd-tabs { margin: 0; }
+.seg.fd-tabs > button { flex: auto; font-size: .8rem; padding: 7px 6px; white-space: nowrap; min-width: 0; }
+.fd-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.fd-row { display: flex; gap: 9px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.fd-row.on { border-color: var(--accent); background: var(--accent-soft); }
+.fd-bar { width: 4px; border-radius: 3px; background: var(--c); flex: none; }
+.fd-c { flex: 1; min-width: 0; }
+.fd-t { display: block; width: 100%; text-align: left; border: 0; background: none; color: var(--ink); font: inherit; font-weight: 600; font-size: .92rem; padding: 0; cursor: pointer; }
+.fd-t small { display: block; font-weight: 400; color: var(--muted); font-size: .78rem; }
+.fd-pills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.fd-pill { font: inherit; font-size: .74rem; border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; background: var(--bg); color: var(--ink); cursor: pointer; }
+.fd-pill:hover { border-color: var(--accent); color: var(--accent); }
+.fd-pill.act { color: var(--accent); }
+.fd-pill.more { cursor: default; color: var(--muted); }
+.fd-day { font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 8px 2px 2px; }
+.fd-empty { padding: 6px 2px; }
+.fd-phone { margin: 4px 0 12px; }
+.fd-toggle.on { border-color: var(--accent); color: var(--accent); }
+.ag-row.flash, .block.flash { animation: ev-flash 1.6s ease 2; }
+@keyframes ev-flash { 0%, 100% { box-shadow: none; } 30% { box-shadow: 0 0 0 3px var(--accent); } }
+@media (prefers-reduced-motion: reduce) { .ag-row.flash, .block.flash { animation: none; box-shadow: 0 0 0 3px var(--accent); } }

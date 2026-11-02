@@ -3,7 +3,7 @@
 // they are), the tab in the middle, and a pane on the right: what you tapped on Impegni and Eventi, the
 // things to plan on the Planner (pick one and the free time it fits in lights up), what's waiting on Oggi.
 // On a phone nothing changes.
-import { catName, catsOf, categories, esc, fmtDay, relDay, route, toast, ui } from '../core.js';
+import { catName, catsOf, categories, esc, fmtDay, modal, relDay, route, toast, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { eventReadiness, eventTasksOf, planTask, plannedWhen, setTaskDone } from '../model.js';
 import { openEvent, openTask } from '../editors.js';
@@ -12,7 +12,9 @@ import { trayTasks } from '../planning.js';
 import { repeatText } from '../widgets.js';
 import { get, live, upsert } from '../store.js';
 import { changed, render } from '../shell.js';
-import { allItems, classic, curView, dateOf, LENS, matches, missing, openTriage, setLen, setView, setWhen, typeOf, unsortedList, viewList, viewName, WHEN_PICKS } from './impegni.js';
+import { allItems, classic, curView, dateOf, LENS, matches, missing, openTriage, setLen, setView, setWhen, toPlanList, typeOf, viewList, viewName, WHEN_PICKS, whenPickOf } from './impegni.js';
+import { finderHtml } from '../finder.js';
+import { openWeekGrid } from '../weekgrid.js';
 import { leaveShop, SH } from './shop.js';
 import { eventItems } from './events.js';
 import { loadBar, weekStart } from './planner.js';
@@ -33,7 +35,7 @@ const tabOf = (name) => (name === 'shop' ? 'tasks' : name);
 // ---------- the rail ----------
 function rail() {
   const r = route(); const cur = tabOf(r.name);
-  const nUn = unsortedList().length;
+  const nUn = toPlanList().length;
   const v = curView();
   const views = cur === 'tasks' ? `${viewList().filter((y) => y.pin || y.id === v.id).map((y) => {
     const n = y.shop ? live(SH()).filter((i) => !i.checked).length : allItems().filter((x) => !x.done && matches(x, y.f || {})).length;
@@ -64,10 +66,9 @@ function paneTask() {
     [t('steps'), String((x.steps || []).filter((y) => y.title && !y.travel).length || '—')],
   ].filter(Boolean);
   return `<div class="pn-task"><h2>${esc(x.title)}</h2>
-    ${mi.length ? `<p class="pn-miss">${esc(t('triMissing', mi.map((k) => t(k === 'cat' ? 'mGroup' : k === 'len' ? 'mLen' : 'mWhen').toLowerCase()).join(', ')))}</p>` : ''}
     <div class="field-label">${esc(t('mGroup'))}</div><div class="vw-miss big">${categories().map((c) => chip('pn-set', 'cat', c.id, catName(c), catsOf(x).includes(c.id), mi.includes('cat'))).join('')}</div>
-    <div class="field-label">${esc(t('mWhen'))}</div><div class="vw-miss big">${rep ? `<span class="mchip set">↻ ${esc(x.repeat ? repeatText(x) : t('kc_saved'))}</span>` : `${WHEN_PICKS.map((w) => chip('pn-set', 'when', w, t(`wp_${w}`), false, mi.includes('when'))).join('')}${d ? `<span class="pn-now">${esc(relDay(d))}</span>` : x.noDate ? `<span class="pn-now">${esc(t('vf_when_none'))}</span>` : ''}`}</div>
-    <div class="field-label">${esc(t('mLen'))}</div><div class="vw-miss big">${LENS.map((m) => chip('pn-set', 'len', m, fmtDur(m), x.lenSet !== false && x.minutes === m, mi.includes('len'))).join('')}</div>
+    <div class="field-label">${esc(t('mWhen'))}</div><div class="vw-miss big">${rep ? `<span class="mchip set">↻ ${esc(x.repeat ? repeatText(x) : t('kc_saved'))}</span>` : `${WHEN_PICKS.map((w) => chip('pn-set', 'when', w, t(`wp_${w}`), !planned && whenPickOf(x) === w, mi.includes('when'))).join('')}${chip('pn-grid', 'when', x.id, planned ? `✓ ${planned}` : t('rvChoose'), Boolean(planned), true)}${d ? `<span class="pn-now">${esc(relDay(d))}</span>` : x.noDate ? `<span class="pn-now">${esc(t('vf_when_none'))}</span>` : ''}`}</div>
+    <div class="field-label">${esc(t('mLen'))}</div><div class="vw-miss big">${lensFor(x).map((m) => chip('pn-set', 'len', m, fmtDur(m), x.lenSet !== false && (x.minutes || 30) === m, mi.includes('len'))).join('')}</div>
     <dl class="pn-kv">${kv.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
     <div class="button-row left">
       ${!rep && !planned && !x.done ? `<button class="btn primary" type="button" data-action="pn-plan" data-id="${esc(x.id)}">▶ ${esc(t('pnPlan'))}</button>` : ''}
@@ -76,13 +77,10 @@ function paneTask() {
     </div>
     ${!rep && !planned && !x.done ? `<p class="hint">${esc(t('pnPlanHint'))}</p>` : ''}</div>`;
 }
-function panePlan() {
-  const list = trayTasks();
-  const pick = ui.pick && get('tasks', ui.pick);
-  return `<h2 class="pn-h">${esc(t('toPlan'))} <small>${list.length}</small></h2>
-    <p class="hint">${esc(pick ? t('pnPicked', pick.title) : t('pnPick'))}</p>
-    ${list.length ? `<ul class="list tasks pn-list">${list.map((x) => `<li class="${ui.pick === x.id ? 'pn-on' : ''}"><button class="task-main" type="button" data-action="pn-pick" data-id="${esc(x.id)}" aria-pressed="${ui.pick === x.id}"><span class="item-text">${esc(x.title)}<small>${esc([x.lenSet === false ? '' : fmtDur(x.minutes || 30), x.due ? relDay(x.due) : '', ...catsOf(x).map((c) => catName(get('categories', c)))].filter(Boolean).join(' · '))}</small></span>${missing(x).length ? `<span class="vw-tag">${esc(t('toSort'))}</span>` : ''}</button></li>`).join('')}</ul>` : `<p class="hint">${esc(t('agAllPlanned'))}</p>`}`;
-}
+// (v66) the length it has always shows lit, also when it isn't one of the six
+const lensFor = (x) => { const m = x.lenSet !== false ? x.minutes || 30 : null; return m && !LENS.includes(m) ? [...LENS, m].sort((a, b) => a - b) : LENS; };
+// (v66) the Planner's pane: Da pianificare · Nel piano · Tutte, and the search (finder.js)
+function panePlan() { return finderHtml(); }
 function paneEvent() {
   const items = eventItems();
   const e = items.find((y) => y.id === ui.evSel && (!ui.evDate || y.date === ui.evDate)) || items.find((y) => y.id === ui.evSel);
@@ -100,7 +98,7 @@ function paneEvent() {
     </div></div>`;
 }
 function paneToday() {
-  const nUn = unsortedList().length; const nPlan = trayTasks().length;
+  const nUn = toPlanList().length; const nPlan = trayTasks().length;
   const td = today();
   const next = eventItems().filter((e) => e.date >= td).slice(0, 4);
   return `<h2 class="pn-h">${esc(t('pnWaiting'))}</h2>
@@ -147,9 +145,10 @@ export function wideClick(btn) {
       const v = btn.dataset.v; const k = btn.dataset.k;
       if (k === 'cat') toggleCat(x, v);
       if (k === 'len') setLen(x, Number(v));
-      if (k === 'when') setWhen(x, v);
+      if (k === 'when') { if (whenPickOf(x) === v) upsert('tasks', { ...x, due: null, noDate: false }); else setWhen(x, v); }
       render(); return true;
     }
+    case 'pn-grid': { const x = get('tasks', ui.paneSel || btn.dataset.v); if (x) openWeekGrid(x, { onClose: (how, k) => { if (how === 'quick') setWhen(get('tasks', x.id), k); if (how === 'more') { openTask(get('tasks', x.id)); return; } modal.close(); render(); } }); return true; }
     case 'pn-done': { const x = get('tasks', id); if (x) { setTaskDone(x, !x.done); changed(); } return true; }
     case 'pn-plan': ui.pick = id; ui.view = 'day'; location.hash = `#/plan/${today()}`; return true;
     case 'pn-pick': ui.pick = ui.pick === id ? null : id; render(); return true;

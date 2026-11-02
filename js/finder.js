@@ -1,0 +1,83 @@
+// finder.js (v66): the Planner's list of tasks, in the wide pane and on the phone: Da pianificare · Nel
+// piano · Tutte, and a search over all of them. A task shows where it is on the plan as pills; a pill
+// jumps there and the block flashes. "Sposta…" opens the week grid for that one block.
+import { catColor, catName, catsOf, esc, relDay, ui } from './core.js';
+import { t } from './i18n.js';
+import { isEvent } from './kinds.js';
+import { outcomeOf } from './model.js';
+import { addDays, fmtDur, fmtTime, isoDay, today } from './plan.js';
+import { trayTasks } from './planning.js';
+import { matchesQ } from './shoplist.js';
+import { get, live } from './store.js';
+import { render } from './shell.js';
+import { allItems, typeOf } from './views/impegni.js';
+import { taskHay } from './views/tasks.js';
+import { dayShort, repeatText, searchBox } from './widgets.js';
+
+const byWhen = (a, b) => (a.date === b.date ? a.start - b.start : a.date < b.date ? -1 : 1);
+// The open blocks of a task from today on (its steps' blocks too).
+export const upcomingOf = (id) => live('blocks').filter((b) => b.taskId === id && !outcomeOf(b) && b.date >= today() && b.kind !== 'prep').sort(byWhen);
+// What the finder knows: your to-dos, routines and own events that aren't done.
+export function findItems() {
+  return [...allItems(), ...live('tasks').filter((x) => isEvent(x) && !x.deleted)].filter((x) => !x.done);
+}
+const dayLabel = (d) => (d === today() ? t('today') : d === addDays(today(), 1) ? t('tomorrow') : `${dayShort(isoDay(d))} ${Number(d.slice(8))}`);
+const pill = (b) => `<button type="button" class="fd-pill" data-action="fd-go" data-id="${esc(b.id)}">${esc(`${dayShort(isoDay(b.date))} ${Number(b.date.slice(8))} · ${fmtTime(b.start)}`)}</button>`;
+const bar = (x) => `<span class="fd-bar" style="--c:${esc(catColor(x?.category) || 'var(--line)')}"></span>`;
+function itemRow(x) {
+  const ups = upcomingOf(x.id);
+  const state = ups.length ? t('nTimesPlanned', ups.length) : t('toSort');
+  const sub = [fmtDur(x.minutes || 30), typeOf(x) === 'repeat' ? `↻ ${x.repeat ? repeatText(x) : state}` : state, x.due && !ups.length ? relDay(x.due) : '', ...catsOf(x).slice(0, 1).map((c) => catName(get('categories', c)))].filter(Boolean).join(' · ');
+  const pills = ups.slice(0, 3).map(pill).join('') + (ups.length > 3 ? `<span class="fd-pill more">${esc(t('findMoreN', ups.length - 3))}</span>` : '');
+  return `<li class="fd-row">${bar(x)}<div class="fd-c"><button type="button" class="fd-t" data-action="task-edit" data-id="${esc(x.id)}">${isEvent(x) ? '📅 ' : ''}${esc(x.title)}<small>${esc(sub)}</small></button>
+    <div class="fd-pills">${pills}${isEvent(x) ? '' : `<button type="button" class="fd-pill act" data-action="fd-when" data-id="${esc(x.id)}">${esc(t('whenChip'))}</button>`}</div></div></li>`;
+}
+// Da pianificare: pick one and the free time it fits in lights up (the pane's old list).
+function todoRows() {
+  const list = trayTasks();
+  if (!list.length) return `<p class="hint fd-empty">✓ ${esc(t('agAllPlanned'))}</p>`;
+  const pick = ui.pick && get('tasks', ui.pick);
+  return `<p class="hint">${esc(pick ? t('pnPicked', pick.title) : t('pnPick'))}</p><ul class="fd-list">${list.map((x) => `<li class="fd-row${ui.pick === x.id ? ' on' : ''}">${bar(x)}<div class="fd-c">
+    <button type="button" class="fd-t" data-action="fd-pick" data-id="${esc(x.id)}" aria-pressed="${ui.pick === x.id}">${esc(x.title)}<small>${esc([x.lenSet === false ? '' : fmtDur(x.minutes || 30), x.due ? relDay(x.due) : '', ...catsOf(x).map((c) => catName(get('categories', c)))].filter(Boolean).join(' · '))}</small></button>
+    <div class="fd-pills"><button type="button" class="fd-pill act" data-action="fd-when" data-id="${esc(x.id)}">${esc(t('whenChip'))}</button></div></div></li>`).join('')}</ul>`;
+}
+// Nel piano: the next two weeks, by day; a row jumps to its block.
+function planRows() {
+  const td = today(); const end = addDays(td, 13);
+  const blocks = live('blocks').filter((b) => b.taskId && !outcomeOf(b) && b.date >= td && b.date <= end && b.kind !== 'prep' && get('tasks', b.taskId)).sort(byWhen);
+  if (!blocks.length) return `<p class="hint fd-empty">${esc(t('planNone'))}</p>`;
+  const days = new Map();
+  for (const b of blocks) { if (!days.has(b.date)) days.set(b.date, []); days.get(b.date).push(b); }
+  return [...days].map(([d, bs]) => `<div class="fd-day">${esc(dayLabel(d))}</div><ul class="fd-list">${bs.map((b) => { const x = get('tasks', b.taskId); return `<li class="fd-row">${bar(x)}<div class="fd-c">
+    <button type="button" class="fd-t" data-action="fd-go" data-id="${esc(b.id)}">${isEvent(x) ? '📅 ' : ''}${esc(b.title)}<small>${esc(`${fmtTime(b.start)}–${fmtTime(b.start + (b.minutes || 0))}`)}</small></button>
+    ${isEvent(x) ? '' : `<div class="fd-pills"><button type="button" class="fd-pill act" data-action="fd-move" data-id="${esc(b.id)}">${esc(t('moveBtn'))}…</button></div>`}</div></li>`; }).join('')}</ul>`).join('');
+}
+export function finderHtml() {
+  const q = (ui.fdQ || '').trim();
+  const tab = ui.fdTab || 'todo';
+  const items = findItems();
+  let body;
+  if (q) {
+    const hits = items.filter((x) => matchesQ(taskHay(x), q));
+    body = hits.length ? `<div class="fd-day">${esc(t('findN', hits.length))}</div><ul class="fd-list">${hits.map(itemRow).join('')}</ul>` : `<p class="hint fd-empty">${esc(t('findNone', q))}</p>`;
+  } else if (tab === 'plan') body = planRows();
+  else if (tab === 'all') body = `<ul class="fd-list">${items.sort((a, b) => a.title.localeCompare(b.title)).map(itemRow).join('')}</ul>`;
+  else body = todoRows();
+  const nTodo = trayTasks().length;
+  const nPlan = new Set(live('blocks').filter((b) => b.taskId && !outcomeOf(b) && b.date >= today() && b.date <= addDays(today(), 13) && b.kind !== 'prep').map((b) => b.taskId)).size;
+  const tabs = [['todo', 'pnTabTodo', nTodo], ['plan', 'pnTabPlan', nPlan], ['all', 'pnTabAll', items.length]];
+  return `<div class="fd">
+    ${searchBox({ id: 'fd-q', value: ui.fdQ || '', ph: t('findPh') })}
+    ${q ? '' : `<div class="seg fd-tabs" role="tablist">${tabs.map(([k, l, n]) => `<button type="button" role="tab" class="${tab === k ? 'on' : ''}" aria-selected="${tab === k}" data-action="fd-tab" data-id="${k}">${esc(t(l))} <small>${n}</small></button>`).join('')}</div>`}
+    <div class="fd-body">${body}</div>
+  </div>`;
+}
+// A slot tapped: its day in the Planner, scrolled to the block, which flashes for a moment.
+export function goToBlock(id) {
+  const b = get('blocks', id); if (!b) return;
+  ui.flash = id; ui.view = 'day'; ui.scrolledFor = null;
+  const h = `#/plan/${b.date}`;
+  if (location.hash !== h) location.hash = h; else render();
+  setTimeout(() => { document.querySelector(`.plan-main [data-id="${id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 150);
+  setTimeout(() => { if (ui.flash === id) { ui.flash = null; render(); } }, 3600);
+}

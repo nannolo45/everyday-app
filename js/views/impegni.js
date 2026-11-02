@@ -7,12 +7,13 @@ import { catName, catsOf, categories, esc, modal, relDay, ui } from '../core.js'
 import { t } from '../i18n.js';
 import { isTodo } from '../kinds.js';
 import { nextPlanned } from '../model.js';
-import { addDays, fmtDur, sortTasks, today } from '../plan.js';
+import { addDays, fmtDur, fmtTime, sortTasks, today } from '../plan.js';
 import { isArchived, isRoutine, legend, routineRow, weekHeader } from '../routines.js';
 import { matchesQ } from '../shoplist.js';
 import { get, live, remove, saveSettings, state, upsert } from '../store.js';
 import { render } from '../shell.js';
-import { openModal, searchBox } from '../widgets.js';
+import { durField, openModal, readDur, searchBox } from '../widgets.js';
+import { openWeekGrid } from '../weekgrid.js';
 import { weekStart } from './planner.js';
 import { SH, viewShop } from './shop.js';
 import { foldBtn, folded, taskHay, taskRow } from './tasks.js';
@@ -74,6 +75,9 @@ export function missing(x) {
 }
 export const unsorted = (x) => missing(x).length > 0;
 export const unsortedList = () => allItems().filter(unsorted).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+// (v66) Nothing is "unsorted" any more: what Rivedi goes through, and the badge counts, is what's still to plan:
+// one-off things with no open block from today on (newest first). A missing category or length is fine.
+export const toPlanList = () => allItems().filter((x) => !x.done && typeOf(x) === 'once' && !nextPlanned(x.id)).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 export function matches(x, f = {}) {
   if (f.type?.length && !f.type.includes(typeOf(x))) return false;
   if (f.state?.length && !f.state.includes(stateOf(x))) return false;
@@ -120,7 +124,7 @@ export function sortLabel(v) {
 }
 
 // ---------- rows ----------
-const tag = (x) => (unsorted(x) ? `<span class="vw-tag">${esc(t('toSort'))}</span>` : '');
+const tag = (x) => (classic() && unsorted(x) ? `<span class="vw-tag">${esc(t('toSort'))}</span>` : ''); // (v66) no "to sort" tag
 function missChips(x) {
   const mi = missing(x);
   const lab = { cat: catsOf(x).length ? catName(get('categories', catsOf(x)[0])) : `+ ${t('mGroup')}`, when: dateOf(x) ? relDay(dateOf(x)) : x.noDate ? t('vf_when_none') : `+ ${t('mWhen')}`, len: x.lenSet === false ? `+ ${t('mLen')}` : fmtDur(x.minutes || 30) };
@@ -144,7 +148,7 @@ function fullRow(x, ws) {
 // ---------- the tab ----------
 function tabs(cur) {
   const l = viewList();
-  const nUn = unsortedList().length;
+  const nUn = (classic() ? unsortedList() : toPlanList()).length;
   const nShop = live(SH()).filter((i) => !i.checked).length;
   const btn = (v) => `<button type="button" role="tab" class="${v.id === cur.id ? 'on' : ''}${v.pin ? '' : ' loose'}" aria-selected="${v.id === cur.id}" data-action="vw-tab" data-id="${esc(v.id)}">${esc(viewName(v))}${v.fixed && nUn ? ` <span class="nbadge">${nUn > 99 ? '99+' : nUn}</span>` : v.shop && nShop ? ` <small>${nShop > 99 ? '99+' : nShop}</small>` : ''}</button>`;
   return `<div class="seg vw-tabs" role="tablist">${l.filter((v) => v.pin).map(btn).join('')}${cur.pin ? '' : btn(cur)}<button type="button" class="vw-edit" data-action="vw-views">✎ ${esc(t('vwViews'))}</button></div>`;
@@ -165,7 +169,7 @@ export function viewImpegni() {
   const tools = `<div class="task-tools">${searchBox({ id: 'task-q', value: ui.taskQ || '' })}
     <button class="btn small tools-btn${n ? ' on' : ''}" type="button" data-action="vw-filters">⇅ ${esc(t('filters'))}${n ? ` · ${n}` : ''}</button>
     <button class="btn small tools-btn" type="button" data-action="vw-sort" aria-label="${esc(t('sortGroup'))}">▤ ${esc(sortLabel(v))}</button></div>`;
-  const nUn = unsortedList().length;
+  const nUn = (classic() ? unsortedList() : toPlanList()).length;
   const card = v.fixed && nUn && !q ? `<div class="vw-card"><b>${esc(t('nToSort', nUn))}</b><button class="btn small primary" type="button" data-action="vw-triage">${esc(t('sortNow'))}</button></div>` : '';
   const groups = groupsOf(list, v.by || 'when', v.dir ?? 1);
   const hasRep = !v.fixed && list.some((x) => typeOf(x) === 'repeat');
@@ -187,27 +191,61 @@ export function viewImpegni() {
 }
 
 // ---------- sorting things in place ----------
+// (v66) The "when" picks set the due date (no date clears it), and the one already set shows lit.
+export const whenDue = (k, td = today()) => (k === 'today' ? td : k === 'tomorrow' ? addDays(td, 1) : k === 'week' ? weekEnd(td) : k === 'next' ? addDays(weekEnd(td), 7) : null);
 export function setWhen(x, k) {
-  const td = today();
-  const due = k === 'today' ? td : k === 'tomorrow' ? addDays(td, 1) : k === 'week' ? weekEnd(td) : k === 'next' ? addDays(weekEnd(td), 7) : null;
-  upsert('tasks', { ...x, due: due || x.due || null, noDate: k === 'none' ? true : x.noDate });
+  const due = whenDue(k);
+  upsert('tasks', k === 'none' ? { ...x, due: null, noDate: true } : { ...x, due: due || x.due || null, noDate: false });
 }
-export const setCat = (x, id) => upsert('tasks', catsOf(x).length ? { ...x, moreCats: [...new Set([...(x.moreCats || []), id])] } : { ...x, category: id });
+export function whenPickOf(x) {
+  if (x.noDate && !x.due) return 'none';
+  return WHEN_PICKS.find((k) => k !== 'none' && x.due && whenDue(k) === x.due) || null;
+}
+// A category tapped again comes off (the first one left gives the colour).
+export function setCat(x, id) {
+  const cs = catsOf(x);
+  if (cs.includes(id)) { const rest = cs.filter((c) => c !== id); return upsert('tasks', { ...x, category: rest[0] || null, moreCats: rest.slice(1) }); }
+  return upsert('tasks', cs.length ? { ...x, moreCats: [...new Set([...(x.moreCats || []), id])] } : { ...x, category: id });
+}
 export const setLen = (x, m) => upsert('tasks', { ...x, minutes: m, lenSet: true });
 export const LENS = [15, 30, 45, 60, 90, 120];
 export const WHEN_PICKS = ['today', 'tomorrow', 'week', 'next', 'none'];
 function pickChips(x, k) {
   const ch = (val, label, on) => `<button class="mchip${on ? ' set' : ''}" value="${k}:${esc(val)}">${esc(label)}</button>`;
   if (k === 'cat') return categories().map((c) => ch(c.id, catName(c), catsOf(x).includes(c.id))).join('');
-  if (k === 'len') return LENS.map((m) => ch(m, fmtDur(m), x.lenSet !== false && x.minutes === m)).join('');
-  return `${WHEN_PICKS.map((w) => ch(w, t(`wp_${w}`), false)).join('')}${ch('repeat', `↻ ${t('wp_repeat')}`, false)}`;
+  // (v66) the length it has is always lit, also when it isn't one of the six (20m, 4h…)
+  if (k === 'len') { const has = x.lenSet !== false ? x.minutes || 30 : null; const l = has && !LENS.includes(has) ? [...LENS, has].sort((a, b) => a - b) : LENS; return l.map((m) => ch(m, fmtDur(m), has === m)).join('') + (classic() ? '' : ch('other', t('rvOther'), false)); }
+  if (classic()) return `${WHEN_PICKS.map((w) => ch(w, t(`wp_${w}`), false)).join('')}${ch('repeat', `↻ ${t('wp_repeat')}`, false)}`;
+  const nb = nextPlanned(x.id); const wp = nb ? null : whenPickOf(x);
+  return `${WHEN_PICKS.map((w) => ch(w, t(`wp_${w}`), wp === w)).join('')}${ch('grid', nb ? `✓ ${relDay(nb.date)} ${fmtTime(nb.start)}` : t('rvChoose'), Boolean(nb))}`;
 }
 function applyPick(x, action) {
   const [k, val] = action.split(':');
   if (k === 'cat') setCat(x, val);
-  if (k === 'len') setLen(x, Number(val));
-  if (k === 'when') { if (val === 'repeat') return 'repeat'; setWhen(x, val); }
+  if (k === 'len') { if (val === 'other') return 'other'; setLen(x, Number(val)); }
+  if (k === 'when') {
+    if (val === 'repeat') return 'repeat';
+    if (val === 'grid') return 'grid';
+    if (!classic() && whenPickOf(x) === val) upsert('tasks', { ...x, due: null, noDate: false }); // tapped again: off
+    else setWhen(x, val);
+  }
   return k;
+}
+// Back from the week grid: a quick pick sets the date; "Altre ripetizioni" opens the task sheet.
+async function gridBack(id, how, k, then) {
+  if (how === 'quick') setWhen(get('tasks', id), k);
+  render();
+  if (how === 'more') { const { openTask } = await import('../editors.js'); openTask(get('tasks', id)); return; }
+  then();
+}
+// "Altro…" for the length: a field and OK.
+function lenOther(x, back) {
+  openModal(`<h2>${esc(x.title)}</h2><label>${esc(t('mLen'))}${durField('rv_len', x.minutes || 30)}</label>
+    <div class="button-row"><button class="btn primary" value="ok">${esc(t('rvOk'))}</button><button class="btn ghost" value="back" formnovalidate>${esc(t('back'))}</button></div>`, (form, action, e) => {
+    e.preventDefault();
+    if (action === 'ok') setLen(get('tasks', x.id), readDur(form, 'rv_len', x.minutes || 30));
+    render(); back();
+  }, { cls: 'sheet' });
 }
 export function openPick(id, k) {
   const x = get('tasks', id); if (!x) return;
@@ -216,11 +254,46 @@ export function openPick(id, k) {
     <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('close'))}</button></div>`, async (form, action) => {
     const r = applyPick(get('tasks', id), action);
     if (r === 'repeat') { const { openTask } = await import('../editors.js'); setTimeout(() => openTask(get('tasks', id)), 0); }
+    if (r === 'grid') { setTimeout(() => openWeekGrid(get('tasks', id), { onClose: (how, k) => gridBack(id, how, k, () => modal.close()) }), 0); }
+    if (r === 'other') { setTimeout(() => lenOther(get('tasks', id), () => modal.close()), 0); }
     render();
   }, { cls: 'sheet' });
 }
-// "Sort now": what's not sorted, one at a time, full screen.
-export function openTriage(ids = unsortedList().map((x) => x.id), i = 0) {
+// (v66) "Rivedi": what's still to plan, one at a time, full screen. Every tap saves; tapping again takes it
+// off; the length and the when it has are always lit; "Scegli…" opens the week grid.
+export function openReview(ids = toPlanList().map((x) => x.id), i = 0) {
+  const all = ids.map((id) => get('tasks', id)).filter((x) => x && !x.deleted);
+  const x = all[i];
+  if (!x) {
+    const left = all.filter((y) => !y.done && !nextPlanned(y.id));
+    openModal(`<h2>${esc(t('triDone'))}</h2><p class="hint">${esc(t('rvDoneHint', all.length - left.length, left.length))}</p>
+      <div class="button-row">${left.length ? `<button class="btn primary" value="auto">✦ ${esc(t('planBtn'))} (${left.length})</button>` : ''}<button class="btn${left.length ? '' : ' primary'}" value="cancel">${esc(t('close'))}</button></div>`, async (form, action) => {
+      if (action === 'auto') { const { openAutoPlanner } = await import('../editors.js'); location.hash = '#/plan'; setTimeout(() => openAutoPlanner(), 50); }
+    }, { cls: 'sheet full tri rv' });
+    return;
+  }
+  const nb = nextPlanned(x.id);
+  const sec = (k) => `<div class="field-label">${esc(t(k === 'cat' ? 'mGroup' : k === 'len' ? 'mLen' : 'mWhen'))}</div><div class="vw-miss big">${pickChips(x, k)}</div>`;
+  openModal(`<p class="hint tri-n">${esc(t('rvN', i + 1, all.length))}</p>
+    <div class="rv-dots" aria-hidden="true">${all.map((_, j) => `<i class="${j <= i ? 'on' : ''}"></i>`).join('')}</div>
+    <h2 class="tri-t">${esc(x.title)}</h2>
+    ${sec('cat')}${sec('len')}${sec('when')}
+    ${nb ? `<p class="hint ok-text">${esc(t('rvInPlan', `${relDay(nb.date)} ${fmtTime(nb.start)}`))}</p>` : ''}
+    <div class="button-row tri-go"><button class="btn primary" value="next">${esc(t('triNext'))}</button><button class="btn ghost" value="cancel">${esc(t('triStop'))}</button></div>
+    <button class="linkish danger-text rv-del" value="del" formnovalidate>${esc(t('rvDel'))}</button>`, (form, action, e) => {
+    e.preventDefault();
+    if (action === 'next') { openReview(ids, i + 1); render(); return; }
+    if (action === 'del') { remove('tasks', x.id); render(); openReview(ids.filter((y) => y !== x.id), i); return; }
+    const r = applyPick(get('tasks', x.id), action);
+    if (r === 'grid') { openWeekGrid(get('tasks', x.id), { onClose: (how, k) => gridBack(x.id, how, k, () => openReview(ids, i)) }); return; }
+    if (r === 'other') { lenOther(get('tasks', x.id), () => openReview(ids, i)); return; }
+    render(); openReview(ids, i);
+  }, { cls: 'sheet full tri rv' });
+}
+// "Sort now": what's not sorted, one at a time, full screen (classic; v66 has Rivedi).
+export function openTriage(ids, i = 0) {
+  if (!classic()) { openReview(ids, i); return; }
+  ids ||= unsortedList().map((x) => x.id);
   const live1 = ids.map((id) => get('tasks', id)).filter((x) => x && !x.deleted);
   const x = live1[i];
   if (!x) {

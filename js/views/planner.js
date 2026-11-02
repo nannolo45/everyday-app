@@ -8,13 +8,15 @@ import { planTask } from '../model.js';
 import { alreadyPlanned, autoApply, autoChecks, blocksOn, blockTimeText, checklistLeft, checklistOf, checkMissed, conflictsOn, conflictText, eventsOn, ISSUE_SEC, issueText, linkFor, nextPlanned, outcomeOf, partsLeft, plannedWhen, prereqsOf, splitsSteps, stepTimes, taskDayOf, taskIssues, timedEventsOn, timesLeft } from '../model.js';
 import { addDays, dateStr, dayTotals, fmtDur, fmtTime, importanceOf, layoutBlocks, parseDate, sortTasks, today, weekday } from '../plan.js';
 import { addGhostList, autoHoursFor, hoursShort, inRange, loadOf, selecting, spreadLabel, trayTasks } from '../planning.js';
-import { changed, currentDate } from '../shell.js';
+import { changed, currentDate, render } from '../shell.js';
 import { matchesQ } from '../shoplist.js';
 import { get, live, state } from '../store.js';
 import { watchMonth } from '../sync.js';
 import { MODE_ICON } from '../travel.js';
 import { openModal, searchBox, windowsText } from '../widgets.js';
 import { DATE_GROUPS, dateBuckets, filterBar, sortPicker, sortTaskList, taskFilter, taskGroupsCfg, taskHay } from './tasks.js';
+import { finderHtml } from '../finder.js';
+import { isWide } from './wide.js';
 
 // "Already planned": a folded list at the bottom of the planning panels, each one a link to its day.
 export function plannedList(list, action, open) {
@@ -69,6 +71,7 @@ export function viewPlan(date) {
   const head = `
   <div class="plan-top">
     <div class="view-switch" role="tablist">${VIEWS.map((k) => `<button type="button" role="tab" class="${k === v ? 'on' : ''}" data-action="view" data-id="${k}" aria-selected="${k === v}">${esc(t(`v_${k}`))}</button>`).join('')}</div>
+    ${ag && !isWide() ? `<button class="btn small fd-toggle${ui.planFind ? ' on' : ''}" type="button" data-action="fd-toggle" aria-pressed="${Boolean(ui.planFind)}">🔍 ${esc(t('findOpen'))}</button>` : ''}
     ${v === 'day' && !ag ? `<button class="steps-switch" type="button" role="switch" data-action="toggle-steps" aria-checked="${showSteps()}" aria-pressed="${showSteps()}" title="${esc(t(showSteps() ? 'hideSteps' : 'showSteps'))}"><span class="sw" aria-hidden="true"></span>${esc(t('steps'))}</button>` : ''}
   </div>
   <div class="day-head">
@@ -85,7 +88,8 @@ export function viewPlan(date) {
     <button class="btn small primary" type="button" data-action="auto">✦ ${esc(t('planBtn'))}</button>
     <button class="btn small" type="button" data-action="add-menu">＋ ${esc(t('addMenu'))}</button>
   </div>`}`;
-  if (ag) return `${head}<section class="plan-main agenda-main">${v === 'week' ? agendaWeek(date) : v === 'month' ? viewMonth(date) : agendaDay(date)}</section>`;
+  // (v66) on a phone the pane's list and search open under the header (on a wide screen they're in the pane)
+  if (ag) return `${head}${ui.planFind && !isWide() ? `<section class="fd-phone">${finderHtml()}</section>` : ''}<section class="plan-main agenda-main">${v === 'week' ? agendaWeek(date) : v === 'month' ? viewMonth(date) : agendaDay(date)}</section>`;
   const main = v === 'week' ? viewWeek(date) : v === 'month' ? viewMonth(date) : viewDay(date);
   return `${head}<section class="plan-main">${main}</section>${trayHtml()}`;
 }
@@ -265,7 +269,7 @@ export function blockHtml(b, startMin, conflict, compact = false) {
       ${hpx >= 11 ? `${stepCheck(b, y)}<span class="st-title${y.travel && !y.known ? ' unknown' : ''}">${y.travel ? `${MODE_ICON[y.mode] || '🚌'} ` : ''}${y.travel && !y.known ? '? ' : ''}${esc(y.title)}</span><span class="st-time">${fmtTime(y.start)}</span>` : ''}</div>`;
   }).join('')}</div>` : '';
   const isEv = Boolean(b.taskId && isEvent(get('tasks', b.taskId)));
-  return `<div class="block${stepsIn ? ' with-steps' : ''}${status ? ` ${status}` : ''}${status === 'failed' ? ' done' : ''}${short ? ' short' : ''}${conflict ? ' conflict' : ''}${b.kind ? ` k-${b.kind}` : ''}${isEv ? ' own-event' : ''}" data-id="${esc(b.id)}" data-start="${b.start}" data-minutes="${b.minutes}"
+  return `<div class="block${ui.flash === b.id ? ' flash' : ''}${stepsIn ? ' with-steps' : ''}${status ? ` ${status}` : ''}${status === 'failed' ? ' done' : ''}${short ? ' short' : ''}${conflict ? ' conflict' : ''}${b.kind ? ` k-${b.kind}` : ''}${isEv ? ' own-event' : ''}" data-id="${esc(b.id)}" data-start="${b.start}" data-minutes="${b.minutes}"
     style="--c:${esc(color)};top:${(b.start - startMin) * P}px;height:${Math.max(b.minutes * P, 16)}px;left:${left};width:${width}">
     ${status === 'partial' ? `<span class="blk-check part" aria-label="${esc(t('partlyDone'))}" title="${esc(t('partlyDone'))}">◐</span>` : `<input type="checkbox" class="blk-check" data-action="block-done" data-id="${esc(b.id)}" ${status === 'done' ? 'checked' : ''} aria-label="${esc(t('markDone'))}">`}
     <div class="blk-body">
@@ -433,7 +437,8 @@ export function planCard() {
   if (props) return `<div class="ag-card-top on"><b>✦ ${esc(t('agProposals', props))}</b><button class="btn small" type="button" data-action="ag-cancel">${esc(t('cancel'))}</button><button class="btn small primary" type="button" data-action="ag-add">${esc(t('add'))}</button></div>`;
   const nPlan = trayTasks().length; const nFix = toFix(td, weekEndOf(td)).length;
   if (!nPlan && !nFix) return `<p class="ag-ok">✓ ${esc(t('agAllPlanned'))}</p>`;
-  return `<div class="ag-card-top"><span>${[nPlan ? t('agToPlan', nPlan) : '', nFix ? t('agToFix', nFix) : ''].filter(Boolean).map((s) => `<b>${esc(s)}</b>`).join(' · ')}</span><button class="btn small primary" type="button" data-action="ag-plan">✦ ${esc(t('planBtn'))}</button></div>`;
+  // (v66) one word for both: what's to plan and this week's routine turns without a time yet
+  return `<div class="ag-card-top"><span><b>${esc(t('agToPlan', nPlan + nFix))}</b></span><button class="btn small primary" type="button" data-action="ag-plan">✦ ${esc(t('planBtn'))}</button></div>`;
 }
 function agItems(date) {
   const ghosts = ghostsOn(date).map((g) => ({ k: 'ghost', g, start: g.start, minutes: g.minutes || 30 }));
@@ -455,7 +460,7 @@ function agRow(it) {
     return `<li class="ag-row ev" style="--c:${esc(e.color || 'var(--muted)')}">${time}<button class="ag-c" type="button" data-action="event" data-id="${esc(e.id)}"><span class="ag-t">📅 ${esc(e.title)}</span>${e.location ? `<small>📍 ${esc(e.location)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
   }
   const b = it.b; const st = outcomeOf(b);
-  return `<li class="ag-row${st ? ` is-${st}` : ''}" style="--c:${esc(catColor(b.category) || 'var(--accent)')}">${time}<button class="ag-c" type="button" data-action="open-block" data-id="${esc(b.id)}"><span class="ag-t">${st === 'done' ? '✓ ' : ''}${esc(b.title)}</span>${b.place ? `<small>📍 ${esc(b.place)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
+  return `<li class="ag-row${st ? ` is-${st}` : ''}${ui.flash === b.id ? ' flash' : ''}" style="--c:${esc(catColor(b.category) || 'var(--accent)')}">${time}<button class="ag-c" type="button" data-action="open-block" data-id="${esc(b.id)}"><span class="ag-t">${st === 'done' ? '✓ ' : ''}${esc(b.title)}</span>${b.place ? `<small>📍 ${esc(b.place)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
 }
 const gapRow = (date, start, min) => {
   const pick = ui.pick && get('tasks', ui.pick); // (v56) something picked in the pane: where it fits lights up

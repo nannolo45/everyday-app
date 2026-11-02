@@ -31,7 +31,9 @@ import { openEventFilters, prepareEvents } from './views/events.js';
 import { placePicked, wideClick } from './views/wide.js';
 import { applyTheme } from './theme.js';
 applyTheme();
-import { classic, curView, openFilters, openPick, openSort, openTriage, openViews, setView, viewList } from './views/impegni.js';
+import { classic, curView, openFilters, openPick, openSort, openTriage, openViews, setView, setWhen, viewList } from './views/impegni.js';
+import { openWeekGrid } from './weekgrid.js';
+import { goToBlock } from './finder.js';
 import { agendaAdd, agendaPlan, openGapFits, planStyle, showSteps } from './views/planner.js';
 import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName, SHOPS } from './views/shop.js';
 import { openTaskTools, taskFilter } from './views/tasks.js';
@@ -110,6 +112,7 @@ view.addEventListener('submit', (e) => {
 view.addEventListener('input', (e) => {
   if (e.target.id === 'tray-q' && ui.assign) { ui.assign.q = e.target.value; render(); }
   if (e.target.id === 'task-q') { ui.taskQ = e.target.value; render(); }
+  if (e.target.id === 'fd-q') { ui.fdQ = e.target.value; render(); }
   if (e.target.id === 'event-q') { ui.eventQ = e.target.value; render(); }
   if (e.target.id === 'shop-q') { ui.shopQ = e.target.value; render(); }
 });
@@ -246,6 +249,13 @@ view.addEventListener('click', (e) => {
   if (wideClick(btn)) return; // (v56) the pane on wide screens
   if (shopClick(btn, { planTrips: planTripsNow, shareList: shareShopList })) return; // the shopping list (views/shop.js)
   switch (action) {
+    // (v66) the Planner's task list and search (finder.js), the week grid
+    case 'fd-tab': ui.fdTab = id; render(); break;
+    case 'fd-toggle': ui.planFind = !ui.planFind; render(); if (ui.planFind) setTimeout(() => document.getElementById('fd-q')?.focus(), 30); break;
+    case 'fd-pick': ui.pick = ui.pick === id ? null : id; render(); break;
+    case 'fd-go': goToBlock(id); break;
+    case 'fd-move': { const b = get('blocks', id); const x = b && get('tasks', b.taskId); if (x) openWeekGrid(x, { block: b, onClose: () => { modal.close(); render(); } }); break; }
+    case 'fd-when': { const x = get('tasks', id); if (x) openWeekGrid(x, { onClose: (how, k) => { if (how === 'more') { openTask(get('tasks', id)); return; } if (how === 'quick') setWhen(get('tasks', id), k); modal.close(); render(); } }); break; }
     case 'plan-task': {
       const date = btn.dataset.date || currentDate();
       const b = planTask(get('tasks', id), date, btn.dataset.start ? Number(btn.dataset.start) : null);

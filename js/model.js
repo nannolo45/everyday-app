@@ -4,7 +4,7 @@ import { t } from './i18n.js';
 import { isEvent, isMealType, isSaved, isStep, isTodo, needsKind, withKind } from './kinds.js';
 import { addQuantities, formatQty } from './parse.js';
 import { sameFood } from './foods.js';
-import { addDays, autoTemplatesFor, completeTask, fmtDur, fmtTime, freeSlot, importanceOf, nextOccurrence, nowMinutes, occurrences, parseDate, reopenTask, REPEATS, ruleAt, templateBlocks, today } from './plan.js';
+import { addDays, autoTemplatesFor, completeTask, fmtDur, fmtTime, freeSlot, importanceOf, isoDay, nextOccurrence, nowMinutes, occurrences, parseDate, reopenTask, REPEATS, ruleAt, templateBlocks, today } from './plan.js';
 import { prepMinutes } from './recipes.js';
 import { findConflicts, placeGroceries, placePrep, windowOn, WINDOWS } from './smart.js';
 import { contractTooNew, get, has, live, remove, state, uid, upsert } from './store.js';
@@ -242,7 +242,9 @@ export function planTask(task, date, start = null, extra = {}) {
 export const SERIES_DAYS = 56;
 export const isSeries = (x) => Boolean(x && (REPEATS.includes(x.repeat) || REPEATS.includes(x.next?.repeat)) && !isStep(x));
 // The fixed time of a series on a day (its own, or the next rule's from that rule's date on).
-const seriesTimeOn = (task, d) => ruleAt(task, d).seriesTime;
+// (v66) A weekly series may have a time for each day it comes back on (`slotTimes` {isoDay: minute}, the
+// week grid's "every week"); otherwise one time for all.
+const seriesTimeOn = (task, d) => { const r = ruleAt(task, d); return r.slotTimes?.[isoDay(d)] ?? r.seriesTime; };
 export const seriesBlocks = (taskId) => live('blocks').filter((b) => b.seriesId === taskId);
 export function ensureSeries(task) {
   if (!isSeries(task) || (task.seriesTime == null && task.next?.seriesTime == null) || task.done) return;
