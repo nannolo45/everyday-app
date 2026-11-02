@@ -127,7 +127,7 @@ export function viewShop() {
   const done = cartItems().filter((i) => !q || itemMatches(i, q));
   const allDone = cartItems();
   const labels = slLabels();
-  const food = allDone.filter(isFood).length;
+  const food = ricetteConfigured() ? allDone.length : allDone.filter(isFood).length; // (v63) with Ricette everything is put away
   const any = live(SH()).length > 0;
   // (v52) the explanation and the sync line are behind ⓘ; adding goes through the + button
   return `
@@ -180,7 +180,12 @@ function undoRemove() {
 }
 
 export function putAwayCart() {
-  const n = K().putAway(isFood, (it) => (it.cat && DEPT_IDS.includes(it.cat) && !NONFOOD.includes(it.cat) ? it.cat : null));
+  // (v63, Ricette v53) with Ricette, cleaning and care items go into the pantry too (Ricette files them under
+  // Casa e pulizia from their department); on Everyday's own list only food is kept, as before.
+  const all = ricetteConfigured();
+  // Food keeps a department only when a person chose one; cleaning and care always carry theirs, so Ricette can file them.
+  const catOf = (it) => { if (it.cat && DEPT_IDS.includes(it.cat) && !NONFOOD.includes(it.cat)) return it.cat; const d = shopDept(it); return all && NONFOOD.includes(d) ? d : null; };
+  const n = K().putAway(all ? () => true : isFood, catOf);
   toast(t('putAwayDone', n));
   ui.cartOpen = false;
   changed();

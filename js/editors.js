@@ -295,9 +295,9 @@ export function openQuickTask({ saved = false, kind = saved ? 'saved' : 'todo', 
       <button class="linkish" value="more">${esc(t('moreDetails'))}</button>`
     : saved ? `<button class="btn primary big" value="add"><b>${esc(t('addSavedBtn'))}</b><small id="quick-slot">${esc(t('addSavedSub'))}</small></button>
       <button class="linkish" value="more">${esc(t('moreDetails'))}</button>`
-    : `<button class="btn primary big" value="plan"><b>${esc(t('addAndPlan'))}</b><small id="quick-slot"></small></button>
-      <div class="two-btn"><button class="btn" value="add">${esc(t('justAdd'))}</button><button class="btn" value="when">${esc(t('chooseWhen'))}</button></div>
-      <button class="linkish" value="more">${esc(t('moreDetails'))}</button>`;
+    : `<button class="btn primary big" value="add"><b>${esc(t('addBtnTask'))}</b><small>${esc(t('addBtnTaskSub'))}</small></button>
+      <div class="two-btn"><button class="btn two-line" value="plan"><b>${esc(t('addAndPlan'))}</b><small id="quick-slot"></small></button><button class="btn two-line" value="when"><b>${esc(t('chooseWhen'))}</b><small>${esc(t('chooseWhenSub'))}</small></button></div>
+      <button class="linkish" value="more">${esc(t('moreDetails'))}</button>`; // (v63) Add first; planning is a choice
   openModal(`
     ${vw ? `<h2 class="quick-where">${esc(t('addToView', viewName(vw)))}</h2>` : ''}
     <div class="kind-chips" role="group" aria-label="${esc(t('addMenuFab'))}">${(vw ? ['todo', 'saved', 'shop'] : ['todo', 'event', 'saved', 'meal', 'shop']).map(chip).join('')}</div>
@@ -416,8 +416,8 @@ export function afterAdd(x, block, { tried = false } = {}) {
   const sv = x.kind === 'saved';
   const here = route().name === 'tasks' && (!classic() || (ui.tasksTab || state.settings.tasksTab) === (sv ? 'saved' : 'todo'));
   const show = here ? [] : [{ label: t('show'), run: () => { ui.tasksTab = sv ? 'saved' : 'todo'; if (!classic()) setView('overview'); location.hash = '#/tasks'; render(); } }];
-  if (block) toast(t('addedPlanned', relDay(block.date), fmtTime(block.start)), 8000, [{ label: t('change'), run: () => openBlock(get('blocks', block.id)) }, undo]);
-  else toast(sv ? t('addedSaved') : tried ? t('addedNoSlot') : t('addedToList'), 8000, [...show, undo]);
+  if (block) toast(t('addedPlanned', relDay(block.date), fmtTime(block.start)), 5000, [{ label: t('change'), run: () => openBlock(get('blocks', block.id)) }, undo]);
+  else toast(sv ? t('addedSaved') : tried ? t('addedNoSlot') : t('addedToList'), 5000, [...show, undo]);
 }
 
 // "+ Add": things you put on the plan by hand.

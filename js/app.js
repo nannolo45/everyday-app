@@ -12,7 +12,7 @@
 // Pure logic with unit tests lives in plan.js, smart.js, kinds.js, travel.js, shops.js and friends;
 // storage and sync in store.js and sync.js.
 import { moveWeek, openRoutine } from './routines.js';
-import { $, findCategory, fmtDay, modal, PPM, quickFields, range, relDay, route, seedCategories, TAB_OF, TABS, toast, ui, view } from './core.js';
+import { $, findCategory, hideToast, fmtDay, modal, PPM, quickFields, range, relDay, route, seedCategories, TAB_OF, TABS, toast, ui, view } from './core.js';
 import { setupDrag } from './drag.js';
 import { afterStart, openPalestra, doShift, finishTimer, openAddMenu, openPickSheet, openQuickTask, plusKind, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, openMeal, openPlanSaved, openSavedPicker, openShopRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
 import { t } from './i18n.js';
@@ -469,7 +469,7 @@ setupDrag(view, {
   fab.addEventListener('pointerdown', () => { held = false; hold = setTimeout(() => { held = true; navigator.vibrate?.(12); openAddMenu({ fab: true }); }, 500); });
   for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) fab.addEventListener(ev, () => clearTimeout(hold));
   fab.addEventListener('contextmenu', (e) => { e.preventDefault(); if (!held) openAddMenu({ fab: true }); held = true; });
-  fab.addEventListener('click', () => { if (held) { held = false; return; } openQuickTask({ kind: plusKind() }); });
+  fab.addEventListener('click', () => { if (held) { held = false; return; } hideToast(); openQuickTask({ kind: plusKind() }); });
 }
 $('#app-title').addEventListener('click', () => {
   if (route().name === 'today') window.scrollTo({ top: 0, behavior: 'smooth' }); else location.hash = '#/today';

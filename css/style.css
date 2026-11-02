@@ -1154,7 +1154,11 @@ label.check.tall { align-items: flex-start; }
 .quick-go .two-btn { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .quick-go .linkish { align-self: center; padding: 8px; }
 .quick-done { font-size: .85rem; color: var(--green); min-height: 1.2em; margin: 4px 0 0; }
-#toast.act.show ~ #fab { opacity: 0; pointer-events: none; }
+/* (v63) the toast with Undo leaves the + free: on a phone it sits to the left of it, and tapping + closes it */
+@media (max-width: 1099px) {
+  #toast.act { left: 12px; right: 88px; width: auto; max-width: none; transform: translate(0, 20px); }
+  #toast.act.show { transform: translate(0, 0); }
+}
 #fab { transition: opacity .2s; }
 .quick-go .btn.primary.big small { color: inherit; opacity: .9; }
 dialog.quick h2 { margin-top: .4rem; }
@@ -1456,3 +1460,7 @@ body.is-wide.wide-pane #fab { right: calc(var(--pane) + 28px); }
 .seg.theme-seg input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .seg.theme-seg label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 .set-sub-h { margin: 18px 4px 6px; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); } /* (v62) groups of rows in Avanzate */
+
+/* (v63) the + sheet: Aggiungi first; the two ways to plan under it, each with a line on what it does */
+.quick-go .two-btn .btn.two-line { flex-direction: column; gap: 2px; min-height: 58px; padding: 8px 10px; line-height: 1.2; }
+.quick-go .two-btn .btn.two-line small { font-weight: 500; font-size: .75rem; color: var(--muted); }

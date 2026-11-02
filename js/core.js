@@ -6,7 +6,7 @@ import { addDays, fmtTime, parseDate, today } from './plan.js';
 import { get, has, live, remove, state, uid, upsert } from './store.js';
 
 // Shown under Settings; keep in step with VERSION in sw.js (a unit test checks).
-export const APP_VERSION = 'v62';
+export const APP_VERSION = 'v63';
 
 export const $ = (sel, root = document) => root.querySelector(sel);
 // Hints that were emptied in i18n (the guide explains instead) render nothing.
@@ -57,8 +57,11 @@ export function toast(msg, ms = 3200, actions = null) {
   } else { el.textContent = msg; el.classList.remove('act'); el.onclick = null; }
   el.classList.add('show');
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(hide, actions?.length ? Math.max(ms, 8000) : ms);
+  toast.timer = setTimeout(hide, actions?.length ? Math.max(ms, 5000) : ms);
+  toast.hide = hide;
 }
+// (v63) close it now (tapping + for the next one)
+export function hideToast() { clearTimeout(toast.timer); toast.hide?.(); }
 
 export function route() {
   const h = location.hash.replace(/^#\/?/, '') || 'today';
