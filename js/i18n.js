@@ -6,6 +6,10 @@ const plural = (n, one, many) => (n === 1 ? one : many);
 
 const dict = {
   en: {
+    // (v67) the block sheet's Esito, the Pianifica choice, the proposals list
+    esito: 'Outcome', esStart: 'Start', esDone: 'Done', esFail: "Didn't manage", esDoneAt: (tm) => `Done · ${tm}`, esDoneLine: 'Done', esFailLine: "Didn't manage", esRunning: (n) => `Running · ${n} min`, esFinish: 'Finish', esDoneToast: 'Done ✓',
+    pickBanner: (s, d) => `Tap a lit free stretch for “${s}” (${d})`, planChoose: 'Plan', smartTitle: 'Smart suggestion', smartSub: (n) => (n === 1 ? 'The app finds free time for it; then you look and add it.' : `The app finds free time for all ${n}; then you look and add them.`),
+    mineTitle: 'I choose', mineSub: "Find, pick a task, then where. Also to find or move what's on the plan.", propsH: 'Proposals', propsHint: 'Tap one to see it in the calendar.', propsList: 'List', propsDays: (n) => `on ${n} ${n === 1 ? 'day' : 'days'}`, propsAllUp: 'All in the proposals above.',
     // (v66) the week grid, the short task sheet, Rivedi, the planner pane
     wgTitle: 'When', wgPickHint: '…or tap the parts of the day, one at a time:', wgThisWeek: 'This week', wgNextWeek: 'Next week', wgInWeeks: (n) => `In ${n} weeks`,
     wgFree: (d) => `${d} free`, wgFull: 'full', wgRepeat: 'Repeat', wgOnce: 'Once', wgWeekly: 'Every week', wg2w: 'Every 2 weeks', wgMore: 'Other repeats…',
@@ -313,6 +317,10 @@ const dict = {
     r_morning: 'your morning slot', r_afternoon: 'your afternoon slot', r_evening: 'your evening slot',
   },
   it: {
+    // (v67) l'Esito del blocco, la scelta Pianifica, l'elenco delle proposte
+    esito: 'Esito', esStart: 'Inizia', esDone: 'Fatto', esFail: 'Non riuscito', esDoneAt: (tm) => `Fatta · ${tm}`, esDoneLine: 'Fatta', esFailLine: 'Non riuscito', esRunning: (n) => `In corso · ${n} min`, esFinish: 'Fine', esDoneToast: 'Fatto ✓',
+    pickBanner: (s, d) => `Tocca uno spazio acceso per «${s}» (${d})`, planChoose: 'Pianifica', smartTitle: 'Suggerimento intelligente', smartSub: (n) => (n === 1 ? 'L\'app trova il tempo libero per questa, poi la guardi e la aggiungi.' : `L'app trova il tempo libero per tutte e ${n}, poi le guardi e le aggiungi.`),
+    mineTitle: 'Scelgo io', mineSub: 'Cerca, scegli un\'attività e poi dove. Anche per trovare o spostare quelle già nel piano.', propsH: 'Proposte', propsHint: 'Tocca una proposta per vederla nel calendario.', propsList: 'Elenco', propsDays: (n) => `su ${n} ${n === 1 ? 'giorno' : 'giorni'}`, propsAllUp: 'Tutte nelle proposte qui sopra.',
     // (v66) la griglia della settimana, la scheda corta, Rivedi, il pannello del Planner
     wgTitle: 'Quando', wgPickHint: '…oppure tocca le parti del giorno, una per volta:', wgThisWeek: 'Questa settimana', wgNextWeek: 'Prossima settimana', wgInWeeks: (n) => `Tra ${n} settimane`,
     wgFree: (d) => `${d} libere`, wgFull: 'pieno', wgRepeat: 'Ripeti', wgOnce: 'Una volta', wgWeekly: 'Ogni settimana', wg2w: 'Ogni 2 sett.', wgMore: 'Altre ripetizioni…',
@@ -615,6 +623,10 @@ const dict = {
     r_morning: 'la tua fascia del mattino', r_afternoon: 'la tua fascia del pomeriggio', r_evening: 'la tua fascia serale',
   },
   de: {
+    // (v67) das Ergebnis im Block, die Wahl Planen, die Vorschlagsliste
+    esito: 'Ergebnis', esStart: 'Starten', esDone: 'Erledigt', esFail: 'Nicht geschafft', esDoneAt: (tm) => `Erledigt · ${tm}`, esDoneLine: 'Erledigt', esFailLine: 'Nicht geschafft', esRunning: (n) => `Läuft · ${n} Min`, esFinish: 'Fertig', esDoneToast: 'Erledigt ✓',
+    pickBanner: (s, d) => `Tippe eine helle freie Zeit für „${s}“ an (${d})`, planChoose: 'Planen', smartTitle: 'Intelligenter Vorschlag', smartSub: (n) => (n === 1 ? 'Die App sucht freie Zeit dafür; dann prüfst du und fügst sie hinzu.' : `Die App sucht freie Zeit für alle ${n}; dann prüfst du und fügst sie hinzu.`),
+    mineTitle: 'Ich wähle', mineSub: 'Suchen, eine Aufgabe wählen, dann wohin. Auch zum Finden oder Verschieben, was schon im Plan ist.', propsH: 'Vorschläge', propsHint: 'Tippe einen an, um ihn im Kalender zu sehen.', propsList: 'Liste', propsDays: (n) => `an ${n} ${n === 1 ? 'Tag' : 'Tagen'}`, propsAllUp: 'Alle in den Vorschlägen oben.',
     // (v66) das Wochenraster, das kurze Blatt, Durchgehen, der Planer-Bereich
     wgTitle: 'Wann', wgPickHint: '…oder tippe die Tageszeiten an, eine nach der anderen:', wgThisWeek: 'Diese Woche', wgNextWeek: 'Nächste Woche', wgInWeeks: (n) => `In ${n} Wochen`,
     wgFree: (d) => `${d} frei`, wgFull: 'voll', wgRepeat: 'Wiederholen', wgOnce: 'Einmal', wgWeekly: 'Jede Woche', wg2w: 'Alle 2 Wochen', wgMore: 'Andere Wiederholungen…',

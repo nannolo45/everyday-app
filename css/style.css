@@ -1551,3 +1551,54 @@ dialog.wg-sheet .wg-sub { margin: 0 0 8px; }
 .ag-row.flash, .block.flash { animation: ev-flash 1.6s ease 2; }
 @keyframes ev-flash { 0%, 100% { box-shadow: none; } 30% { box-shadow: 0 0 0 3px var(--accent); } }
 @media (prefers-reduced-motion: reduce) { .ag-row.flash, .block.flash { animation: none; box-shadow: 0 0 0 3px var(--accent); } }
+
+/* (v67) proposals: a clearer dashed edge, in the task's colour */
+.ag-row.ghost .ag-c { border: 2px dashed color-mix(in srgb, var(--c) 75%, var(--ink)); border-left: 4px solid var(--c); background: color-mix(in srgb, var(--c) 10%, transparent); }
+.block.ghost.assign { border: 2px dashed color-mix(in srgb, var(--c) 75%, var(--ink)); border-left: 4px solid var(--c); }
+
+/* (v67) the block sheet: Esito at the bottom, then Salva · Annulla · ⋯ */
+.bk-foot { position: sticky; bottom: -1px; margin: 14px -2px 0; padding: 10px 2px 2px; background: var(--bg); border-top: 1px solid var(--line); z-index: 2; }
+.esito { border: 1px solid var(--line); background: var(--surface); border-radius: 14px; padding: 10px; }
+.es-q { font-size: .72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 0 2px 7px; }
+.es-row { display: flex; gap: 8px; }
+.es-row .btn { flex: 1; padding-left: 6px; padding-right: 6px; }
+.es-state { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 11px; font-weight: 600; }
+.es-state + .es-row { margin-top: 7px; }
+.es-state span { flex: 1; }
+.es-state.done { background: color-mix(in srgb, var(--green) 18%, var(--surface)); color: var(--green); }
+.es-state.fail { background: color-mix(in srgb, var(--warn) 16%, var(--surface)); color: var(--warn); }
+.es-state.run { background: var(--accent-soft); color: var(--accent); }
+.button-row.bk-row { margin: 10px 0 4px; flex-wrap: nowrap; }
+.bk-row > .btn { flex: 1; }
+.bk-more { position: relative; }
+.bk-more > summary { list-style: none; width: 46px; padding-left: 0; padding-right: 0; }
+.bk-more > summary::-webkit-details-marker { display: none; }
+.bk-menu { position: absolute; right: 0; bottom: calc(100% + 6px); min-width: 180px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 8px 24px rgba(0, 0, 0, .3); padding: 6px; display: flex; flex-direction: column; gap: 2px; z-index: 5; }
+.bk-menu .btn { justify-content: flex-start; width: 100%; }
+
+/* (v67) the Planner card: picking by hand, proposals on two rows on a phone */
+.ag-pick { display: flex; align-items: center; gap: 8px; margin: 2px 0 10px; padding: 9px 12px; border-radius: 14px; background: var(--accent-soft); border: 1px solid var(--accent); font-size: .9rem; }
+.ag-pick span { flex: 1; }
+.ag-card-top > span small { display: block; font-weight: 400; color: var(--muted); font-size: .8rem; }
+.ag-card-top.two-row { flex-wrap: wrap; }
+.ag-card-top.two-row > span { flex-basis: 100%; }
+.ag-card-top.two-row > .btn { flex: 1; }
+
+/* (v67) the proposals list (pane, Elenco) and the Pianifica choice */
+.pv { display: flex; flex-direction: column; gap: 4px; }
+.pv-h { display: flex; align-items: center; gap: 6px; }
+.pv-h b { flex: 1; }
+.pv-h small { font-weight: 400; color: var(--muted); }
+.pv-row { border: 2px dashed color-mix(in srgb, var(--accent) 50%, var(--line)); }
+.pv-why { display: block; font-weight: 500; font-size: .76rem; color: var(--accent); }
+.pv-x { align-self: center; }
+.fd-sep { height: 1px; background: var(--line); margin: 4px 0; }
+.choose { display: flex; flex-direction: column; gap: 10px; margin: 12px 0 4px; }
+.choose-opt { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 3px; padding: 14px 16px; border-radius: 16px; width: 100%; }
+.choose-opt b { font-size: 1.02rem; }
+.choose-opt small { font-weight: 400; font-size: .85rem; opacity: .85; }
+.choose-opt:disabled { opacity: .5; }
+.choose-opt { white-space: normal; }
+.choose-opt small { color: inherit; opacity: .8; }
+.bk-menu .btn { color: var(--ink); }
+.bk-menu .btn.danger { color: var(--danger); }

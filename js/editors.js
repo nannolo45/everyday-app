@@ -1684,8 +1684,17 @@ export function openBlock(block, defaults = {}) {
   // With steps, the time shown is when the anchor step starts (e.g. "Workout at 19:00"; getting there starts earlier).
   const off = !isNew && task ? anchorOffset(b, task) : 0;
   const anchorName = off ? anchorTitle(task) : null;
+  // (v67) No "Blocco" heading, and how it went (Esito: Inizia · Fatto · Non riuscito) sits at the bottom
+  // apart from editing it (Salva · Annulla · ⋯ with Duplica and Elimina). The classic layout keeps the old row.
+  const esNew = !classic();
+  const running = Boolean(b.startedAt && !b.endedAt);
+  const esito = !esNew || isNew ? '' : `<div class="esito"><div class="es-q">${esc(t('esito'))}</div>${status === 'done' || status === 'partial'
+    ? `<div class="es-state done"><span>✓ ${esc(b.endedAt ? `${t('esDoneLine')} · ${t('realOf', fmtDur(b.minutes), fmtDur(b.plannedMinutes || b.minutes))}` : t('esDoneLine'))}</span><button class="btn small" value="reset" formnovalidate>${esc(t('undo'))}</button></div>`
+    : status === 'failed' ? `<div class="es-state fail"><span>✕ ${esc(t('esFailLine'))}</span><button class="btn small" value="reset" formnovalidate>${esc(t('undo'))}</button></div>`
+    : running ? `<div class="es-state run"><span>⏱ ${esc(t('esRunning', Math.max(1, Math.round((Date.now() - b.startedAt) / 60000))))}</span></div><div class="es-row"><button class="btn primary" value="finish" formnovalidate>■ ${esc(t('esFinish'))}</button><button class="btn" value="fail" formnovalidate>✕ ${esc(t('esFail'))}</button></div>`
+    : `<div class="es-row">${b.date === today() && !isShop ? `<button class="btn" value="block-start" formnovalidate>▶ ${esc(t(isPalestra(task) ? 'palStart' : 'esStart'))}</button>` : ''}<button class="btn primary" value="done" formnovalidate>✓ ${esc(t('esDone'))}</button><button class="btn" value="fail" formnovalidate>✕ ${esc(t('esFail'))}</button></div>`}</div>`;
   openModal(`
-    <h2>${esc(isShop ? `🛒 ${t('groceryTitle')}` : isNew ? t('newBlock') : t('editBlock'))}</h2>
+    ${!esNew || isShop ? `<h2>${esc(isShop ? `🛒 ${t('groceryTitle')}` : isNew ? t('newBlock') : t('editBlock'))}</h2>` : ''}
     ${parent ? `<p class="hint">↳ ${esc(t('prepForBlock', parent.title, fmtTime(parent.start)))}</p>` : ''}
     ${status === 'failed' ? `<p class="conn bad">✕ ${esc(t('markedCouldnt'))}${b.missing?.length ? ` ${esc(t('missingWere', b.missing.join(', ')))}` : ''}</p>` : ''}
     ${isCheckStep(b) && !status ? `${hint('checkStepHint')}` : ''}
@@ -1710,18 +1719,28 @@ export function openBlock(block, defaults = {}) {
     ${isShop ? '' : `<div class="field-label">${esc(t('category'))}</div>${catChips(b.category)}`}
     <label>${esc(t('notes'))}<textarea name="notes" rows="2">${esc(b.notes || '')}</textarea></label>
     <label class="check"><input type="checkbox" name="allowOverlap" ${b.allowOverlap ? 'checked' : ''}> ${esc(t('allowOverlap'))}</label>
-    ${!isNew && !status && !b.startedAt && b.date >= today() && !isShop ? `<button class="btn primary start-now" value="block-start" formnovalidate>▶ ${esc(t(isPalestra(task) ? 'palStart' : 'startNow'))}</button>` : ''}
-    ${b.startedAt && !b.endedAt ? `<p class="hint">⏱ ${esc(t('timerRunning'))}</p>` : b.endedAt ? `<p class="hint">⏱ ${esc(t('realOf', fmtDur(b.minutes), fmtDur(b.plannedMinutes || b.minutes)))}</p>` : ''}
+    ${!esNew && !isNew && !status && !b.startedAt && b.date >= today() && !isShop ? `<button class="btn primary start-now" value="block-start" formnovalidate>▶ ${esc(t(isPalestra(task) ? 'palStart' : 'startNow'))}</button>` : ''}
+    ${esNew ? '' : b.startedAt && !b.endedAt ? `<p class="hint">⏱ ${esc(t('timerRunning'))}</p>` : b.endedAt ? `<p class="hint">⏱ ${esc(t('realOf', fmtDur(b.minutes), fmtDur(b.plannedMinutes || b.minutes)))}</p>` : ''}
     ${isShop || isNew ? '' : task ? `<button class="btn small edit-task" value="edit-task" formnovalidate>${isEvent(task) ? '📅' : '▤'} ${esc(t(isEvent(task) ? 'editEventBtn' : 'editTaskSteps', task.title))}</button>`
     : `<button class="btn small edit-task" value="to-task" formnovalidate>▤ ${esc(t('makeTask'))}</button>`}
-    <div class="button-row">
+    ${esNew ? `<div class="bk-foot">${esito}<div class="button-row bk-row">
+      <button class="btn primary" value="ok">${esc(t('save'))}</button>
+      <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
+      ${isNew ? '' : `<details class="bk-more"><summary class="btn" aria-label="${esc(t('options'))}">⋯</summary><div class="bk-menu"><button class="btn ghost" value="dup" formnovalidate>⧉ ${esc(t('duplicate'))}</button><button class="btn ghost danger" value="delete" formnovalidate>🗑 ${esc(t('delete'))}</button></div></details>`}
+    </div></div>` : `<div class="button-row">
       <button class="btn primary" value="ok">${esc(t('save'))}</button>
       ${isNew ? '' : status ? `<button class="btn" value="reset" formnovalidate>${esc(t('reset'))}</button>` : `<button class="btn" value="fail" formnovalidate>${esc(t('couldntDo'))}</button>`}
       <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
       ${isNew ? '' : `<button class="btn" value="dup" formnovalidate>${esc(t('duplicate'))}</button>
       <button class="btn danger" value="delete" formnovalidate>${esc(t('delete'))}</button>`}
-    </div>`, (form, action, e) => {
+    </div>`}`, (form, action, e) => {
     if (stepAction(b, action, e, openBlock)) return;
+    // (v67) Esito: Fatto (a checklist or a rule may ask first) and Fine of a running timer
+    if (action === 'done') {
+      setTimeout(() => { const ok = trySetBlockDone(get('blocks', b.id), true); changed(); if (ok) toast(t('esDoneToast'), 5000, [{ label: t('undo'), run: () => { setOutcome(get('blocks', b.id), null); changed(); } }]); }, 0);
+      return;
+    }
+    if (action === 'finish') { setTimeout(() => finishTimer(), 0); return; }
     if (action === 'block-start') { const nb = startBlock(get('blocks', b.id)); if (isPalestra(task)) openPalestra(task, nb); afterStart(nb); return; }
     if (action === 'edit-task') { setTimeout(() => openTask(get('tasks', task.id), null, { fromOcc: b.occ || null }), 0); return; }
     if (action === 'to-task') {

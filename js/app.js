@@ -33,7 +33,7 @@ import { applyTheme } from './theme.js';
 applyTheme();
 import { classic, curView, openFilters, openPick, openSort, openTriage, openViews, setView, setWhen, viewList } from './views/impegni.js';
 import { openWeekGrid } from './weekgrid.js';
-import { goToBlock } from './finder.js';
+import { goToBlock, goToProposal, openChooser, openPropsList, sheetClick } from './finder.js';
 import { agendaAdd, agendaPlan, openGapFits, planStyle, showSteps } from './views/planner.js';
 import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName, SHOPS } from './views/shop.js';
 import { openTaskTools, taskFilter } from './views/tasks.js';
@@ -251,7 +251,10 @@ view.addEventListener('click', (e) => {
   switch (action) {
     // (v66) the Planner's task list and search (finder.js), the week grid
     case 'fd-tab': ui.fdTab = id; render(); break;
-    case 'fd-toggle': ui.planFind = !ui.planFind; render(); if (ui.planFind) setTimeout(() => document.getElementById('fd-q')?.focus(), 30); break;
+    case 'ag-choose': openChooser(); break; // (v67) the phone's Pianifica
+    case 'pv-list': openPropsList(); break;
+    case 'pv-go': goToProposal(id, btn.dataset.date); break;
+    case 'fd-unpick': ui.pick = null; render(); break;
     case 'fd-pick': ui.pick = ui.pick === id ? null : id; render(); break;
     case 'fd-go': goToBlock(id); break;
     case 'fd-move': { const b = get('blocks', id); const x = b && get('tasks', b.taskId); if (x) openWeekGrid(x, { block: b, onClose: () => { modal.close(); render(); } }); break; }
@@ -420,6 +423,11 @@ view.addEventListener('click', (e) => {
   }
 });
 
+// (v67) the Planner's sheets on a phone (Scelgo io, the proposals): their rows act as in the pane
+modal.addEventListener('click', (e) => {
+  const btn = e.target.closest('.fd [data-action], .pv [data-action]');
+  if (btn && sheetClick(btn)) e.preventDefault();
+});
 modal.addEventListener('click', (e) => {
   const a = e.target.closest('[data-action=open-task], [data-action=task-fix]');
   if (!a) return;

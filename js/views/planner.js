@@ -15,7 +15,6 @@ import { watchMonth } from '../sync.js';
 import { MODE_ICON } from '../travel.js';
 import { openModal, searchBox, windowsText } from '../widgets.js';
 import { DATE_GROUPS, dateBuckets, filterBar, sortPicker, sortTaskList, taskFilter, taskGroupsCfg, taskHay } from './tasks.js';
-import { finderHtml } from '../finder.js';
 import { isWide } from './wide.js';
 
 // "Already planned": a folded list at the bottom of the planning panels, each one a link to its day.
@@ -71,7 +70,6 @@ export function viewPlan(date) {
   const head = `
   <div class="plan-top">
     <div class="view-switch" role="tablist">${VIEWS.map((k) => `<button type="button" role="tab" class="${k === v ? 'on' : ''}" data-action="view" data-id="${k}" aria-selected="${k === v}">${esc(t(`v_${k}`))}</button>`).join('')}</div>
-    ${ag && !isWide() ? `<button class="btn small fd-toggle${ui.planFind ? ' on' : ''}" type="button" data-action="fd-toggle" aria-pressed="${Boolean(ui.planFind)}">🔍 ${esc(t('findOpen'))}</button>` : ''}
     ${v === 'day' && !ag ? `<button class="steps-switch" type="button" role="switch" data-action="toggle-steps" aria-checked="${showSteps()}" aria-pressed="${showSteps()}" title="${esc(t(showSteps() ? 'hideSteps' : 'showSteps'))}"><span class="sw" aria-hidden="true"></span>${esc(t('steps'))}</button>` : ''}
   </div>
   <div class="day-head">
@@ -88,8 +86,7 @@ export function viewPlan(date) {
     <button class="btn small primary" type="button" data-action="auto">✦ ${esc(t('planBtn'))}</button>
     <button class="btn small" type="button" data-action="add-menu">＋ ${esc(t('addMenu'))}</button>
   </div>`}`;
-  // (v66) on a phone the pane's list and search open under the header (on a wide screen they're in the pane)
-  if (ag) return `${head}${ui.planFind && !isWide() ? `<section class="fd-phone">${finderHtml()}</section>` : ''}<section class="plan-main agenda-main">${v === 'week' ? agendaWeek(date) : v === 'month' ? viewMonth(date) : agendaDay(date)}</section>`;
+  if (ag) return `${head}<section class="plan-main agenda-main">${v === 'week' ? agendaWeek(date) : v === 'month' ? viewMonth(date) : agendaDay(date)}</section>`;
   const main = v === 'week' ? viewWeek(date) : v === 'month' ? viewMonth(date) : viewDay(date);
   return `${head}<section class="plan-main">${main}</section>${trayHtml()}`;
 }
@@ -398,7 +395,7 @@ export function assignGhostHtml(g, startMin) {
   const task = get('tasks', g.taskId);
   // Under 45 minutes: one line (title, time), the reason only in the list and the tooltip.
   const short = (g.minutes + (g.lead || 0)) * P < 54;
-  return `<div class="block ghost assign${short ? ' short' : ''}" data-action="ghost-rm" data-i="${g.i}" data-start="${g.start - (g.lead || 0)}" data-minutes="${g.minutes + (g.lead || 0)}" title="${esc(ghostTip(g))}" style="--c:${esc(catColor(task?.category) || 'var(--accent)')};top:${(g.start - (g.lead || 0) - startMin) * P}px;height:${Math.max((g.minutes + (g.lead || 0)) * P, 16)}px;left:1px;right:3px">
+  return `<div class="block ghost assign${short ? ' short' : ''}${ui.flash === `g${g.i}` ? ' flash' : ''}" data-fk="g${g.i}" data-action="ghost-rm" data-i="${g.i}" data-start="${g.start - (g.lead || 0)}" data-minutes="${g.minutes + (g.lead || 0)}" title="${esc(ghostTip(g))}" style="--c:${esc(catColor(task?.category) || 'var(--accent)')};top:${(g.start - (g.lead || 0) - startMin) * P}px;height:${Math.max((g.minutes + (g.lead || 0)) * P, 16)}px;left:1px;right:3px">
     <div class="blk-body"><div class="blk-title">${esc(ghostTitle(g))} <span class="ghost-x">✕</span></div><div class="blk-time">${range(g.start, g.minutes)}</div>${ghostWhy(g) && !short ? `<div class="blk-why">✦ ${esc(ghostWhy(g))}</div>` : ''}</div></div>`;
 }
 
@@ -411,7 +408,7 @@ export function planStyle() {
 }
 const weekEndOf = (d) => addDays(weekStart(d), 6);
 // The routines' proposals ("to set" this week), kept while the proposals are on screen.
-function fixProps() {
+export function fixProps() {
   const out = [];
   for (const r of ui.assign?.fix || []) {
     if (r.date && r.options?.[0]) out.push({ fix: true, taskId: r.x.id, title: r.x.title, date: r.date, start: r.options[0].start, minutes: r.x.minutes || 30, category: r.x.category });
@@ -434,8 +431,17 @@ export function agendaAdd() {
 export function planCard() {
   const td = today();
   const props = (ui.assign?.ghosts?.length || 0) + fixProps().length;
-  if (props) return `<div class="ag-card-top on"><b>✦ ${esc(t('agProposals', props))}</b><button class="btn small" type="button" data-action="ag-cancel">${esc(t('cancel'))}</button><button class="btn small primary" type="button" data-action="ag-add">${esc(t('add'))}</button></div>`;
+  const wide = isWide();
+  if (props) {
+    const nDays = new Set([...(ui.assign?.ghosts || []).map((g) => g.date), ...fixProps().map((f) => f.date)]).size;
+    return `<div class="ag-card-top on${wide ? '' : ' two-row'}"><span><b>✦ ${esc(t('agProposals', props))}</b><small>${esc(t('propsDays', nDays))}</small></span>${wide ? '' : `<button class="btn small" type="button" data-action="pv-list">${esc(t('propsList'))}</button>`}<button class="btn small" type="button" data-action="ag-cancel">${esc(t('cancel'))}</button><button class="btn small primary" type="button" data-action="ag-add">${esc(t('add'))}</button></div>`;
+  }
+  // (v67) a task picked to place by hand: say what, and how to stop
+  const pick = ui.pick && get('tasks', ui.pick);
+  if (pick) return `<div class="ag-pick"><span>${esc(t('pickBanner', pick.title, fmtDur(pick.minutes || 30)))}</span><button class="icon" type="button" data-action="fd-unpick" aria-label="${esc(t('close'))}">✕</button></div>`;
   const nPlan = trayTasks().length; const nFix = toFix(td, weekEndOf(td)).length;
+  // on a phone one button, Pianifica: a smart suggestion, or Scelgo io (find, pick, place; also to find what's planned)
+  if (!wide) return `<div class="ag-card-top"><span><b>${esc(nPlan + nFix ? t('agToPlan', nPlan + nFix) : `✓ ${t('agAllPlanned')}`)}</b></span><button class="btn small primary" type="button" data-action="ag-choose">${esc(t('planChoose'))}</button></div>`;
   if (!nPlan && !nFix) return `<p class="ag-ok">✓ ${esc(t('agAllPlanned'))}</p>`;
   // (v66) one word for both: what's to plan and this week's routine turns without a time yet
   return `<div class="ag-card-top"><span><b>${esc(t('agToPlan', nPlan + nFix))}</b></span><button class="btn small primary" type="button" data-action="ag-plan">✦ ${esc(t('planBtn'))}</button></div>`;
@@ -453,7 +459,8 @@ function agRow(it) {
   const time = `<span class="ag-time">${esc(fmtTime(it.start))}<small>${it.minutes ? esc(fmtTime(end)) : ''}</small></span>`;
   if (it.k === 'ghost' || it.k === 'fix') {
     const g = it.g;
-    return `<li class="ag-row ghost" style="--c:${esc(catColor(g.category || get('tasks', g.taskId)?.category) || 'var(--accent)')}">${time}<span class="ag-c"><span class="ag-t">${esc(it.k === 'ghost' ? ghostTitle(g) : g.title)}</span><small>${esc(it.k === 'ghost' ? ghostWhy(g) : t('agToFix', 1))}</small>${lenBar(it.minutes)}</span>${it.k === 'ghost' ? `<button class="icon" type="button" data-action="ghost-rm" data-i="${g.i}" aria-label="${esc(t('remove'))}">✕</button>` : ''}</li>`;
+    const fk = it.k === 'ghost' ? `g${g.i}` : `f${g.taskId}~${g.date}`;
+    return `<li class="ag-row ghost${ui.flash === fk ? ' flash' : ''}" data-fk="${esc(fk)}" style="--c:${esc(catColor(g.category || get('tasks', g.taskId)?.category) || 'var(--accent)')}">${time}<span class="ag-c"><span class="ag-t">${esc(it.k === 'ghost' ? ghostTitle(g) : g.title)}</span><small>${esc(it.k === 'ghost' ? ghostWhy(g) : t('agToFix', 1))}</small>${lenBar(it.minutes)}</span>${it.k === 'ghost' ? `<button class="icon" type="button" data-action="ghost-rm" data-i="${g.i}" aria-label="${esc(t('remove'))}">✕</button>` : ''}</li>`;
   }
   if (it.k === 'event') {
     const e = it.e;

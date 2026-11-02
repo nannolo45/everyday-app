@@ -80,7 +80,7 @@ function paneTask() {
 // (v66) the length it has always shows lit, also when it isn't one of the six
 const lensFor = (x) => { const m = x.lenSet !== false ? x.minutes || 30 : null; return m && !LENS.includes(m) ? [...LENS, m].sort((a, b) => a - b) : LENS; };
 // (v66) the Planner's pane: Da pianificare · Nel piano · Tutte, and the search (finder.js)
-function panePlan() { return finderHtml(); }
+function panePlan() { return finderHtml({ props: true }); } // (v67) with the proposals on top
 function paneEvent() {
   const items = eventItems();
   const e = items.find((y) => y.id === ui.evSel && (!ui.evDate || y.date === ui.evDate)) || items.find((y) => y.id === ui.evSel);
