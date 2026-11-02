@@ -1,10 +1,10 @@
 // finder.js (v66): the Planner's list of tasks, in the wide pane and on the phone: Da pianificare · Nel
 // piano · Tutte, and a search over all of them. A task shows where it is on the plan as pills; a pill
 // jumps there and the block flashes. "Sposta…" opens the week grid for that one block.
-import { catColor, catName, catsOf, esc, relDay, ui } from './core.js';
+import { catColor, catName, catsOf, esc, relDay, toast, ui } from './core.js';
 import { t } from './i18n.js';
 import { isEvent } from './kinds.js';
-import { outcomeOf } from './model.js';
+import { leadOf, outcomeOf } from './model.js';
 import { addDays, fmtDur, fmtTime, isoDay, today } from './plan.js';
 import { trayTasks } from './planning.js';
 import { matchesQ } from './shoplist.js';
@@ -12,10 +12,10 @@ import { get, live } from './store.js';
 import { render } from './shell.js';
 import { agendaAdd, agendaPlan, fixProps, ghostTitle, ghostWhy } from './views/planner.js';
 import { modal } from './core.js';
-import { openTask } from './editors.js';
+import { openPickSheet, openTask } from './editors.js';
 import { setWhen } from './views/impegni.js';
 import { openWeekGrid } from './weekgrid.js';
-import { toFix } from './weekpick.js';
+import { cardRows, fixOcc, fixTimes, skipOcc, toFix } from './weekpick.js';
 import { allItems, typeOf } from './views/impegni.js';
 import { taskHay } from './views/tasks.js';
 import { dayShort, openModal, repeatText, searchBox } from './widgets.js';
@@ -38,14 +38,33 @@ function itemRow(x) {
   return `<li class="fd-row">${bar(x)}<div class="fd-c"><button type="button" class="fd-t" data-action="task-edit" data-id="${esc(x.id)}">${isEvent(x) ? '📅 ' : ''}${esc(x.title)}<small>${esc(sub)}</small></button>
     <div class="fd-pills">${pills}${isEvent(x) ? '' : `<button type="button" class="fd-pill act" data-action="fd-when" data-id="${esc(x.id)}">${esc(t('whenChip'))}</button>`}</div></div></li>`;
 }
-// Da pianificare: pick one and the free time it fits in lights up (the pane's old list).
+// (v68) This week's routine turns that still need a time ("I pick it each week", "N times a week"): the same
+// rows as the card on Oggi, with free times to tap, another time, or skip. Counted with the tasks to plan.
+const routineTurns = () => cardRows(today(), weekEndOf(today()));
+function turnRows(rows) {
+  return `<ul class="fd-list">${rows.map((r) => {
+    const x = r.x;
+    const head = r.date ? `${x.title} · ${dayLabel(r.date)}` : `${x.title} · ${t('timesLeftN', r.n)}`;
+    const sub = [fmtDur(x.minutes || 30), x.when ? t('usuallyPart', t(`when_${x.when}`).toLowerCase()) : ''].filter(Boolean).join(' · ');
+    const chips = r.date
+      ? `${r.options.map((o) => `<button type="button" class="fd-pill" data-action="fix-occ" data-id="${esc(x.id)}" data-date="${r.date}" data-start="${o.start}">${esc(fmtTime(o.start))}</button>`).join('') || `<small class="hint">${esc(t('noFreeSlotDay'))}</small>`}
+        <button type="button" class="fd-pill act" data-action="occ-more" data-id="${esc(x.id)}" data-date="${r.date}">${esc(t('otherTime'))}</button><button type="button" class="fd-pill act" data-action="occ-skip" data-id="${esc(x.id)}" data-date="${r.date}">${esc(t('skip'))}</button>`
+      : r.placements.map((pl) => `<button type="button" class="fd-pill" data-action="fix-times" data-id="${esc(x.id)}" data-date="${pl.date}" data-start="${pl.start}" data-minutes="${pl.minutes}">${esc(`${dayLabel(pl.date)} ${fmtTime(pl.start)}`)}</button>`).join('') || `<small class="hint">${esc(t('noFreeSlotWeek'))}</small>`;
+    return `<li class="fd-row turn">${bar(x)}<div class="fd-c"><span class="fd-t as-text">↻ ${esc(head)}<small>${esc(sub)}</small></span><div class="fd-pills">${chips}</div></div></li>`;
+  }).join('')}</ul>`;
+}
+// Da pianificare: pick one and the free time it fits in lights up; then the routine turns of the week.
 function todoRows() {
   const list = trayTasks();
-  if (!list.length) return `<p class="hint fd-empty">${esc((ui.assign?.ghosts || []).length ? `✦ ${t('propsAllUp')}` : `✓ ${t('agAllPlanned')}`)}</p>`;
+  const turns = routineTurns();
+  if (!list.length && !turns.length) return `<p class="hint fd-empty">${esc((ui.assign?.ghosts || []).length ? `✦ ${t('propsAllUp')}` : `✓ ${t('agAllPlanned')}`)}</p>`;
+  const both = list.length && turns.length;
+  const turnsHtml = turns.length ? `${both || !list.length ? `<div class="fd-day">${esc(t('fdGrpRoutines'))} <small>${turns.length}</small></div>` : ''}${turnRows(turns)}` : '';
+  if (!list.length) return turnsHtml;
   const pick = ui.pick && get('tasks', ui.pick);
-  return `<p class="hint">${esc(pick ? t('pnPicked', pick.title) : t('pnPick'))}</p><ul class="fd-list">${list.map((x) => `<li class="fd-row${ui.pick === x.id ? ' on' : ''}">${bar(x)}<div class="fd-c">
+  return `<p class="hint">${esc(pick ? t('pnPicked', pick.title) : t('pnPick'))}</p>${both ? `<div class="fd-day">${esc(t('fdGrpTasks'))} <small>${list.length}</small></div>` : ''}<ul class="fd-list">${list.map((x) => `<li class="fd-row${ui.pick === x.id ? ' on' : ''}">${bar(x)}<div class="fd-c">
     <button type="button" class="fd-t" data-action="fd-pick" data-id="${esc(x.id)}" aria-pressed="${ui.pick === x.id}">${esc(x.title)}<small>${esc([x.lenSet === false ? '' : fmtDur(x.minutes || 30), x.due ? relDay(x.due) : '', ...catsOf(x).map((c) => catName(get('categories', c)))].filter(Boolean).join(' · '))}</small></button>
-    <div class="fd-pills"><button type="button" class="fd-pill act" data-action="fd-when" data-id="${esc(x.id)}">${esc(t('whenChip'))}</button></div></div></li>`).join('')}</ul>`;
+    <div class="fd-pills"><button type="button" class="fd-pill act" data-action="fd-when" data-id="${esc(x.id)}">${esc(t('whenChip'))}</button></div></div></li>`).join('')}</ul>${turnsHtml}`;
 }
 // Nel piano: the next two weeks, by day; a row jumps to its block.
 function planRows() {
@@ -90,7 +109,7 @@ export function finderHtml({ props = false } = {}) {
   } else if (tab === 'plan') body = planRows();
   else if (tab === 'all') body = `<ul class="fd-list">${items.sort((a, b) => a.title.localeCompare(b.title)).map(itemRow).join('')}</ul>`;
   else body = todoRows();
-  const nTodo = trayTasks().length;
+  const nTodo = trayTasks().length + routineTurns().length; // the same number as the Planner's card
   const nPlan = new Set(live('blocks').filter((b) => b.taskId && !outcomeOf(b) && b.date >= today() && b.date <= addDays(today(), 13) && b.kind !== 'prep').map((b) => b.taskId)).size;
   const tabs = [['todo', 'pnTabTodo', nTodo], ['plan', 'pnTabPlan', nPlan], ['all', 'pnTabAll', items.length]];
   const pv = props ? proposalsHtml() : '';
@@ -161,6 +180,11 @@ export function sheetClick(btn) {
     case 'fd-move': { const b = get('blocks', id); const x = b && get('tasks', b.taskId); if (x) openWeekGrid(x, { block: b, onClose: () => { close(); render(); } }); return true; }
     case 'fd-when': { const x = get('tasks', id); if (x) openWeekGrid(x, { onClose: (how, k) => { if (how === 'quick') setWhen(get('tasks', id), k); close(); render(); } }); return true; }
     case 'task-edit': { const x = get('tasks', id); if (x) openTask(x); return true; }
+    // a routine turn's free time, another time, or skip it this week
+    case 'fix-occ': { const x = get('tasks', id); if (x) { const b = fixOcc(x, btn.dataset.date, Number(btn.dataset.start)); toast(t('plannedToast', relDay(b.date), fmtTime(b.start + leadOf(x)))); render(); redrawMine(); } return true; }
+    case 'fix-times': { const x = get('tasks', id); if (x) { fixTimes(x, { taskId: id, date: btn.dataset.date, start: Number(btn.dataset.start), minutes: Number(btn.dataset.minutes) }); render(); redrawMine(); } return true; }
+    case 'occ-skip': { const x = get('tasks', id); if (x) { skipOcc(x, btn.dataset.date); toast(t('skippedOcc', relDay(btn.dataset.date))); render(); redrawMine(); } return true; }
+    case 'occ-more': { const x = get('tasks', id); if (x) openPickSheet(x, btn.dataset.date); return true; }
     default: return false;
   }
 }

@@ -1602,3 +1602,8 @@ dialog.wg-sheet .wg-sub { margin: 0 0 8px; }
 .choose-opt small { color: inherit; opacity: .8; }
 .bk-menu .btn { color: var(--ink); }
 .bk-menu .btn.danger { color: var(--danger); }
+
+/* (v68) routine turns in the Planner's list; the count on the selected tab stays readable */
+.fd-t.as-text { cursor: default; }
+.fd-day small { font-weight: 400; letter-spacing: 0; }
+.seg > button.on small { color: inherit; opacity: .85; }

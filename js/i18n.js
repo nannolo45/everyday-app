@@ -6,6 +6,7 @@ const plural = (n, one, many) => (n === 1 ? one : many);
 
 const dict = {
   en: {
+    fdGrpTasks: 'Tasks', fdGrpRoutines: 'Routines this week',
     // (v67) the block sheet's Esito, the Pianifica choice, the proposals list
     esito: 'Outcome', esStart: 'Start', esDone: 'Done', esFail: "Didn't manage", esDoneAt: (tm) => `Done · ${tm}`, esDoneLine: 'Done', esFailLine: "Didn't manage", esRunning: (n) => `Running · ${n} min`, esFinish: 'Finish', esDoneToast: 'Done ✓',
     pickBanner: (s, d) => `Tap a lit free stretch for “${s}” (${d})`, planChoose: 'Plan', smartTitle: 'Smart suggestion', smartSub: (n) => (n === 1 ? 'The app finds free time for it; then you look and add it.' : `The app finds free time for all ${n}; then you look and add them.`),
@@ -317,6 +318,7 @@ const dict = {
     r_morning: 'your morning slot', r_afternoon: 'your afternoon slot', r_evening: 'your evening slot',
   },
   it: {
+    fdGrpTasks: 'Attività', fdGrpRoutines: 'Routine questa settimana',
     // (v67) l'Esito del blocco, la scelta Pianifica, l'elenco delle proposte
     esito: 'Esito', esStart: 'Inizia', esDone: 'Fatto', esFail: 'Non riuscito', esDoneAt: (tm) => `Fatta · ${tm}`, esDoneLine: 'Fatta', esFailLine: 'Non riuscito', esRunning: (n) => `In corso · ${n} min`, esFinish: 'Fine', esDoneToast: 'Fatto ✓',
     pickBanner: (s, d) => `Tocca uno spazio acceso per «${s}» (${d})`, planChoose: 'Pianifica', smartTitle: 'Suggerimento intelligente', smartSub: (n) => (n === 1 ? 'L\'app trova il tempo libero per questa, poi la guardi e la aggiungi.' : `L'app trova il tempo libero per tutte e ${n}, poi le guardi e le aggiungi.`),
@@ -623,6 +625,7 @@ const dict = {
     r_morning: 'la tua fascia del mattino', r_afternoon: 'la tua fascia del pomeriggio', r_evening: 'la tua fascia serale',
   },
   de: {
+    fdGrpTasks: 'Aufgaben', fdGrpRoutines: 'Routinen diese Woche',
     // (v67) das Ergebnis im Block, die Wahl Planen, die Vorschlagsliste
     esito: 'Ergebnis', esStart: 'Starten', esDone: 'Erledigt', esFail: 'Nicht geschafft', esDoneAt: (tm) => `Erledigt · ${tm}`, esDoneLine: 'Erledigt', esFailLine: 'Nicht geschafft', esRunning: (n) => `Läuft · ${n} Min`, esFinish: 'Fertig', esDoneToast: 'Erledigt ✓',
     pickBanner: (s, d) => `Tippe eine helle freie Zeit für „${s}“ an (${d})`, planChoose: 'Planen', smartTitle: 'Intelligenter Vorschlag', smartSub: (n) => (n === 1 ? 'Die App sucht freie Zeit dafür; dann prüfst du und fügst sie hinzu.' : `Die App sucht freie Zeit für alle ${n}; dann prüfst du und fügst sie hinzu.`),
