@@ -41,9 +41,6 @@ h2 { font-size: 1.2rem; margin: 1.6rem 0 .6rem; }
   backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
 }
 .top h1 { margin: 0; font-size: 1.35rem; color: var(--accent); letter-spacing: .01em; margin-right: auto; }
-.gear { width: 40px; height: 40px; margin-left: 8px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); display: inline-flex; align-items: center; justify-content: center; flex: none; }
-.gear svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
-.gear.active { color: var(--accent); border-color: var(--accent); }
 .sync {
   display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--surface);
   color: var(--muted); border-radius: 999px; padding: 5px 12px; font-size: .78rem; cursor: pointer; max-width: 60vw;
@@ -1433,3 +1430,11 @@ body.is-wide.wide-pane #fab { right: calc(var(--pane) + 28px); }
 .ag-gap.nofit { opacity: .35; }
 .load.empty { padding: 0; text-align: inherit; } /* (v56) not the empty-state .empty */
 .pane a.ev2-card, .pane a.ev2-card * { text-decoration: none; color: var(--ink); }
+
+/* ---------- v59: the settings gear (the same in Everyday, Ricette and Palestra) ---------- */
+.gear { height: 40px; min-width: 40px; margin-left: 8px; padding: 0 9px; gap: 8px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--ink) 22%, var(--line)); background: var(--surface); color: var(--ink); display: inline-flex; align-items: center; justify-content: center; text-decoration: none; font-weight: 600; font-size: .9rem; flex: none; transition: border-color .15s, color .15s, background .15s; }
+.gear svg { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.gear:hover { border-color: var(--accent); color: var(--accent); }
+.gear.active { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+.gear-label { display: none; }
+@media (min-width: 1100px) { .gear { padding: 0 14px 0 11px; } .gear-label { display: inline; } }
