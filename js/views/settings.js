@@ -211,7 +211,7 @@ export function settingsHtml(s, msg) {
   ${status}
   <nav class="set-list" aria-label="${esc(t('tabSettings'))}">
     ${Object.entries(pages).map(([k, p]) => row(`#/settings/${k}`, p.icon, p.title, p.sub)).join('')}
-    ${row(`guide-${getLang() === 'it' ? 'it' : 'en'}.html`, '📖', t('guide'), t('guideSub'), true)}
+    ${row(`guide-${getLang() === 'it' ? 'it' : 'en'}.html`, '📖', t('guide'), t('guideSub'))}
   </nav>
   <p class="version">${esc(t('appName'))} ${APP_VERSION}</p>`;
 }

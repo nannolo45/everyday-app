@@ -1432,3 +1432,4 @@ body.is-wide.wide-pane #fab { right: calc(var(--pane) + 28px); }
 .ag-gap.fits button > span:last-child { border-color: var(--accent); border-style: solid; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink); }
 .ag-gap.nofit { opacity: .35; }
 .load.empty { padding: 0; text-align: inherit; } /* (v56) not the empty-state .empty */
+.pane a.ev2-card, .pane a.ev2-card * { text-decoration: none; color: var(--ink); }
