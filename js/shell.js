@@ -16,7 +16,7 @@ import { lateBannerHtml, timerBarHtml } from './timer.js';
 import { todayRows, weekCardHtml } from './weekpick.js';
 import { viewSettings } from './views/settings.js';
 import { viewTasks } from './views/tasks.js';
-import { currentView, planStyle, viewPlan } from './views/planner.js';
+import { currentView, planCounts, planStyle, viewPlan } from './views/planner.js';
 import { viewEvents } from './views/events.js';
 import { isWide, wideWrap } from './views/wide.js';
 import { viewToday } from './views/today.js';
@@ -65,6 +65,15 @@ export function updateShopCount() {
   el.textContent = n > 99 ? '99+' : String(n);
 }
 
+// (v78) On the Planner tab: how much is still to plan, and (in red) today's blocks left behind.
+export const planBadge = ({ toPlan, behind }) => `${toPlan ? `<i>${toPlan > 99 ? '99+' : toPlan}</i>` : ''}${behind ? `<i class="red">${behind}</i>` : ''}`;
+export function updatePlanCount() {
+  const el = $('#plan-count'); if (!el) return;
+  const c = planCounts();
+  el.hidden = !c.toPlan && !c.behind;
+  el.innerHTML = planBadge(c);
+  el.setAttribute('aria-label', [c.toPlan ? t('agToPlan', c.toPlan) : '', c.behind ? t('behindTitle', c.behind) : ''].filter(Boolean).join(', '));
+}
 export function updateSyncBadge(syncing = isSyncing()) {
   const b = $('#sync');
   let st;
@@ -128,6 +137,7 @@ export function render() {
     fab.setAttribute('aria-label', t('addMenuFab')); fab.title = t('addMenuFab');
   }
   updateShopCount();
+  updatePlanCount();
   let html;
   switch (r.name) {
     case 'tasks': html = viewTasks(); break;

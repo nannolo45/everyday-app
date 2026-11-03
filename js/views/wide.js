@@ -3,6 +3,8 @@
 // they are), the tab in the middle, and a pane on the right: what you tapped on Impegni and Eventi, the
 // things to plan on the Planner (pick one and the free time it fits in lights up), what's waiting on Oggi.
 // On a phone nothing changes.
+import { planCounts } from './planner.js';
+import { planBadge } from '../shell.js';
 import { catName, catsOf, categories, esc, fmtDay, modal, relDay, route, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { eventReadiness, eventTasksOf, leadOf, plannedWhen, setTaskDone } from '../model.js';
@@ -45,7 +47,7 @@ function rail() {
   const td = today(); const end = addDays(weekStart(td), 6);
   const days = []; for (let d = td; d <= end; d = addDays(d, 1)) days.push(d);
   return `<aside class="rail" aria-label="${esc(t('railNav'))}">
-    ${['today', 'events', 'tasks', 'plan'].map((k) => `<a class="rl-tab${cur === k ? ' on' : ''}" href="#/${k}"><span class="rl-ico">${ICONS[k]}</span><span>${esc(t(TAB_KEYS[k]))}</span>${k === 'tasks' && nUn && cur !== 'tasks' ? `<span class="nbadge">${nUn}</span>` : ''}</a>${k === 'tasks' ? views : ''}`).join('')}
+    ${['today', 'events', 'tasks', 'plan'].map((k) => `<a class="rl-tab${cur === k ? ' on' : ''}" href="#/${k}"><span class="rl-ico">${ICONS[k]}</span><span>${esc(t(TAB_KEYS[k]))}</span>${k === 'tasks' && nUn && cur !== 'tasks' ? `<span class="nbadge">${nUn}</span>` : ''}${k === 'plan' ? (() => { const c = planCounts(); return c.toPlan || c.behind ? `<span class="plan-count rl">${planBadge(c)}</span>` : ''; })() : ''}</a>${k === 'tasks' ? views : ''}`).join('')}
     <div class="rl-sep"></div>
     <div class="rl-lab">${esc(t('vf_when_week'))}</div>
     ${days.map((d) => `<button type="button" class="rl-day${r.name === 'plan' && ui.shownDate === d ? ' on' : ''}" data-action="rail-day" data-id="${d}"><span>${esc(d === td ? t('today') : fmtDay(d, { weekday: 'short', day: 'numeric' }))}</span>${loadBar(d, { text: false })}</button>`).join('')}

@@ -344,6 +344,14 @@ view.addEventListener('click', (e) => {
     case 'ag-add': agendaAdd(); break;
     case 'ag-cancel': ui.assign.ghosts = []; ui.assign.fix = null; ui.assign.kept = 0; render(); break; // (v76) what you kept stays
     case 'ghost-keep': keepGhost(Number(btn.dataset.i)); break;
+    // (v78) today's blocks left behind: done, couldn't, or later today (Undo for each)
+    case 'behind-done': case 'behind-fail': {
+      const b = get('blocks', id); if (!b) break; const before = { ...b };
+      if (action === 'behind-done') trySetBlockDone(b, true); else setOutcome(b, 'failed');
+      changed(); toast(t(action === 'behind-done' ? 'esDoneToast' : 'markedCouldnt'), 5000, [{ label: t('undo'), run: () => { upsert('blocks', before, { silent: true }); changed(); } }]);
+      break;
+    }
+    case 'behind-later': { const b = get('blocks', id); if (!b) break; const x = b.taskId && get('tasks', b.taskId); moveBlockTo(id, b.date, firstFreeStart({ ...(x || {}), minutes: b.minutes || 30 }, b.date)); break; }
     case 'fix-keep': keepFix(id, btn.dataset.date, Number(btn.dataset.start)); break;
     case 'fix-drop': keepFix(id, btn.dataset.date, Number(btn.dataset.start), false); break;
     case 'ag-gap': if (placePicked(btn.dataset.date, Number(btn.dataset.start), Number(btn.dataset.min))) break; openGapFits(btn.dataset.date, Number(btn.dataset.start), Number(btn.dataset.min)); break;

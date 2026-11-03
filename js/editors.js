@@ -1055,8 +1055,55 @@ function collectWhen(form, x) {
   if (x.slotTimes && (mode !== 'repeat' || x.repeat !== 'weekly' || x.pickTime)) x.slotTimes = null; // (v66)
   if (x.dayMinutes && (mode !== 'repeat' || x.repeat !== 'weekly')) x.dayMinutes = null; // (v71)
 }
+// (v78) The top of a task's card: when, at what time and how long, all in view. Once: the day and the
+// time. Repeats: the seven days (with Every day, Weekdays, Weekend, N times a week, Every month), the
+// time ("always at this time", or "I pick it each week"). The length. Then one line that says it all.
+const ALL7 = [1, 2, 3, 4, 5, 6, 7];
+const presetOf = (x) => {
+  if (x.repeat === 'times') return 'times'; if (x.repeat === 'monthly') return 'monthly'; if (x.repeat === 'daily') return 'all';
+  const d = [...(x.repeatDays || [])].sort().join();
+  return d === '1,2,3,4,5,6,7' ? 'all' : d === '1,2,3,4,5' ? 'wd' : d === '6,7' ? 'we' : '';
+};
+function quickWhen(x, { lenNow, steps }) {
+  const mode = whenModeOf(x); const td = today();
+  const lens = [15, 30, 45, 60, 90, 120];
+  const dl = x.dayMinutes && Object.keys(x.dayMinutes).length;
+  const lenRow = steps ? '' : `<div class="field-label">${esc(t('duration'))}</div><div class="pills qw-lens">${lens.map((m) => `<button class="day-chip${m === lenNow ? ' on' : ''}" value="len:${m}" formnovalidate>${esc(fmtDur(m))}</button>`).join('')}<button class="day-chip${lens.includes(lenNow) && !dl ? '' : ' on'}" value="pop:len" formnovalidate aria-expanded="${edPop === 'len'}">${esc(dl ? `⏱ ${dayLenSummary(x)}` : lens.includes(lenNow) ? t('otherDots') : fmtDur(lenNow))}</button></div>`;
+  let body = '';
+  if (mode === 'once') {
+    const chips = [[td, t('today')], [addDays(td, 1), t('tomorrow')]];
+    body = `<div class="field-label">${esc(t('whichDay'))}</div>
+      <div class="pills day-chips">${chips.map(([d, l]) => `<button class="day-chip${x.planDate === d ? ' on' : ''}" value="day:${d}" formnovalidate>${esc(l)}</button>`).join('')}
+      <label class="day-other${x.planDate && !chips.some(([d]) => d === x.planDate) ? ' on' : ''}">${dateBox(`<input name="planDate" type="date" value="${esc(x.planDate || '')}" aria-label="${esc(t('otherDay'))}">`, x.planDate || '')}</label></div>
+      <div class="field-label">${esc(t('qwAt'))}</div><div class="qw-time"><input name="planTime" ${TIME24} value="${x.planTime != null ? fmtTime(x.planTime) : ''}" placeholder="—" aria-label="${esc(t('qwAt'))}"><small class="hint">${esc(t('qwAtAny'))}</small></div>
+      <button class="linkish qw-grid" value="when" formnovalidate>🗓 ${esc(t('qwGridOnce'))}</button>`;
+  } else if (mode === 'repeat') {
+    const rep = x.repeat === 'weekdays' ? 'weekly' : x.repeat === 'daily' ? 'weekly' : (x.repeat || 'weekly');
+    const days = x.repeat === 'daily' ? ALL7 : x.repeat === 'weekdays' ? [1, 2, 3, 4, 5] : ((x.repeatDays || []).length ? x.repeatDays : [plannedIso(x)]);
+    const pick = rep === 'times' || x.pickTime || (x.pickTime == null && x.planTime == null);
+    const pre = presetOf({ ...x, repeat: rep === 'weekly' ? 'weekly' : rep, repeatDays: days });
+    body = `<input type="radio" name="repeat" value="${rep}" checked hidden>
+      ${rep === 'weekly' ? `<div class="field-label">${esc(t('qwDays'))}</div><div class="days week-days qw-days">${ALL7.map((d) => `<label class="day-pill"><input type="checkbox" name="repeatDays" value="${d}" ${days.includes(d) ? 'checked' : ''} data-rerender="1"><span>${esc(dayShort(d))}</span></label>`).join('')}</div>` : ''}
+      <div class="pills qw-pre">${[['all', 'qwAll'], ['wd', 'qwWd'], ['we', 'qwWe'], ['times', 'qwTimes'], ['monthly', 'qwMonthly']].map(([k, l]) => `<button class="day-chip${pre === k ? ' on' : ''}" value="rp:${k}" formnovalidate>${esc(t(l))}</button>`).join('')}</div>
+      ${rep === 'times' ? `<div class="pills qw-n">${[1, 2, 3, 4, 5].map((n) => `<button class="day-chip${(x.timesN || 3) === n ? ' on' : ''}" value="tn:${n}" formnovalidate>${n}×</button>`).join('')}</div><input type="hidden" name="timesN" value="${esc(x.timesN || 3)}"><input type="hidden" name="timesPer" value="${esc(x.timesPer || 'week')}">`
+    : `<div class="field-label">${esc(t('qwAt'))}</div><div class="qw-time"><input name="planTime" ${TIME24} value="${x.planTime != null && !pick ? fmtTime(x.planTime) : ''}" placeholder="—" aria-label="${esc(t('qwAt'))}"><input type="hidden" name="planDate" value="${esc(x.planDate || td)}">
+        <span class="pills"><label class="day-chip${!pick ? ' on' : ''}"><input type="radio" name="timeMode" value="fixed" ${!pick ? 'checked' : ''} data-rerender="1" hidden>${esc(t('qwFixed'))}</label><label class="day-chip${pick ? ' on' : ''}"><input type="radio" name="timeMode" value="pick" ${pick ? 'checked' : ''} data-rerender="1" hidden>${esc(t('qwPick'))}</label></span></div>
+      ${rep === 'weekly' && x.slotTimes ? `<p class="hint">${esc(t('slotTimesHint'))}</p>` : ''}`}
+      <button class="linkish qw-grid" value="when" formnovalidate>🗓 ${esc(t('qwGrid'))}</button>`;
+  }
+  return `<div class="qw">${body}${lenRow}<p class="qw-sum">${qwSummary(x, mode, lenNow)}</p></div>`;
+}
+function qwSummary(x, mode, len) {
+  const d = fmtDur(len);
+  if (mode === 'anytime') return `${esc(t('wm_anytime'))} · ${esc(d)}`;
+  if (mode === 'once') return `${esc(x.planDate ? relDay(x.planDate) : t('qwNoDay'))}${x.planTime != null ? ` · ${esc(fmtTime(x.planTime))}` : ''} · ${esc(d)}`;
+  if (x.repeat === 'times') return `↻ <b>${esc(t('timesShort', x.timesN || 3, t(`per_${x.timesPer || 'week'}`)))}</b> · ${esc(d)}<small>${esc(t('qwPickSum'))}</small>`;
+  const pick = x.pickTime || (x.pickTime == null && x.planTime == null);
+  const days = x.repeat === 'monthly' ? t('qwMonthly') : presetOf(x) === 'all' ? t('qwAll') : presetOf(x) === 'wd' ? t('qwWd') : presetOf(x) === 'we' ? t('qwWe') : (x.repeatDays || []).slice().sort().map(dayShort).join(', ');
+  return `↻ <b>${esc(days)}</b>${pick ? '' : ` · <b>${esc(x.planTime != null ? fmtTime(x.planTime) : '—')}</b>`} · ${esc(d)}<small>${esc(pick ? t('qwPickSum') : x.planTime != null ? t('qwFixedSum') : t('qwNeedTime'))}</small>`;
+}
 export const whenModeOf = (x) => x.whenMode || (x.repeat ? 'repeat' : isSaved(x) && !x.planDate && !x.due ? 'anytime' : 'once');
-function whenEditor(x, { routine, linkedEvent, evLine, timeLabel, anchorLabel, noTabs = false }) {
+function whenEditor(x, { routine, linkedEvent, evLine, timeLabel, anchorLabel, noTabs = false, lite = false }) {
   const mode = whenModeOf(x);
   const td = today();
   const pill = (name, value, label, on, re = true) => `<label class="day-pill"><input type="radio" name="${name}" value="${esc(value)}" ${on ? 'checked' : ''} ${re ? 'data-rerender="1"' : ''}><span>${esc(label)}</span></label>`;
@@ -1067,6 +1114,7 @@ function whenEditor(x, { routine, linkedEvent, evLine, timeLabel, anchorLabel, n
   const tabs = noTabs ? '' : `<div class="seg when-mode" role="radiogroup" aria-label="${esc(t('secWhen'))}">${['once', 'repeat', 'anytime'].map((m) => `<label class="${m === mode ? 'on' : ''}"><input type="radio" name="whenMode" value="${m}" ${m === mode ? 'checked' : ''} data-rerender="1"><span>${esc(t(`wm_${m}`))}</span></label>`).join('')}</div>`;
   if (mode === 'once') {
     const chips = [[td, t('today')], [addDays(td, 1), t('tomorrow')]];
+    if (lite) return `${whenPills('atWhatTime')}${evLine}${dueField}`; // (v78) day and time are at the top of the card
     return `${tabs}
     <div class="field-label">${esc(t('whichDay'))}</div>
     <div class="pills day-chips">${chips.map(([d, l]) => `<button class="day-chip${x.planDate === d ? ' on' : ''}" value="day:${d}" formnovalidate>${esc(l)}</button>`).join('')}
@@ -1081,6 +1129,15 @@ function whenEditor(x, { routine, linkedEvent, evLine, timeLabel, anchorLabel, n
     const rep = x.repeat === 'weekdays' ? 'weekly' : (x.repeat || 'weekly');
     const days = x.repeat === 'weekdays' ? [1, 2, 3, 4, 5] : ((x.repeatDays || []).length ? x.repeatDays : [plannedIso(x)]);
     const pick = rep === 'times' || x.pickTime || (x.pickTime == null && x.planTime == null);
+    if (lite) { // (v78) days, how often and the time are at the top of the card; the rest stays here
+      return `${rep !== 'times' ? `<div class="times-row"><span>${esc(t('every'))}</span><input name="every" type="number" min="1" max="52" step="1" value="${esc(x.every || 1)}" aria-label="${esc(t('every'))}"><span>${esc(t(`unit_${rep}`, Number(x.every) || 1))}</span></div>` : ''}
+      ${pick ? whenPills('usuallyWhen') : ''}
+      <label>${esc(t('repeatUntil'))}${dateBox(`<input name="repeatUntil" type="date" value="${esc(x.repeatUntil || '')}">`, x.repeatUntil || '')}</label>
+      <label>${esc(t('repeatCount'))}<input name="repeatCount" type="number" min="1" max="500" step="1" value="${esc(x.repeatCount || '')}" placeholder="—"></label>
+      ${x.fromOcc && (x.seriesFrom || x.due) && x.fromOcc > (x.seriesFrom || x.due) ? `<div class="field-label">${esc(t('applyTo'))}</div>
+      <div class="days"><label class="day-pill"><input type="radio" name="scope" value="following" ${x.scope !== 'all' ? 'checked' : ''}><span>${esc(t('scopeFollowing', relDay(x.fromOcc)))}</span></label>
+      <label class="day-pill"><input type="radio" name="scope" value="all" ${x.scope === 'all' ? 'checked' : ''}><span>${esc(t('scopeAll'))}</span></label></div>` : ''}`;
+    }
     return `${tabs}
     <div class="pills rep-pills">${[['daily', 'rf_daily'], ['weekly', 'rf_days'], ['times', 'rf_times'], ['monthly', 'rf_monthly']].map(([v, k]) => pill('repeat', v, t(k), rep === v)).join('')}</div>
     ${rep === 'weekly' ? `<div class="days week-days">${[1, 2, 3, 4, 5, 6, 7].map((d) => `<label class="day-pill"><input type="checkbox" name="repeatDays" value="${d}" ${days.includes(d) ? 'checked' : ''}><span>${esc(dayShort(d))}</span></label>`).join('')}</div>` : ''}
@@ -1312,7 +1369,7 @@ export function openTask(task, draft = null, opts = {}) {
       <div class="days"><label class="day-pill"><input type="radio" name="scope" value="following" ${x.scope !== 'all' ? 'checked' : ''}><span>${esc(t('scopeFollowing', relDay(x.fromOcc)))}</span></label>
       <label class="day-pill"><input type="radio" name="scope" value="all" ${x.scope === 'all' ? 'checked' : ''}><span>${esc(t('scopeAll'))}</span></label></div>` : ''}
     </div>` : ''}
-    ${remindField(x)}` : !helper ? whenEditor(x, { routine, linkedEvent, evLine, timeLabel, noTabs: short, anchorLabel: x.steps.length > 1 && ai > 0 && anchor ? t('anchorAt', anchor.title || '…') : t('usualTimeOpt') }) + `
+    ${remindField(x)}` : !helper ? whenEditor(x, { routine, linkedEvent, evLine, timeLabel, noTabs: short, lite: short && !isMealType(x), anchorLabel: x.steps.length > 1 && ai > 0 && anchor ? t('anchorAt', anchor.title || '…') : t('usualTimeOpt') }) + `
     ${remindField(x)}` : '';
   // Tasks it needs done first (not itself, not meals, not ones that already need it: no loops).
   const needCandidates = live('tasks').filter((y) => y.id !== x.id && !isMealType(y) && !y.check && !y.done && !(y.after || []).includes(x.id) && !(x.after || []).includes(y.id))
@@ -1371,10 +1428,11 @@ export function openTask(task, draft = null, opts = {}) {
   const c0 = catsOf(x)[0];
   const wm = whenModeOf(x);
   const modeSeg = short && !isMealType(x) ? `<div class="seg when-mode ed-wm" role="radiogroup" aria-label="${esc(t('secWhen'))}">${['once', 'repeat', 'anytime'].map((m) => `<label class="${m === wm ? 'on' : ''}"><input type="radio" name="whenMode" value="${m}" ${m === wm ? 'checked' : ''} data-rerender="1"><span>${esc(t(`wm_${m}`))}</span></label>`).join('')}</div><p class="hint ed-wm-what">${esc(t(`wmWhat_${wm}`))}</p>` : '';
-  const shortTop = short ? `${modeSeg}<div class="ed-chips">
+  const quick = short && !isMealType(x); // (v78) when, at what time and how long: in view at the top
+  const shortTop = short ? `${modeSeg}${quick ? quickWhen(x, { lenNow, steps: x.steps.length > 0 }) : ''}<div class="ed-chips">
       <button class="mchip ed-chip${c0 ? ' set' : ''}" value="pop:cat" formnovalidate aria-expanded="${edPop === 'cat'}">${c0 ? `<i class="cat-dot" style="--c:${esc(catColor(c0))}"></i>` : ''}${esc(catName0 || t('mGroup'))}</button>
-      <button class="mchip ed-chip set" value="pop:len" formnovalidate aria-expanded="${edPop === 'len'}">⏱ ${esc(x.dayMinutes && Object.keys(x.dayMinutes).length ? dayLenSummary(x) : fmtDur(lenNow))}</button>
-      <button class="mchip ed-chip${ups.length || x.repeat || x.due ? ' set' : ''}" value="when" formnovalidate>🕒 ${esc(whenChip)}</button>
+      ${quick && !x.steps.length ? '' : `<button class="mchip ed-chip set" value="pop:len" formnovalidate aria-expanded="${edPop === 'len'}">⏱ ${esc(x.dayMinutes && Object.keys(x.dayMinutes).length ? dayLenSummary(x) : fmtDur(lenNow))}</button>`}
+      ${quick ? '' : `<button class="mchip ed-chip${ups.length || x.repeat || x.due ? ' set' : ''}" value="when" formnovalidate>🕒 ${esc(whenChip)}</button>`}
       <button class="mchip ed-chip set" value="pop:imp" formnovalidate aria-expanded="${edPop === 'imp'}" aria-label="${esc(t('importance'))}">${'★'.repeat(x.importance || 3)}</button>
     </div>
     ${edPop === 'cat' ? `<div class="ed-pop">${catChipsMulti(x)}</div>` : ''}
@@ -1433,6 +1491,15 @@ export function openTask(task, draft = null, opts = {}) {
       again(); return;
     }
     if (action.startsWith('day:')) { x.planDate = action.slice(4); again(); return; }
+    if (action.startsWith('len:')) { x.minutes = Number(action.slice(4)); x.lenSet = true; if (edPop === 'len') edPop = null; again(); return; } // (v78)
+    if (action.startsWith('tn:')) { x.repeat = 'times'; x.timesN = Number(action.slice(3)); x.timesPer ||= 'week'; again(); return; }
+    if (action.startsWith('rp:')) {
+      const k = action.slice(3);
+      if (k === 'times') { x.repeat = 'times'; x.timesN ||= 3; x.timesPer ||= 'week'; x.pickTime = true; }
+      else if (k === 'monthly') x.repeat = 'monthly';
+      else { x.repeat = 'weekly'; x.repeatDays = k === 'all' ? [1, 2, 3, 4, 5, 6, 7] : k === 'wd' ? [1, 2, 3, 4, 5] : [6, 7]; }
+      again(); return;
+    }
     if (action === 'show-due') { x.showDue = true; again('input[name=due]'); return; }
     if (action === 'add-step') {
       x.steps.push({ id: uid().slice(0, 6), title: '', minutes: 10 });
@@ -1626,6 +1693,12 @@ export function openTask(task, draft = null, opts = {}) {
     });
   }
   const form = modal.querySelector('form');
+  // (v78) typing a time for a routine means "always at this time"
+  form.querySelector('.qw-time input[name=planTime]')?.addEventListener('input', (ev) => {
+    const fixed = form.querySelector('input[name=timeMode][value=fixed]'); if (!fixed || fixed.checked || !ev.target.value) return;
+    fixed.checked = true;
+    for (const r of form.querySelectorAll('input[name=timeMode]')) r.closest('label')?.classList.toggle('on', r.checked);
+  });
   form.addEventListener('change', (ev) => {
     if (ev.target.dataset.rerender) { collect(form); openTask(task, x, opts); return; }
     // Setting a time sets the best time of day to match.

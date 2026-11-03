@@ -295,6 +295,7 @@ export function learnHint(b) {
   if (minutes === cur) return null;
   return { task: x, iso, minutes, cur, real, longer: minutes > cur };
 }
+export const seriesBlockId = (taskId, occ) => `s~${taskId}~${occ}`;
 export const seriesBlocks = (taskId) => live('blocks').filter((b) => b.seriesId === taskId);
 // ---------- (v69) the end of a routine ----------
 // A routine may end on a date (`repeatUntil`) or after N turns that count (`repeatCount`). A turn counts
@@ -316,7 +317,17 @@ export function ensureSeries(task) {
   if (!isSeries(task) || (task.seriesTime == null && task.next?.seriesTime == null) || task.done) return;
   const td = today();
   let want = isEnded(task) ? [] : occurrences(task, td, addDays(td, SERIES_DAYS)).filter((d) => seriesTimeOn(task, d) != null && !ruleAt(task, d).pickTime);
-  const have = new Map(seriesBlocks(task.id).map((b) => [b.occ, b]));
+  // (v77) one block per turn: two devices used to make the same turn each (random ids, both kept by the
+  // sync), and a turn already on the plan another way (placed by hand, a session from Palestra, a move)
+  // got a second one. Series blocks now have an id made of the task and the day, and duplicates go.
+  const mine = live('blocks').filter((b) => b.taskId === task.id && b.kind !== 'prep' && !b.stepId && !b.extra);
+  const rank = (b) => (outcomeOf(b) ? 8 : 0) + (b.startedAt ? 4 : 0) + (!b.auto ? 2 : 0) + (b.id === seriesBlockId(task.id, b.occ) ? 1 : 0);
+  const turnOf = (b) => b.occ || (!b.seriesId ? b.date : null);
+  const best = new Map();
+  for (const b of mine) { const k = turnOf(b); if (!k) continue; const c = best.get(k); if (!c || rank(b) > rank(c) || (rank(b) === rank(c) && b.id < c.id)) best.set(k, b); } // same on every device
+  for (const b of mine) { const k = turnOf(b); if (k && best.get(k) !== b && b.auto && !outcomeOf(b) && !b.startedAt) remove('blocks', b.id); }
+  const taken = new Set(best.keys());
+  const have = new Map(seriesBlocks(task.id).filter((b) => best.get(b.occ) === b).map((b) => [b.occ, b]));
   if (task.repeatCount) { // "per N volte": recorded turns stay; only as many open ones as still count
     const recorded = (d) => have.get(d) && outcomeOf(have.get(d));
     const open = want.filter((d) => !recorded(d)).slice(0, turnsLeftOf(task));
@@ -326,7 +337,7 @@ export function ensureSeries(task) {
     const start = Math.max(0, seriesTimeOn(task, d) - anchorOffset(null, task));
     const b = have.get(d);
     const len = minutesOn(task, d);
-    if (!b) { planTask(task, d, start, { seriesId: task.id, occ: d, auto: true, series: true, minutes: len }); continue; }
+    if (!b) { if (!taken.has(d)) planTask(task, d, start, { id: seriesBlockId(task.id, d), seriesId: task.id, occ: d, auto: true, series: true, minutes: len }); continue; }
     if (b.auto && !outcomeOf(b) && (b.start !== start || b.minutes !== len || b.title !== task.title || (b.category || null) !== (task.category || null))) {
       upsert('blocks', { ...b, start, minutes: len, title: task.title, category: task.category || null }, { silent: true });
     }

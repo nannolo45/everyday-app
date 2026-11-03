@@ -102,7 +102,50 @@ export function applyPalestra() {
   n += applySessions(mine);
   // 4. (v60) "Sposta a domani" in Palestra
   n += applyMoves();
+  // 5. (v79, Palestra v22) the workout in progress
+  n += applyLive(mine);
   return n;
+}
+
+// (v79, Palestra v22) The workout in progress: prefs `live` {sessionId, routineId, start, pausedAt, pausedMs,
+// blockId?, at}, written by Palestra on start, pause, resume and end (null). Its block shows as running
+// (the block it was started from, else that day's open block of the workout closest to the start, else a
+// temporary one); the finished session then gives it the real times, as before. A record older than 6 hours,
+// or whose session is already in, is ignored; a workout gone without a session puts the block back.
+export const LIVE_STALE = 6 * 3600e3;
+export function liveWorkout(now = Date.now()) {
+  const v = pref('live')?.value || null;
+  if (!v || !v.sessionId || !v.routineId || !Number(v.start)) return null;
+  if (now - Number(v.at || v.start) > LIVE_STALE) return null;
+  if ((state.p_sessions || []).some((s) => s?.id === v.sessionId && s.end)) return null;
+  return v;
+}
+function applyLive(mine) {
+  let n = 0;
+  const cur = liveWorkout();
+  for (const b of live('blocks').filter((y) => y.palLive)) {
+    if (cur && b.palLive === cur.sessionId) continue;
+    if (b.palSession || outcomeOf(b)) { const { palLive, palBefore, palLiveTemp, ...rest } = b; upsert('blocks', rest, { silent: true }); n++; continue; } // the session is in
+    if (b.palLiveTemp) remove('blocks', b.id);
+    else { const { palLive, palBefore, ...rest } = b; upsert('blocks', { ...rest, ...(palBefore || { startedAt: null, pausedAt: null, pausedMs: 0, endedAt: null }) }, { silent: true }); }
+    n++;
+  }
+  if (!cur) return n;
+  const x = mine.get(cur.routineId); if (!x || x.archived) return n;
+  const st = new Date(Number(cur.start)); const date = dateStr(st); const at = st.getHours() * 60 + st.getMinutes();
+  let b = live('blocks').find((y) => y.palLive === cur.sessionId) || (cur.blockId ? get('blocks', cur.blockId) : null);
+  if (!b || b.deleted || outcomeOf(b)) {
+    const cands = live('blocks').filter((y) => y.taskId === x.id && y.date === date && y.kind !== 'prep' && !y.stepId && !outcomeOf(y) && !y.palSession);
+    b = cands.sort((a, c) => Math.abs(a.start - at) - Math.abs(c.start - at))[0] || null;
+  }
+  const run = { date, start: at, startedAt: Number(cur.start), pausedAt: cur.pausedAt ? Number(cur.pausedAt) : null, pausedMs: Math.max(0, Number(cur.pausedMs) || 0), endedAt: null, palLive: cur.sessionId, auto: false };
+  if (b) {
+    const same = b.palLive === cur.sessionId && b.startedAt === run.startedAt && (b.pausedAt || null) === run.pausedAt && (b.pausedMs || 0) === run.pausedMs && b.date === date && b.start === at;
+    if (same) return n;
+    const before = b.palLive ? b.palBefore : { date: b.date, start: b.start, startedAt: b.startedAt ?? null, pausedAt: b.pausedAt ?? null, pausedMs: b.pausedMs ?? 0, endedAt: b.endedAt ?? null, auto: b.auto ?? false };
+    upsert('blocks', { ...b, plannedMinutes: b.plannedMinutes || b.minutes, ...run, palBefore: before }, { silent: true });
+  } else newBlock({ taskId: x.id, title: x.title, category: x.category || null, minutes: x.minutes || 45, palLiveTemp: true, ...run });
+  return n + 1;
 }
 
 // (v60) Moves made in Palestra (prefs `moves`, Palestra v12): each step {routineId, from, to, at} takes the

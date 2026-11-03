@@ -113,11 +113,11 @@ export function timerBarHtml() {
   const x = b.taskId ? get('tasks', b.taskId) : null;
   return `<div class="run-bar${b.pausedAt ? ' paused' : ''}" role="timer" aria-live="off">
     <span class="run-dot" aria-hidden="true"></span>
-    <button class="run-main" type="button" data-action="open-block" data-id="${esc(b.id)}"><b>${esc(b.title)}</b><small>${esc(b.pausedAt ? t('timerPaused') : t('timerSince', fmtTime(b.start), fmtDur(planned)))}</small></button>
+    <button class="run-main" type="button" data-action="open-block" data-id="${esc(b.id)}"><b>${esc(b.title)}</b><small>${esc(b.palLive ? (b.pausedAt ? t('palLivePaused') : t('palLiveRun', fmtTime(b.start))) : b.pausedAt ? t('timerPaused') : t('timerSince', fmtTime(b.start), fmtDur(planned)))}</small></button>
     <span class="run-time" id="run-time">${elapsedText(b)}</span>
-    <button class="icon run-pause" type="button" data-action="${b.pausedAt ? 'timer-resume' : 'timer-pause'}" aria-label="${esc(t(b.pausedAt ? 'timerResume' : 'timerPause'))}">${b.pausedAt ? '▶' : '❚❚'}</button>
+    ${b.palLive ? '' : `<button class="icon run-pause" type="button" data-action="${b.pausedAt ? 'timer-resume' : 'timer-pause'}" aria-label="${esc(t(b.pausedAt ? 'timerResume' : 'timerPause'))}">${b.pausedAt ? '▶' : '❚❚'}</button>`}
     ${isPalestra(x) ? `<a class="btn small run-pal" href="${esc(startLink(x, b))}" target="_blank" rel="noopener">${esc(t('palShort'))} ↗</a>` : ''}
-    <button class="btn small primary" type="button" data-action="timer-stop">${esc(t('timerStop'))}</button>
+    ${b.palLive ? '' : `<button class="btn small primary" type="button" data-action="timer-stop">${esc(t('timerStop'))}</button>`}
   </div>`;
 }
 

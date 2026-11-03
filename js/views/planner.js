@@ -498,15 +498,32 @@ function agRow(it) {
   const b = it.b; const st = outcomeOf(b);
   const swap = placing && !st && b.id !== ui.pickBlock; // (v70) tap it to put what you're placing here instead
   // (v69) a block not yet done can be dragged to another free stretch or day (mouse)
-  return `<li class="ag-row${st ? ` is-${st}` : ''}${ui.flash === b.id ? ' flash' : ''}"${st ? '' : ` draggable="true" data-drag="block:${esc(b.id)}" data-min="${b.minutes || 30}"`} style="--c:${esc(catColor(b.category) || 'var(--accent)')}">${time}<button class="ag-c${swap ? ' swap' : ''}" type="button" data-action="${swap ? 'swap-block' : 'open-block'}" data-id="${esc(b.id)}">${swap ? `<span class="ag-swap">${esc(t('swapHere'))}</span>` : ''}<span class="ag-t">${st === 'done' ? '✓ ' : ''}${esc(b.title)}</span>${b.place ? `<small>📍 ${esc(b.place)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
+  return `<li class="ag-row${st ? ` is-${st}` : isBehind(b) ? ' is-behind' : ''}${ui.flash === b.id ? ' flash' : ''}"${st ? '' : ` draggable="true" data-drag="block:${esc(b.id)}" data-min="${b.minutes || 30}"`} style="--c:${esc(catColor(b.category) || 'var(--accent)')}">${time}<button class="ag-c${swap ? ' swap' : ''}" type="button" data-action="${swap ? 'swap-block' : 'open-block'}" data-id="${esc(b.id)}">${swap ? `<span class="ag-swap">${esc(t('swapHere'))}</span>` : ''}<span class="ag-t">${st === 'done' ? '✓ ' : ''}${esc(b.title)}</span>${isBehind(b) ? `<span class="inv-tag behind">⏰ ${esc(t('behindTag'))}</span>` : ''}${b.palLive && !st ? `<span class="inv-tag live">● ${esc(t('palLiveTag'))}</span>` : ''}${b.place ? `<small>📍 ${esc(b.place)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
 }
 const gapRow = (date, start, min) => {
   const pick = (ui.pickBlock && get('blocks', ui.pickBlock)) || (ui.pick && get('tasks', ui.pick)); // (v56) something picked: where it fits lights up (v70: or a block being moved)
   const fits = pick && (pick.minutes || 30) <= min;
   return `<li class="ag-gap${pick ? (fits ? ' fits' : ' nofit') : ''}"><button type="button" data-action="ag-gap" data-date="${date}" data-start="${start}" data-min="${min}"><span class="ag-time">${esc(fmtTime(start))}</span><span>${esc(t('agFree', fmtDur(min)))} · <u>${esc(fits ? t('agHere') : pick ? t('agHereShort') : t('agFits'))}</u></span></button></li>`;
 };
+// (v78) For the Planner tab: how much is still to plan, and today's blocks left behind (their time is
+// over and they have no Esito: not done, not "couldn't").
+export function behindToday() {
+  const td = today(); const now = new Date(); const nm = now.getHours() * 60 + now.getMinutes();
+  return blocksOn(td).filter((b) => !outcomeOf(b) && !b.stepId && !(b.kind === 'prep' && b.parentId) && !(b.startedAt && !b.endedAt) && b.start + (b.minutes || 0) <= nm)
+    .sort((a, b) => a.start - b.start);
+}
+export function planCounts() {
+  const td = today();
+  return { toPlan: trayTasks().length + toFix(td, weekEndOf(td)).length, behind: behindToday().length };
+}
+const behindCard = (date) => {
+  if (date !== today()) return '';
+  const list = behindToday(); if (!list.length) return '';
+  return `<div class="behind-card"><b>⏰ ${esc(t('behindTitle', list.length))}</b><small>${esc(t('behindSub'))}</small><ul>${list.map((b) => `<li><span><b>${esc(fmtTime(b.start))}</b> ${esc(b.title)}</span><span class="behind-acts"><button class="icon ok" type="button" data-action="behind-done" data-id="${esc(b.id)}" aria-label="${esc(t('esDone'))}" title="${esc(t('esDone'))}">✓</button><button class="icon" type="button" data-action="behind-fail" data-id="${esc(b.id)}" aria-label="${esc(t('esFail'))}" title="${esc(t('esFail'))}">✕</button><button class="btn small" type="button" data-action="behind-later" data-id="${esc(b.id)}">→ ${esc(t('behindLater'))}</button></span></li>`).join('')}</ul></div>`;
+};
 // (v74–v76) What takes time on the agenda: an invitation you're not going to doesn't, nor an event shown as
 // free in Google, nor a block that may overlap anything; a proposal does.
+const isBehind = (b) => { if (b.date !== today() || outcomeOf(b) || (b.startedAt && !b.endedAt)) return false; const n = new Date(); return b.start + (b.minutes || 0) <= n.getHours() * 60 + n.getMinutes(); };
 const takesTime = (it) => !(it.k === 'event' && (it.e.skipped || it.e.busy === false)) && !(it.k === 'block' && it.b.allowOverlap);
 // (v76) Boxes: a block or event of 2 hours or more holds the things that fall wholly inside it.
 function boxItems(items) {
@@ -562,7 +579,7 @@ export function agendaDay(date) {
   // too, when it lets other things happen); the rest of the day around it as before
   const top = boxItems(items);
   const rows = rowsFor(top, from0(h0), h1, gaps, date, from0);
-  return `${planCard()}${conflictBanner(date)}
+  return `${planCard()}${behindCard(date)}${conflictBanner(date)}
     ${allDay.length ? `<div class="allday">${allDay.map((e) => `<button class="allday-chip" type="button" data-action="event" data-id="${esc(e.id)}" style="--c:${esc(e.color)}">${esc(e.title)}</button>`).join('')}</div>` : ''}
     ${items.length ? '' : `<p class="empty ag-empty">${esc(t('agEmpty'))}</p>`}
     <ul class="agenda">${rows.join('')}</ul>`;
