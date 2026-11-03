@@ -783,7 +783,7 @@ export function seedMeals() {
 // ---------- saved tasks ----------
 // Tasks that come back often, at different times: meals (with recipes), the gym, cleaning…
 // They're the "routine" tasks, grouped by category. "+ From saved" puts one on the plan.
-export function savedTasks() { return live('tasks').filter((x) => isSaved(x) && !x.archived); }
+export function savedTasks() { return live('tasks').filter((x) => isSaved(x) && !x.archived && !x.palOut); }
 export function savedGroups() {
   const cats = categories();
   const order = (id) => { const i = cats.findIndex((c) => c.id === id); return i < 0 ? 999 : i; };

@@ -492,13 +492,21 @@ export function agendaDay(date) {
   const now = new Date(); const nowM = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 15) * 15;
   let cur = date === td ? Math.max(h0, nowM) : h0;
   const gaps = date >= td;
-  const rows = [];
+  // (v74) free stretches come from what takes time: an invitation you're not going to doesn't, so its
+  // time is free (the stretch is listed where it starts, the greyed invitation inside it)
+  const rows = []; const free = [];
   for (const it of items) {
-    if (gaps && it.start - cur >= 30 && cur < h1) rows.push(gapRow(date, cur, Math.min(it.start, h1) - cur));
-    rows.push(agRow(it));
+    if (it.k === 'event' && it.e.skipped) continue;
+    if (gaps && it.start - cur >= 30 && cur < h1) free.push({ start: cur, min: Math.min(it.start, h1) - cur });
     cur = Math.max(cur, it.start + it.minutes);
   }
-  if (gaps && h1 - cur >= 30) rows.push(gapRow(date, cur, h1 - cur));
+  if (gaps && h1 - cur >= 30) free.push({ start: cur, min: h1 - cur });
+  let fi = 0;
+  for (const it of items) {
+    while (fi < free.length && free[fi].start <= it.start) { rows.push(gapRow(date, free[fi].start, free[fi].min)); fi++; }
+    rows.push(agRow(it));
+  }
+  while (fi < free.length) { rows.push(gapRow(date, free[fi].start, free[fi].min)); fi++; }
   return `${planCard()}${conflictBanner(date)}
     ${allDay.length ? `<div class="allday">${allDay.map((e) => `<button class="allday-chip" type="button" data-action="event" data-id="${esc(e.id)}" style="--c:${esc(e.color)}">${esc(e.title)}</button>`).join('')}</div>` : ''}
     ${items.length ? '' : `<p class="empty ag-empty">${esc(t('agEmpty'))}</p>`}

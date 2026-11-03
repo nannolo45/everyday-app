@@ -478,7 +478,7 @@ const dndEnd = () => {
 document.addEventListener('dragend', () => { if (dnd) dndEnd(); });
 document.addEventListener('dragover', (e) => {
   if (!dnd) return;
-  const tg = dropTarget(e.target); if (!tg || tg.classList.contains('dnd-nofit')) return;
+  const tg = dropTarget(e.target); if (!tg) return; // (v74) a stretch too short takes it too: the overlap shows as a conflict
   e.preventDefault(); e.dataTransfer.dropEffect = 'move';
   for (const el of document.querySelectorAll('.dnd-over')) if (el !== tg) el.classList.remove('dnd-over');
   tg.classList.add('dnd-over');

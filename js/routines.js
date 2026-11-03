@@ -17,11 +17,11 @@ import { dayShort, openModal, repeatText } from './widgets.js';
 import { dayLenSummary, openPlanSaved, openTask } from './editors.js';
 import { isPalestra, PALESTRA_APP } from './palestra.js';
 
-export const isRoutine = (x) => Boolean(x && !x.deleted && !x.done && !x.travelRole && (isSaved(x) || (isTodo(x) && x.repeat)) && !isEnded(x));
+export const isRoutine = (x) => Boolean(x && !x.deleted && !x.done && !x.travelRole && !x.palOut && (isSaved(x) || (isTodo(x) && x.repeat)) && !isEnded(x));
 // (v69) Routines that have ended (a date or N turns): kept, listed apart as "Concluse".
 export const endedRoutines = () => live('tasks').filter((x) => x && !x.deleted && !x.travelRole && (isSaved(x) || isTodo(x)) && isEnded(x));
 // Workouts deleted in Palestra (v54): kept for their history, listed apart, never planned again.
-export const isArchived = (x) => Boolean(x?.archived);
+export const isArchived = (x) => Boolean(x?.archived || x?.palOut); // (v74) or a workout outside Palestra's active plan
 export const hasRhythm = (x) => Boolean((x?.repeat && (REPEATS.includes(x.repeat) || x.repeat === 'times')) || REPEATS.includes(x?.next?.repeat));
 export const routines = () => live('tasks').filter(isRoutine);
 const timesWeekly = (x) => x.repeat === 'times' && (x.timesPer || 'week') === 'week';

@@ -11,7 +11,8 @@
 // days without a weekday. A plan that starts later ("from Monday") goes in `next` until then. A workout
 // deleted in Palestra is archived: it keeps its history and is never planned again. Finished sessions
 // give their block the real start, end and minutes; one started in Palestra alone finds that day's block
-// for the same workout, or gets a new one.
+// for the same workout, or gets a new one. (v74) Only the active plan's workouts (and the next plan's) show
+// in Everyday: the others are kept (`palOut`), out of the lists, and come back when a plan has them.
 import { esc } from './core.js';
 import { t } from './i18n.js';
 import { busyOn, newBlock } from './model.js';
@@ -80,10 +81,13 @@ export function applyPalestra() {
   }
   // 2. the plan: each workout's rhythm, changed only when the plan changed (your own edits stay otherwise)
   const { cur, next } = plansNow(td);
-  for (const x of mine.values()) {
+  for (let x of mine.values()) {
     if (x.archived || x.deleted) continue;
     const now = rhythmFrom(cur, x.palestraId);
     const later = next ? { from: next.from, ...rhythmFrom(next, x.palestraId) } : null;
+    // (v74) a workout in neither the active plan nor the next one stays out of Everyday's lists
+    const out = !now.repeat && !(later && later.repeat);
+    if (Boolean(x.palOut) !== out) { x = upsert('tasks', { ...x, palOut: out || null }, { silent: true }); mine.set(x.palestraId, x); n++; }
     const sig = JSON.stringify([cur?.planId || null, cur?.from || null, now, later]);
     if (x.palSig === sig) continue;
     const old = x.palSig ? JSON.parse(x.palSig) : null;

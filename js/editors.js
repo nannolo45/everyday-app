@@ -1,6 +1,6 @@
 // editors.js: moved from app.js (v36). See app.js for how the modules fit together.
 import { isPalestra, PALESTRA_APP, palestraNote, startLink } from './palestra.js';
-import { routines } from './routines.js';
+import { isRoutine, routines } from './routines.js';
 import { classic, curView, RICETTE_APP, setView, setWhen, viewName, viewTokens, wouldShow } from './views/impegni.js';
 import { openWeekGrid } from './weekgrid.js';
 import { upcomingOf } from './finder.js';
@@ -1381,7 +1381,8 @@ export function openTask(task, draft = null, opts = {}) {
     ${edPop === 'len' ? `<div class="ed-pop">${x.steps.length ? `<p class="hint">${esc(fromRecipes ? t('durationRecipes', fmtDur(stepTotal)) : t('durationFromSteps', fmtDur(stepTotal)))}</p>` : `<label>${esc(t('duration'))}${durField('minutes', x.minutes || 30)}</label>${dayLenPart(x)}`}</div>` : ''}
     ${edPop === 'imp' ? `<div class="ed-pop"><label>${esc(t('importance'))}<select name="importance">${IMPORTANCE.map((n) => `<option value="${n}" ${n === x.importance ? 'selected' : ''}>${'★'.repeat(n)}${'☆'.repeat(5 - n)} ${esc(t(`imp_${n}`))}</option>`).join('')}</select></label></div>` : ''}
     <div class="field-label">${esc(t('inPlan'))}</div>
-    ${ups.length ? `<ul class="ed-plan">${ups.slice(0, 6).map((b) => `<li><span><b>${esc(relDay(b.date))} · ${esc(fmtTime(b.start))}–${esc(fmtTime(b.start + (b.minutes || 0)))}</b>${b.stepId ? `<small>${esc(b.title)}</small>` : ''}</span><button class="btn small" value="mv:${esc(b.id)}" formnovalidate>${esc(t('moveBtn'))}</button><button class="icon" value="unplan:${esc(b.id)}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></li>`).join('')}</ul>${ups.length > 6 ? `<p class="hint">${esc(t('findMoreN', ups.length - 6))}</p>` : ''}` : `<p class="hint">${esc(t('inPlanNone'))}</p>`}` : '';
+    ${ups.length ? `<ul class="ed-plan">${ups.slice(0, 6).map((b) => `<li><span><b>${esc(relDay(b.date))} · ${esc(fmtTime(b.start))}–${esc(fmtTime(b.start + (b.minutes || 0)))}</b>${b.stepId ? `<small>${esc(b.title)}</small>` : ''}</span><button class="btn small" value="mv:${esc(b.id)}" formnovalidate>${esc(t('moveBtn'))}</button><button class="icon" value="unplan:${esc(b.id)}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></li>`).join('')}</ul>${ups.length > 6 ? `<p class="hint">${esc(t('findMoreN', ups.length - 6))}</p>` : ''}` : `<p class="hint">${esc(t('inPlanNone'))}</p>`}
+    ${!isNew && isRoutine(x) && !x.archived ? `<button class="btn small ed-more-turn" value="plan-more" formnovalidate>+ ${esc(t('planOneMore'))}</button>` : ''}` : '';
   const optsBody = `${helper || x.travelRole ? '' : `<label>${esc(t('bufferAfter'))}<select name="buffer"><option value="" ${x.buffer == null || x.buffer === '' ? 'selected' : ''}>${esc(t('bufferDefault', Number(state.settings.taskBuffer) || 0))}</option>${[0, 5, 10, 15, 30, 60].map((m) => `<option value="${m}" ${x.buffer != null && x.buffer !== '' && Number(x.buffer) === m ? 'selected' : ''}>${m ? esc(fmtDur(m)) : esc(t('none'))}</option>`).join('')}</select></label>`}
     ${routine ? `<label class="check"><input type="checkbox" name="meal" data-rerender="1" ${isMealType(x) ? 'checked' : ''}> <span>${esc(t('isMeal'))}</span></label>` : ''}`;
   const shortMore = short ? `<div class="field-label ed-more-h">${esc(t('moreSec'))}</div><div class="ed-more">
@@ -1420,6 +1421,11 @@ export function openTask(task, draft = null, opts = {}) {
     </div>`, (form, action, e) => {
     collect(form);
     const again = (focus) => { e.preventDefault(); openTask(task, x, opts); if (focus) modal.querySelector(focus)?.focus(); };
+    if (action === 'plan-more') { // (v74) one more time on the plan: pick where, as in Scelgo io
+      ui.pick = x.id; ui.pickOcc = null; ui.pickBlock = null;
+      setTimeout(() => { const d = currentDate(); location.hash = `#/plan/${d >= today() ? d : today()}`; changed(); }, 0);
+      return;
+    }
     if (action.startsWith('pop:')) { const k = action.slice(4); edPop = edPop === k ? null : k; again(); return; }
     if (action.startsWith('unplan:')) {
       const b = get('blocks', action.slice(7));
