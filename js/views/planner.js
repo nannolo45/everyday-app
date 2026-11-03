@@ -3,8 +3,7 @@ import { cardRows, fixAll, toFix, weekCardHtml } from '../weekpick.js';
 import { openAutoPlanner } from '../editors.js';
 import { catColor, esc, fmtDay, hint, PPM, range, reasonText, relDay, toast, ui } from '../core.js';
 import { t } from '../i18n.js';
-import { isEvent } from '../kinds.js';
-import { planTask } from '../model.js';
+import { isEvent, isMealType } from '../kinds.js';
 import { alreadyPlanned, autoApply, autoChecks, blocksOn, blockTimeText, checklistLeft, checklistOf, checkMissed, conflictsOn, conflictText, eventsOn, ISSUE_SEC, issueText, linkFor, nextPlanned, outcomeOf, partsLeft, plannedWhen, prereqsOf, splitsSteps, stepTimes, taskDayOf, taskIssues, timedEventsOn, timesLeft } from '../model.js';
 import { addDays, dateStr, dayTotals, fmtDur, fmtTime, importanceOf, layoutBlocks, parseDate, sortTasks, today, weekday } from '../plan.js';
 import { addGhostList, autoHoursFor, hoursShort, inRange, loadOf, selecting, spreadLabel, trayTasks } from '../planning.js';
@@ -16,6 +15,8 @@ import { MODE_ICON } from '../travel.js';
 import { openModal, searchBox, windowsText } from '../widgets.js';
 import { DATE_GROUPS, dateBuckets, filterBar, sortPicker, sortTaskList, taskFilter, taskGroupsCfg, taskHay } from './tasks.js';
 import { isWide } from './wide.js';
+import { placeItem } from '../placing.js';
+import { hasRhythm, routines } from '../routines.js';
 
 // "Already planned": a folded list at the bottom of the planning panels, each one a link to its day.
 export function plannedList(list, action, open) {
@@ -120,7 +121,7 @@ export function conflictBanner(date) {
     <button class="notice-head" type="button" data-action="toggle-conflicts">⚠ ${esc(t('nConflicts', conflicts.length))} <span>${ui.showConflicts ? '▴' : '▾'}</span></button>
     ${ui.showConflicts ? `<ul>${conflicts.map((c, i) => `<li><span>${esc(conflictText(c))}</span>
       ${c.type !== 'late' || (get('tasks', get('blocks', c.ids[0])?.taskId)?.due || '') >= td ? `<button class="btn small" type="button" data-action="fix" data-date="${date}" data-i="${i}">${esc(t('fix'))}</button>` : ''}
-      ${c.type === 'overlap' ? `<button class="btn small ghost" type="button" data-action="allow" data-date="${date}" data-i="${i}">${esc(t('fine'))}</button>` : ''}</li>`).join('')}</ul>` : ''}
+      ${c.type === 'overlap' ? `<button class="btn small primary" type="button" data-action="conflict-choose" data-date="${date}" data-i="${i}">${esc(t('chooseBtn'))}</button><button class="btn small ghost" type="button" data-action="allow" data-date="${date}" data-i="${i}">${esc(t('fine'))}</button>` : ''}</li>`).join('')}</ul>` : ''}
   </div>`;
 }
 
@@ -437,8 +438,8 @@ export function planCard() {
     return `<div class="ag-card-top on${wide ? '' : ' two-row'}"><span><b>✦ ${esc(t('agProposals', props))}</b><small>${esc(t('propsDays', nDays))}</small></span>${wide ? '' : `<button class="btn small" type="button" data-action="pv-list">${esc(t('propsList'))}</button>`}<button class="btn small" type="button" data-action="ag-cancel">${esc(t('cancel'))}</button><button class="btn small primary" type="button" data-action="ag-add">${esc(t('add'))}</button></div>`;
   }
   // (v67) a task picked to place by hand: say what, and how to stop
-  const pick = ui.pick && get('tasks', ui.pick);
-  if (pick) return `<div class="ag-pick"><span>${esc(t('pickBanner', pick.title, fmtDur(pick.minutes || 30)))}</span><button class="icon" type="button" data-action="fd-unpick" aria-label="${esc(t('close'))}">✕</button></div>`;
+  const pick = (ui.pickBlock && get('blocks', ui.pickBlock)) || (ui.pick && get('tasks', ui.pick));
+  if (pick) return `<div class="ag-pick"><span>${esc(t('pickBanner', pick.title, fmtDur(pick.minutes || 30)))}<small>${esc(t('swapHint'))}</small></span><button class="icon" type="button" data-action="fd-unpick" aria-label="${esc(t('close'))}">✕</button></div>`;
   const nPlan = trayTasks().length; const nFix = toFix(td, weekEndOf(td)).length;
   // on a phone one button, Pianifica: a smart suggestion, or Scelgo io (find, pick, place; also to find what's planned)
   if (!wide) return `<div class="ag-card-top"><span><b>${esc(nPlan + nFix ? t('agToPlan', nPlan + nFix) : `✓ ${t('agAllPlanned')}`)}</b></span><button class="btn small primary" type="button" data-action="ag-choose">${esc(t('planChoose'))}</button></div>`;
@@ -462,16 +463,18 @@ function agRow(it) {
     const fk = it.k === 'ghost' ? `g${g.i}` : `f${g.taskId}~${g.date}`;
     return `<li class="ag-row ghost${ui.flash === fk ? ' flash' : ''}" data-fk="${esc(fk)}" style="--c:${esc(catColor(g.category || get('tasks', g.taskId)?.category) || 'var(--accent)')}">${time}<span class="ag-c"><span class="ag-t">${esc(it.k === 'ghost' ? ghostTitle(g) : g.title)}</span><small>${esc(it.k === 'ghost' ? ghostWhy(g) : t('agToFix', 1))}</small>${lenBar(it.minutes)}</span>${it.k === 'ghost' ? `<button class="icon" type="button" data-action="ghost-rm" data-i="${g.i}" aria-label="${esc(t('remove'))}">✕</button>` : ''}</li>`;
   }
+  const placing = Boolean(ui.pick || ui.pickBlock);
   if (it.k === 'event') {
     const e = it.e;
-    return `<li class="ag-row ev" style="--c:${esc(e.color || 'var(--muted)')}">${time}<button class="ag-c" type="button" data-action="event" data-id="${esc(e.id)}"><span class="ag-t">📅 ${esc(e.title)}</span>${e.location ? `<small>📍 ${esc(e.location)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
+    return `<li class="ag-row ev${placing ? ' locked' : ''}" style="--c:${esc(e.color || 'var(--muted)')}">${time}<button class="ag-c" type="button" data-action="event" data-id="${esc(e.id)}"><span class="ag-t">📅 ${esc(e.title)}</span>${e.location ? `<small>📍 ${esc(e.location)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
   }
   const b = it.b; const st = outcomeOf(b);
+  const swap = placing && !st && b.id !== ui.pickBlock; // (v70) tap it to put what you're placing here instead
   // (v69) a block not yet done can be dragged to another free stretch or day (mouse)
-  return `<li class="ag-row${st ? ` is-${st}` : ''}${ui.flash === b.id ? ' flash' : ''}"${st ? '' : ` draggable="true" data-drag="block:${esc(b.id)}" data-min="${b.minutes || 30}"`} style="--c:${esc(catColor(b.category) || 'var(--accent)')}">${time}<button class="ag-c" type="button" data-action="open-block" data-id="${esc(b.id)}"><span class="ag-t">${st === 'done' ? '✓ ' : ''}${esc(b.title)}</span>${b.place ? `<small>📍 ${esc(b.place)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
+  return `<li class="ag-row${st ? ` is-${st}` : ''}${ui.flash === b.id ? ' flash' : ''}"${st ? '' : ` draggable="true" data-drag="block:${esc(b.id)}" data-min="${b.minutes || 30}"`} style="--c:${esc(catColor(b.category) || 'var(--accent)')}">${time}<button class="ag-c${swap ? ' swap' : ''}" type="button" data-action="${swap ? 'swap-block' : 'open-block'}" data-id="${esc(b.id)}">${swap ? `<span class="ag-swap">${esc(t('swapHere'))}</span>` : ''}<span class="ag-t">${st === 'done' ? '✓ ' : ''}${esc(b.title)}</span>${b.place ? `<small>📍 ${esc(b.place)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
 }
 const gapRow = (date, start, min) => {
-  const pick = ui.pick && get('tasks', ui.pick); // (v56) something picked in the pane: where it fits lights up
+  const pick = (ui.pickBlock && get('blocks', ui.pickBlock)) || (ui.pick && get('tasks', ui.pick)); // (v56) something picked: where it fits lights up (v70: or a block being moved)
   const fits = pick && (pick.minutes || 30) <= min;
   return `<li class="ag-gap${pick ? (fits ? ' fits' : ' nofit') : ''}"><button type="button" data-action="ag-gap" data-date="${date}" data-start="${start}" data-min="${min}"><span class="ag-time">${esc(fmtTime(start))}</span><span>${esc(t('agFree', fmtDur(min)))} · <u>${esc(fits ? t('agHere') : t('agFits'))}</u></span></button></li>`;
 };
@@ -511,12 +514,22 @@ export function agendaWeek(date) {
 }
 // "What fits?": the things still to plan that fit in a free stretch; one tap plans it there.
 export function openGapFits(date, start, min) {
-  const list = trayTasks().filter((x) => (x.minutes || 30) <= min);
+  const fits = (x) => (x.minutes || 30) <= min;
+  const list = trayTasks().filter(fits);
+  // (v70) routines too: this day's turns still without a time, then "N times a week" and "quando capita"
+  const turns = toFix(date, date).filter((r) => r.date === date && fits(r.x)).map((r) => r.x);
+  const tIds = new Set(turns.map((x) => x.id));
+  const others = routines().filter((x) => !x.archived && !isMealType(x) && fits(x) && !tIds.has(x.id) && (x.repeat === 'times' ? timesLeft(x, date) > 0 : !hasRhythm(x)));
+  const opt = (value, title, sub) => `<button class="add-opt" value="${esc(value)}"><span class="item-text">${esc(title)}<small>${esc(sub)}</small></span></button>`;
+  const any = list.length || turns.length || others.length;
   openModal(`<h2>${esc(t('agFitsTitle', fmtDur(min), fmtTime(start)))}</h2><p class="hint">${esc(relDay(date))}</p>
-    ${list.length ? `<div class="add-opts">${list.map((x) => `<button class="add-opt" value="${esc(x.id)}"><span class="item-text">${esc(x.title)}<small>${esc(trayInfo(x))}</small></span></button>`).join('')}</div>` : `<p class="hint">${esc(t('agNothingFits'))}</p>`}
+    ${list.length ? `<div class="field-label">${esc(t('fdGrpTasks'))}</div><div class="add-opts">${list.map((x) => opt(`t:${x.id}`, x.title, trayInfo(x))).join('')}</div>` : ''}
+    ${turns.length ? `<div class="field-label">${esc(t('fitsToday'))}</div><div class="add-opts">${turns.map((x) => opt(`o:${x.id}`, `↻ ${x.title}`, `${fmtDur(x.minutes || 30)} · ${t('fitsTurn')}`)).join('')}</div>` : ''}
+    ${others.length ? `<div class="field-label">${esc(t('fitsOther'))}</div><div class="add-opts">${others.map((x) => opt(`r:${x.id}`, `↻ ${x.title}`, `${fmtDur(x.minutes || 30)} · ${x.repeat === 'times' ? t('timesLeftN', timesLeft(x, date)) : t('wm_anytime')}`)).join('')}</div>` : ''}
+    ${any ? '' : `<p class="hint">${esc(t('agNothingFits'))}</p>`}
     <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('close'))}</button></div>`, (form, action) => {
-    const x = get('tasks', action); if (!x) return;
-    const b = planTask(x, date, start);
-    toast(t('plannedToast', relDay(date), fmtTime(b.start))); changed();
+    const [k, id] = [action.slice(0, 1), action.slice(2)];
+    const x = get('tasks', id); if (!x) return;
+    setTimeout(() => placeItem(x, date, start, { occ: k === 'o' ? date : null }), 0);
   }, { cls: 'sheet' });
 }

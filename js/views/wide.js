@@ -14,7 +14,7 @@ import { get, live, upsert } from '../store.js';
 import { changed, render } from '../shell.js';
 import { allItems, classic, curView, dateOf, LENS, matches, missing, openTriage, setLen, setView, setWhen, toPlanList, typeOf, viewList, viewName, WHEN_PICKS, whenPickOf } from './impegni.js';
 import { finderHtml } from '../finder.js';
-import { placeItem } from '../placing.js';
+import { moveBlockTo, placeItem } from '../placing.js';
 import { openWeekGrid } from '../weekgrid.js';
 import { leaveShop, SH } from './shop.js';
 import { eventItems } from './events.js';
@@ -160,10 +160,12 @@ export function wideClick(btn) {
 }
 // A free stretch tapped while something is picked: it goes there.
 export function placePicked(date, start, min) {
+  const pb = ui.pickBlock && get('blocks', ui.pickBlock);
+  if (pb) { ui.pickBlock = null; moveBlockTo(pb.id, date, start); return true; } // (v70) a block being moved by hand
   const x = ui.pick && get('tasks', ui.pick);
   if (!x) return false;
   if ((x.minutes || 30) > min) { toast(t('pnTooLong')); return true; }
-  ui.pick = null;
-  placeItem(x, date, start); // (v69) a routine follows its rhythm (one of N, a turn, instead of, one more)
+  const occ = ui.pickOcc; ui.pick = null; ui.pickOcc = null;
+  placeItem(x, date, start, { occ }); // (v69) a routine follows its rhythm (one of N, a turn, instead of, one more)
   return true;
 }

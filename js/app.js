@@ -34,7 +34,7 @@ applyTheme();
 import { classic, curView, openFilters, openPick, openSort, openTriage, openViews, setView, setWhen, viewList } from './views/impegni.js';
 import { openWeekGrid } from './weekgrid.js';
 import { goToBlock, goToProposal, openChooser, openPropsList, resumeRoutine, sheetClick } from './finder.js';
-import { countToast, firstFreeStart, moveBlockTo, placeItem } from './placing.js';
+import { countToast, firstFreeStart, moveBlockTo, openConflictChoice, openSwap, placeItem } from './placing.js';
 import { agendaAdd, agendaPlan, openGapFits, planStyle, showSteps } from './views/planner.js';
 import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName, SHOPS } from './views/shop.js';
 import { openTaskTools, taskFilter } from './views/tasks.js';
@@ -256,10 +256,12 @@ view.addEventListener('click', (e) => {
     case 'ag-choose': openChooser(); break; // (v67) the phone's Pianifica
     case 'pv-list': openPropsList(); break;
     case 'pv-go': goToProposal(id, btn.dataset.date); break;
-    case 'fd-unpick': ui.pick = null; render(); break;
+    case 'fd-unpick': ui.pick = null; ui.pickOcc = null; ui.pickBlock = null; render(); break;
+    case 'swap-block': openSwap(id); break; // (v70) placing something on a busy block: it takes that slot
+    case 'conflict-choose': openConflictChoice(conflictsOn(btn.dataset.date || currentDate())[Number(btn.dataset.i)]); break;
     case 'fd-ended': ui.fdEnded = !ui.fdEnded; render(); break;
     case 'rt-resume': resumeRoutine(id); break;
-    case 'fd-pick': ui.pick = ui.pick === id ? null : id; render(); break;
+    case 'fd-pick': { const occ = btn.dataset.occ || null; const same = ui.pick === id && (ui.pickOcc || null) === occ; ui.pick = same ? null : id; ui.pickOcc = same ? null : occ; ui.pickBlock = null; render(); break; }
     case 'fd-go': goToBlock(id); break;
     case 'fd-move': { const b = get('blocks', id); const x = b && get('tasks', b.taskId); if (x) openWeekGrid(x, { block: b, onClose: () => { modal.close(); render(); } }); break; }
     case 'fd-when': { const x = get('tasks', id); if (x) openWeekGrid(x, { onClose: (how, k) => { if (how === 'more') { openTask(get('tasks', id)); return; } if (how === 'quick') setWhen(get('tasks', id), k); modal.close(); render(); } }); break; }
@@ -455,7 +457,7 @@ view.addEventListener('sorted', (e) => onSorted(e.detail));
 // (v69) Drag and drop (mouse): rows of the Planner's pane (tasks, routine turns, routines on the shelf) and
 // blocks in the agenda, onto a free stretch (where it fits lights up), a day of the week, or a day in the rail.
 let dnd = null;
-const dropTarget = (el) => el?.closest?.('.ag-gap, .ag-day, .rl-day');
+const dropTarget = (el) => el?.closest?.('.ag-gap, .ag-day, .rl-day, .ag-row[data-drag^="block:"]');
 document.addEventListener('dragstart', (e) => {
   const src = e.target.closest?.('[data-drag]'); if (!src) return;
   dnd = { v: src.dataset.drag, min: Number(src.dataset.min) || 30 };
@@ -481,6 +483,11 @@ document.addEventListener('drop', (e) => {
   const tg = dropTarget(e.target); if (!tg) return;
   e.preventDefault();
   const v = dnd.v; dndEnd();
+  if (tg.classList.contains('ag-row')) { // (v70) onto a block: it takes that slot, you say where the other goes
+    const yId = tg.dataset.drag.slice(6); const [k0, id0, occ0] = v.split(':');
+    if (k0 === 'block') { if (id0 === yId) return; ui.pickBlock = id0; ui.pick = null; } else { ui.pick = id0; ui.pickOcc = k0 === 'turn' && occ0 ? occ0 : null; ui.pickBlock = null; }
+    openSwap(yId); return;
+  }
   const btn = tg.querySelector('button[data-date]') || tg;
   const date = btn.dataset.date || tg.dataset.id || tg.querySelector('[data-id]')?.dataset.id;
   if (!date) return;

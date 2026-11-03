@@ -6,6 +6,12 @@ const plural = (n, one, many) => (n === 1 ? one : many);
 
 const dict = {
   en: {
+    // (v70) swapping a slot, choosing in a conflict, routines in "what fits?"
+    swapHint: '…or a dashed block to put it in its place', swapHere: '⇄ in its place', swapTitle: (a, tm) => `${a} → ${tm}`, swapWhere: (b) => `Instead of “${b}”. Where does ${b} go?`,
+    mvFree: 'To the first free time', mvNoFree: 'no free time that day', mvPick: 'I choose where', mvPickSub: (b) => `then tap a lit stretch for ${b}`, mvBack: 'Back to To plan', mvBackSub: 'no day, no time',
+    mvBackTurn: 'To plan again', mvBackTurnSub: 'the turn is to plan again this week', mvSkip: 'Skip this turn', mvSkipSub: 'the routine goes on from the next one',
+    fitsToday: "Today's routines", fitsOther: 'Other routines', fitsTurn: "today's turn", chooseBtn: 'Choose', keepTitle: (tm) => `Who stays at ${tm}?`, keepOverlap: (d) => `They overlap for ${d}.`,
+    keepThis: 'Keep this', keepFixed: 'from Google, stays put', bothOk: 'Leave them overlapping', bothOkSub: 'no more warning for these two', keepStays: (s) => `${s} stays`, keepWhere: (s) => `Where does “${s}” go?`, cantMove: (s) => `“${s}” is in your Google calendar: it can't be moved from here.`,
     // (v69) placing routines, the shelf, the end of a routine, counting turns
     dropEnded: (d) => `This routine ends ${d}`, dropTimesFull: (n) => `already ${n} of ${n} that week`, dropInstead: (s) => `Instead of ${s}`, dropInsteadSub: 'that turn moves here', dropOnlyThis: 'only that one',
     dropFixedThere: 'Already on the plan that day: drag the block to move it', dropExtra: 'One more', dropExtraSub: 'one extra turn, the others stay',
@@ -330,6 +336,12 @@ const dict = {
     r_morning: 'your morning slot', r_afternoon: 'your afternoon slot', r_evening: 'your evening slot',
   },
   it: {
+    // (v70) scambiare un posto, scegliere in una sovrapposizione, le routine in «cosa ci sta?»
+    swapHint: '…o un blocco tratteggiato per metterla al suo posto', swapHere: '⇄ al posto di questo', swapTitle: (a, tm) => `${a} → ${tm}`, swapWhere: (b) => `Al posto di «${b}». Dove va ${b}?`,
+    mvFree: 'Al primo spazio libero', mvNoFree: 'nessuno spazio libero quel giorno', mvPick: 'Scelgo io dove', mvPickSub: (b) => `poi tocchi uno spazio acceso per ${b}`, mvBack: 'Torna in Da pianificare', mvBackSub: 'senza giorno né ora',
+    mvBackTurn: 'Di nuovo da pianificare', mvBackTurnSub: 'il turno torna da pianificare questa settimana', mvSkip: 'Salta questo turno', mvSkipSub: 'la routine riprende dal prossimo',
+    fitsToday: 'Routine di oggi', fitsOther: 'Altre routine', fitsTurn: 'il turno di oggi', chooseBtn: 'Scegli', keepTitle: (tm) => `Chi resta alle ${tm}?`, keepOverlap: (d) => `Si sovrappongono per ${d}.`,
+    keepThis: 'Tieni questo', keepFixed: 'da Google, resta fisso', bothOk: 'Lasciale sovrapposte', bothOkSub: 'niente più avviso per queste due', keepStays: (s) => `Resta ${s}`, keepWhere: (s) => `Dove va «${s}»?`, cantMove: (s) => `«${s}» è nel tuo calendario Google: da qui non si sposta.`,
     // (v69) mettere le routine nel piano, lo scaffale, la fine di una routine, contare i turni
     dropEnded: (d) => `Questa routine finisce ${d}`, dropTimesFull: (n) => `già ${n} di ${n} quella settimana`, dropInstead: (s) => `Al posto di ${s}`, dropInsteadSub: 'quel turno si sposta qui', dropOnlyThis: 'solo quella',
     dropFixedThere: 'Già nel piano quel giorno: trascina il blocco per spostarlo', dropExtra: 'In più', dropExtraSub: 'una volta in più, le altre restano',
@@ -649,6 +661,12 @@ const dict = {
     r_morning: 'la tua fascia del mattino', r_afternoon: 'la tua fascia del pomeriggio', r_evening: 'la tua fascia serale',
   },
   de: {
+    // (v70) einen Platz tauschen, bei Überschneidungen wählen, Routinen in „Was passt?“
+    swapHint: '…oder einen gestrichelten Block, um es an seine Stelle zu setzen', swapHere: '⇄ an seiner Stelle', swapTitle: (a, tm) => `${a} → ${tm}`, swapWhere: (b) => `Statt „${b}“. Wohin kommt ${b}?`,
+    mvFree: 'In die erste freie Zeit', mvNoFree: 'an dem Tag keine freie Zeit', mvPick: 'Ich wähle wohin', mvPickSub: (b) => `dann tippst du eine helle Zeit für ${b} an`, mvBack: 'Zurück zu Zu planen', mvBackSub: 'ohne Tag und Uhrzeit',
+    mvBackTurn: 'Wieder zu planen', mvBackTurnSub: 'der Durchgang ist diese Woche wieder zu planen', mvSkip: 'Diesen Durchgang auslassen', mvSkipSub: 'die Routine geht beim nächsten weiter',
+    fitsToday: 'Routinen von heute', fitsOther: 'Weitere Routinen', fitsTurn: 'der Durchgang von heute', chooseBtn: 'Wählen', keepTitle: (tm) => `Wer bleibt um ${tm}?`, keepOverlap: (d) => `Sie überschneiden sich ${d}.`,
+    keepThis: 'Das behalten', keepFixed: 'aus Google, bleibt fest', bothOk: 'Überschneiden lassen', bothOkSub: 'keine Warnung mehr für diese zwei', keepStays: (s) => `${s} bleibt`, keepWhere: (s) => `Wohin kommt „${s}“?`, cantMove: (s) => `„${s}“ ist in deinem Google-Kalender: von hier nicht verschiebbar.`,
     // (v69) Routinen einplanen, das Regal, das Ende einer Routine, Durchgänge zählen
     dropEnded: (d) => `Diese Routine endet ${d}`, dropTimesFull: (n) => `schon ${n} von ${n} in der Woche`, dropInstead: (s) => `Statt ${s}`, dropInsteadSub: 'dieser Durchgang wandert hierher', dropOnlyThis: 'nur dieser',
     dropFixedThere: 'An dem Tag schon im Plan: zieh den Block, um ihn zu verschieben', dropExtra: 'Zusätzlich', dropExtraSub: 'einmal mehr, die anderen bleiben',

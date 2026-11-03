@@ -52,7 +52,8 @@ function turnRows(rows) {
       ? `${r.options.map((o) => `<button type="button" class="fd-pill" data-action="fix-occ" data-id="${esc(x.id)}" data-date="${r.date}" data-start="${o.start}">${esc(fmtTime(o.start))}</button>`).join('') || `<small class="hint">${esc(t('noFreeSlotDay'))}</small>`}
         <button type="button" class="fd-pill act" data-action="occ-more" data-id="${esc(x.id)}" data-date="${r.date}">${esc(t('otherTime'))}</button><button type="button" class="fd-pill act" data-action="occ-skip" data-id="${esc(x.id)}" data-date="${r.date}">${esc(t('skip'))}</button>`
       : r.placements.map((pl) => `<button type="button" class="fd-pill" data-action="fix-times" data-id="${esc(x.id)}" data-date="${pl.date}" data-start="${pl.start}" data-minutes="${pl.minutes}">${esc(`${dayLabel(pl.date)} ${fmtTime(pl.start)}`)}</button>`).join('') || `<small class="hint">${esc(t('noFreeSlotWeek'))}</small>`;
-    return `<li class="fd-row turn" draggable="true" data-drag="turn:${esc(x.id)}:${r.date || ''}" data-min="${x.minutes || 30}">${bar(x)}<div class="fd-c"><span class="fd-t as-text">↻ ${esc(head)}<small>${esc(sub)}</small></span><div class="fd-pills">${chips}</div></div></li>`;
+    const on = ui.pick === x.id && (ui.pickOcc || '') === (r.date || '');
+    return `<li class="fd-row turn${on ? ' on' : ''}" draggable="true" data-drag="turn:${esc(x.id)}:${r.date || ''}" data-min="${x.minutes || 30}">${bar(x)}<div class="fd-c"><button type="button" class="fd-t" data-action="fd-pick" data-id="${esc(x.id)}" data-occ="${r.date || ''}">↻ ${esc(head)}<small>${esc(sub)}</small></button><div class="fd-pills">${chips}</div></div></li>`;
   }).join('')}</ul>`;
 }
 // Da pianificare: pick one and the free time it fits in lights up; then the routine turns of the week.
@@ -225,7 +226,7 @@ export function sheetClick(btn) {
   const close = () => { modal.close(); };
   switch (action) {
     case 'fd-tab': ui.fdTab = id; redrawMine(); return true;
-    case 'fd-pick': ui.pick = id; ui.view = 'day'; close(); render(); return true;
+    case 'fd-pick': ui.pick = id; ui.pickOcc = btn.dataset.occ || null; ui.pickBlock = null; ui.view = 'day'; close(); render(); return true;
     case 'fd-go': close(); goToBlock(id); return true;
     case 'pv-go': close(); goToProposal(id, btn.dataset.date); return true;
     case 'ghost-rm': ui.assign?.ghosts.splice(Number(btn.dataset.i), 1); render(); openPropsList(); return true;

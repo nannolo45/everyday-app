@@ -1653,3 +1653,23 @@ body.dnd .ag-day, body.dnd .rl-day { outline: 1px dashed color-mix(in srgb, var(
 .wg-endn input { width: 90px; margin: 0; }
 .wg-endn input[type=date] { width: auto; }
 .wg-endsum { margin: 2px 0 6px; }
+
+/* (v70) placing by hand: blocks you can take the place of, dimmed calendar events, the banner's second line */
+.ag-c.swap { outline: 2px dashed color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: -3px; }
+.ag-swap { display: block; order: 9; color: var(--accent); font-size: .76rem; font-weight: 600; }
+.ag-row.ev.locked { opacity: .5; }
+.ag-pick small { display: block; color: var(--muted); font-size: .78rem; }
+body.dnd .ag-row[data-drag^="block:"] .ag-c { outline: 1px dashed color-mix(in srgb, var(--accent) 50%, transparent); outline-offset: -2px; }
+body.dnd .ag-row.dnd-over .ag-c { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); }
+/* a conflict, by hand */
+.vs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+.vs-side { border: 1px solid var(--line); background: var(--surface); border-radius: 14px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.vs-side.ev { background: color-mix(in srgb, #7a7fd6 14%, var(--surface)); }
+.vs-side b { font-size: .92rem; line-height: 1.25; }
+.vs-side small { color: var(--muted); font-size: .78rem; }
+.vs-side .btn { margin-top: auto; }
+.vs-side .btn:disabled { opacity: .45; }
+.fd-row.turn .fd-t { cursor: pointer; }
+/* (v70) the conflict row has three buttons now: they wrap under the text on a phone */
+.notice li { flex-wrap: wrap; row-gap: 6px; }
+.notice li > span { flex: 1 1 100%; }
