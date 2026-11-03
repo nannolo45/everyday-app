@@ -17,6 +17,7 @@ import { openChecklist, openOutcome, saveTask } from './editors.js';
 import { shopsList } from './views/shop.js';
 import { weekStart } from './views/planner.js';
 import { planGroceryTrips } from './planning.js';
+import { afterPantryChange, pantrySnap } from './lowstock.js';
 
 // ---------- tasks, preparations, checklists ----------
 
@@ -741,8 +742,10 @@ export function trySetBlockDone(block, done, { fromSteps = false } = {}) {
     const list = mealRecipes(block).map((x) => ({ r: recipeOf(x.recipeId), n: x.servings })).filter((x) => x.r);
     if (list.length && confirm(t('cookedConfirm', list.map((x) => x.r.title).join(', ')))) {
       let n = 0;
+      const before = pantrySnap(); // (v73) what ran out because of this meal goes to the list, as Ricette does
       for (const x of list) n += kitchen.cook(x.r, x.n || x.r.servings || 2);
       toast(t('pantryUpdated', n));
+      afterPantryChange(before);
     }
   }
   return true;

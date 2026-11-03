@@ -34,6 +34,7 @@ applyTheme();
 import { classic, curView, openFilters, openPick, openSort, openTriage, openViews, setView, setWhen, viewList } from './views/impegni.js';
 import { openWeekGrid } from './weekgrid.js';
 import { goToBlock, goToProposal, openChooser, openPropsList, resumeRoutine, sheetClick } from './finder.js';
+import { setLowPref } from './lowstock.js';
 import { countToast, firstFreeStart, moveBlockTo, openConflictChoice, openSwap, openSwapEvent, placeItem } from './placing.js';
 import { agendaAdd, agendaPlan, openGapFits, planStyle, showSteps } from './views/planner.js';
 import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName, SHOPS } from './views/shop.js';
@@ -121,6 +122,7 @@ view.addEventListener('input', (e) => {
 view.addEventListener('change', (e) => {
   const el = e.target;
   const { action, id } = el.dataset;
+  if (action === 'low-pref') { setLowPref(el.value); changed(); return; } // (v73) shared with Ricette
   if (action === 'task-done') {
     const task = get('tasks', id);
     if (el.checked && checklistLeft(task.checklist || [], task.checked) > 0) { el.checked = false; openTaskChecklist(task); return; }

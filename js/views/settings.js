@@ -1,4 +1,6 @@
 // views/settings.js: moved from app.js (v36). See app.js for how the modules fit together.
+import { LOW_MODES } from '../kitchen.js';
+import { lowPref } from '../lowstock.js';
 import { advancedListsHtml } from './tasks.js';
 import { isPalestra, lastSessionAt, PALESTRA_APP, palestraTooNew } from '../palestra.js';
 import { advancedOn, APP_VERSION, categories, catName, esc, fmtDay, relDay, route, ui, weekdayNames } from '../core.js';
@@ -114,6 +116,7 @@ export function settingsHtml(s, msg) {
     <div class="conn-main"><span class="ok-dot"></span><div><b>${esc(s.owner)}/${esc(s.ricetteRepo)}</b>
       <small>${esc(t('ricetteStatus', live('r_recipes').length, live('r_pantry').length, live('r_shopping').filter((x) => !x.checked).length))}</small>${contractTooNew() ? `<p class="sl-frozen" role="alert">⚠ ${esc(t('sl_contract'))}</p>` : ''}</div></div>
     ${ui.ricMsg && ui.ricMsg !== 'connected' ? `<p class="conn bad">${esc(t(ui.ricMsg))}</p>` : ''}
+    <label class="opt low-pref">${esc(t('lowPrefL'))}<select data-action="low-pref" ${contractTooNew() ? 'disabled' : ''}>${LOW_MODES.map((m) => `<option value="${m}" ${m === lowPref() ? 'selected' : ''}>${esc(t(`lowPref_${m}`))}</option>`).join('')}</select><small>${esc(t('lowPrefWhy'))}</small></label>
     <div class="button-row"><button class="btn small ghost" type="button" data-action="ric-off">${esc(t('disconnect'))}</button></div>
   </div>` : `
   <form class="form" id="ric-form">

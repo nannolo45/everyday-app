@@ -5,6 +5,7 @@ import { classic, curView, RICETTE_APP, setView, setWhen, viewName, viewTokens, 
 import { openWeekGrid } from './weekgrid.js';
 import { upcomingOf } from './finder.js';
 import { timePairHtml, wireTimePair } from './timepair.js';
+import { afterPantryChange, pantrySnap } from './lowstock.js';
 import { countToast, rejoinEvent, setCounts, skipEvent, unskipEvent } from './placing.js';
 import { advancedOn, catChips, catChipsMulti, catColor, catName, catsOf, categories, readCats, esc, findCategory, fmtDay, hint, kitchen, modal, PALETTE, planSettings, quickFields, range, reasonText, relDay, route, small, toast, ui, weekdayNames } from './core.js';
 import { getLang, t } from './i18n.js';
@@ -1981,7 +1982,7 @@ export function openBlock(block, defaults = {}) {
       next[Number(el.dataset.ci)] = el.checked;
       upsert('blocks', { ...cur, checked: next }, { silent: true });
     }
-    if (el.dataset.action === 'sl-toggle') { kitchen.setChecked(el.dataset.id, el.checked); el.closest('li').classList.toggle('checked', el.checked); }
+    if (el.dataset.action === 'sl-toggle') { const before = el.checked ? null : pantrySnap(); kitchen.setChecked(el.dataset.id, el.checked); if (before) afterPantryChange(before); el.closest('li').classList.toggle('checked', el.checked); }
     if (el.name === 'taskId') {
       const x = get('tasks', el.value);
       if (!x) return;

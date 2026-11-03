@@ -1727,3 +1727,10 @@ body.dnd .ag-row.dnd-over .ag-c { background: color-mix(in srgb, var(--accent) 2
 .dt-line { margin: 6px 0 0; font-size: .82rem; }
 .dt-line.warn { color: var(--warn); } .dt-line.ok { color: var(--green); }
 .dt-line .dt-fix { margin-left: 6px; border: 1px solid currentColor; background: none; color: inherit; border-radius: 999px; padding: 2px 9px; font: inherit; font-size: .8rem; cursor: pointer; }
+/* (v73) something ran out: on the shopping list? */
+.low-list { margin: 6px 0 10px; }
+.low-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.low-row:last-child { border-bottom: 0; }
+.low-n { flex: 1; display: flex; flex-direction: column; } .low-n small { color: var(--muted); }
+.low-q { display: inline-flex; align-items: center; gap: 6px; } .low-q b { min-width: 54px; text-align: center; }
+.low-pref { margin-top: 10px; } .low-pref small { display: block; color: var(--muted); }

@@ -1,6 +1,7 @@
 // Kitchen rules shared by Ricette and Everyday (copied unchanged in both apps):
 // finding a pantry product, adding to the shopping list, what a recipe still needs,
-// what cooking takes out of the pantry, putting shopping away, and running low.
+// what cooking takes out of the pantry, putting shopping away, and running low (v55: lowState, lowBuy,
+// onList, pendingLow, addLowItem, skipLow, and ensureLowItems({ mode }) for the shared pref `lowAction`).
 // Every comparison of two foods goes through foods.js (sameFood), so both apps match alike.
 //
 // The host passes its store:  createKitchen({ live, get, upsert, remove, uid })
@@ -38,6 +39,38 @@ export function lowInfo(p) {
   const tgt = num(p.target);
   const target = tgt != null && tgt > min ? tgt : Math.max(min * 2, min + stepFor(p.unit));
   return { buy: round(target - qty) };
+}
+
+// v55 (contract v1, agreed with Everyday): "finished" covers quantities with no threshold too.
+// LOW_MODES = what happens when a product runs out: 'ask' (the host shows a prompt), 'auto' (on the list by itself),
+// 'off' (nothing). Shared pref `lowAction`; missing = 'ask'.
+export const LOW_MODES = ['ask', 'auto', 'off'];
+export const lowMode = (v) => (LOW_MODES.includes(v) ? v : 'ask');
+/** 'out' | 'low' | null: staples by level; quantities at 0 are out, at or under their threshold low. */
+export function lowState(p) {
+  if (!p) return null;
+  if (isLevel(p)) { const l = levelOf(p); return l === 'ok' ? null : l; }
+  const qty = num(p.qty) || 0;
+  if (qty <= 0) return 'out';
+  const min = num(p.min);
+  return min != null && qty <= min ? 'low' : null;
+}
+/**
+ * How much to put on the list for a finished product (null for staples): up to the full stock when there is one,
+ * the threshold's usual amount, else one pack: the scanned pack size, what was there just before (`prevQty`), or one step.
+ */
+export function lowBuy(p, prevQty = null) {
+  if (isLevel(p)) return null;
+  const qty = Math.max(0, num(p.qty) || 0);
+  const low = lowInfo(p);
+  if (low && low.buy > 0) return low.buy;
+  const tgt = num(p.target);
+  if (tgt != null && tgt > qty) return round(tgt - qty);
+  const pack = num(p.packQty) != null && (!p.packUnit || p.packUnit === (p.unit || '')) ? num(p.packQty) : null;
+  if (pack && pack > 0) return pack;
+  const prev = num(prevQty);
+  if (prev != null && prev > qty) return round(prev - qty);
+  return stepFor(p.unit || '');
 }
 
 const codesOf = (p) => [...new Set([...(p.barcodes || []), ...(p.barcode ? [p.barcode] : [])])];
@@ -81,22 +114,59 @@ export function createKitchen({ live, get, upsert, remove, uid, all }) {
     }, silent);
   }
 
-  /** Ricette only (contract v1: automatic items are Ricette's while it is connected). */
-  function ensureLowItems() {
-    const pantry = live('pantry');
-    for (const p of pantry) {
+  /** An open list item for this product: its automatic item, one that points at it, or one of the same food. */
+  function onList(p) {
+    return live('shopping').find((i) => !i.checked && (i.id === `low_${p.id}` || i.pantryId === p.id || sameFood(i, p))) || null;
+  }
+
+  /** Finished products that are on no list and that nobody said "no" to: what the host offers to add. */
+  function pendingLow() {
+    return live('pantry').filter((p) => lowState(p) && !p.lowSkip && !onList(p));
+  }
+
+  /**
+   * Put a finished product on the list (a person said yes, or mode 'auto'). Both apps may call this.
+   * `qty` = the amount chosen (stored with `qtyChosen`, so later checks keep it); missing = lowBuy(p).
+   */
+  function addLowItem(p, qty) {
+    const id = `low_${p.id}`;
+    const buy = isLevel(p) ? null : (num(qty) ?? lowBuy(p));
+    const unit = buy == null ? '' : p.unit || '';
+    const cur = get('shopping', id);
+    const base = cur && !cur.checked ? cur : { id, checked: false, auto: true, pantryId: p.id, sources: [], addedAt: Date.now(), ...(p.cat ? { cat: p.cat } : {}), ...foodFields(p.name, p) };
+    const shops = (base.shops || []).length ? base.shops : (Array.isArray(p.shops) && p.shops.length ? [...p.shops] : undefined);
+    const { lowSkip, ...prod } = p;
+    if (lowSkip) upsert('pantry', prod, silent);
+    return upsert('shopping', { ...base, name: p.name, qty: buy, unit, ...(num(qty) != null ? { qtyChosen: true } : {}), ...(shops ? { shops } : {}) }, silent);
+  }
+
+  /** "No, grazie": not offered again until the product is back in stock. */
+  function skipLow(p) {
+    return upsert('pantry', { ...p, lowSkip: true }, silent);
+  }
+
+  /**
+   * Ricette only (contract v1: automatic items are Ricette's while it is connected).
+   * mode 'auto': every finished product (not skipped, not already on the list) gets its item. 'ask' / 'off': items
+   * are only kept up to date. Always: an item whose product is back in stock leaves the list, and a "no" is forgotten.
+   */
+  function ensureLowItems({ mode = 'auto' } = {}) {
+    const m = lowMode(mode);
+    for (const p of live('pantry')) {
       const id = `low_${p.id}`;
       const cur = get('shopping', id);
-      const low = lowInfo(p);
-      const unit = low && low.buy == null ? '' : p.unit || '';
-      if (low) {
+      const st = lowState(p);
+      if (st) {
         if (!cur) {
-          upsert('shopping', { id, name: p.name, qty: low.buy, unit, checked: false, auto: true, pantryId: p.id, sources: [], addedAt: Date.now(), ...(p.cat ? { cat: p.cat } : {}), ...foodFields(p.name, p) }, silent);
-        } else if ((!cur.checked && (cur.qty ?? null) !== low.buy) || cur.name !== p.name || cur.unit !== unit) {
-          upsert('shopping', { ...cur, name: p.name, qty: low.buy, unit }, silent);
+          if (m === 'auto' && !p.lowSkip && !onList(p)) addLowItem(p);
+        } else if (!cur.checked) {
+          const buy = isLevel(p) ? null : (cur.qtyChosen ? cur.qty : lowBuy(p, cur.qty));
+          const unit = buy == null ? '' : p.unit || '';
+          if ((cur.qty ?? null) !== buy || cur.name !== p.name || cur.unit !== unit) upsert('shopping', { ...cur, name: p.name, qty: buy, unit }, silent);
         }
-      } else if (cur && !cur.checked) {
-        remove('shopping', id);
+      } else {
+        if (cur && !cur.checked) remove('shopping', id);
+        if (p.lowSkip) { const { lowSkip, ...rest } = p; upsert('pantry', rest, silent); }
       }
     }
     // products deleted since (tombstones, when the host passes `all`): their open automatic items go too
@@ -202,5 +272,6 @@ export function createKitchen({ live, get, upsert, remove, uid, all }) {
     }, silent);
   }
 
-  return { findPantry, addToShopping, ensureLowItems, planForRecipe, usePantryFor, pantryTarget, putAwayRow };
+
+  return { findPantry, addToShopping, ensureLowItems, planForRecipe, usePantryFor, pantryTarget, putAwayRow, onList, pendingLow, addLowItem, skipLow };
 }

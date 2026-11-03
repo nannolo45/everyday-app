@@ -1,6 +1,7 @@
 // views/shop.js: Attività → Spesa, the shopping list (v37: the shared list v2 from Ricette).
 // The markup comes from shoplist-ui.js and the grouping from shoplist.js, both shared with Ricette
 // unchanged; this file supplies the labels, the formatting and what each action does.
+import { afterPantryChange, pantrySnap } from '../lowstock.js';
 import { esc, hint, kitchen, kitchenOwn, modal, relDay, toast, ui } from '../core.js';
 import { DEPT_IDS, DEPTS, deptIcon, deptOf, NONFOOD } from '../depts.js';
 import { refood } from '../foods.js';
@@ -198,7 +199,7 @@ export function leaveShop() { ui.shopReorder = false; ui.shopSel = null; }
 // The checkboxes (a change): in the cart or not, or selected while selecting.
 export function shopChange(el) {
   const { action, id } = el.dataset;
-  if (action === A.toggle) { K().setChecked(id, el.checked); changed(); return true; }
+  if (action === A.toggle) { const before = !el.checked && ricetteConfigured() ? pantrySnap() : null; K().setChecked(id, el.checked); changed(); if (before) afterPantryChange(before); return true; }
   if (action === A.select) { toggleSel(id, el.checked); return true; }
   return false;
 }

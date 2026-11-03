@@ -5,7 +5,8 @@
 //  - setChecked: ticking at the shop (older records "stocked" on the spot are taken back out on untick);
 //  - putAway: the ticked items, food into the pantry, the rest just off the list (a new product takes the
 //    item's shops, as in Ricette v50; Everyday leaves a product's `place` to Ricette).
-// "Running low" items are Ricette's alone (data contract v1): Everyday never calls ensureLowItems.
+// "Running low" items are kept up to date by Ricette alone: Everyday never calls ensureLowItems. (v73, Ricette
+// v55) It may make one with addLowItem when a person says yes (or the shared pref `lowAction` is 'auto').
 //
 // store = { live(c), get(c, id), upsert(c, rec), remove(c, id), uid() }; names = { pantry, shopping }
 import { atHome, createKitchen, ingredientsOf, isLevel, num, round } from './kitchen.js';
@@ -100,5 +101,5 @@ export function makeKitchen(store, names = { pantry: 'pantry', shopping: 'shoppi
     return n;
   }
 
-  return { findPantry: k.findPantry, addToShopping: k.addToShopping, planForRecipe, pantryAfter, missingFor, cook, setChecked, putAway, atHome };
+  return { findPantry: k.findPantry, addToShopping: k.addToShopping, onList: k.onList, pendingLow: k.pendingLow, addLowItem: k.addLowItem, skipLow: k.skipLow, planForRecipe, pantryAfter, missingFor, cook, setChecked, putAway, atHome };
 }
