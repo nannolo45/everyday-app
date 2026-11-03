@@ -209,7 +209,7 @@ export function openConflictChoice(c) {
     <div class="vs">${side(a, b)}${side(b, a)}</div>
     <div class="choose"><button class="btn choose-opt" value="both"><b>${esc(t('bothOk'))}</b><small>${esc(t('bothOkSub'))}</small></button></div>
     <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('cancel'))}</button></div>`, (form, action, e) => {
-    if (action === 'both') { const mv = items.find((x) => !x.fixed); if (mv) { upsert('blocks', { ...get('blocks', mv.id), allowOverlap: true }, { silent: true }); changed(); } return; }
+    if (action === 'both') { const mv = items.find((x) => !x.fixed); const ot = items.find((x) => x !== mv); if (mv && ot) { const cur = get('blocks', mv.id); upsert('blocks', { ...cur, okWith: [...(cur.okWith || []).filter((o) => o.id !== ot.id), { id: ot.id, date: cur.date, start: cur.start }] }, { silent: true }); changed(); } return; }
     if (!action.startsWith('keep:')) return;
     e.preventDefault();
     const keep = items.find((x) => x.id === action.slice(5)); const other = items.find((x) => x !== keep);

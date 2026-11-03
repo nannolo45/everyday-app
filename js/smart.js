@@ -211,6 +211,9 @@ export function placeGroceries({ meal, minutes, blocksOn, today, nowMin, setting
 const end = (b) => b.start + b.minutes;
 const before = (a, b) => a.date < b.date || (a.date === b.date && end(a) <= b.start);
 
+// (v72) A block may overlap one particular other thing ("Va bene così" on that conflict): okWith [{id, date, start}],
+// valid while the block is still where it was when you said so.
+export const okPair = (a, b) => (a.okWith || []).some((o) => o.id === b.id && o.date === a.date && o.start === a.start);
 const pad4 = (n) => String(n).padStart(4, '0');
 export function findConflicts(dayBlocks, { getBlock = () => null, getTask = () => null, blocksOfTask = () => [] } = {}) {
   const out = [];
@@ -220,6 +223,7 @@ export function findConflicts(dayBlocks, { getBlock = () => null, getTask = () =
       const a = list[i]; const b = list[j];
       if (b.start >= end(a)) continue;
       if (a.allowOverlap || b.allowOverlap || (a.done && b.done) || (a.fixed && b.fixed)) continue; // two calendar events: not ours to fix
+      if (okPair(a, b) || okPair(b, a)) continue; // (v72) "Va bene così" for these two only
       out.push({ type: 'overlap', ids: [a.id, b.id] });
     }
   }

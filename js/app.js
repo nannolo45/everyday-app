@@ -370,8 +370,10 @@ view.addEventListener('click', (e) => {
     case 'fix': fixConflict(conflictsOn(btn.dataset.date || currentDate())[Number(btn.dataset.i)]); break;
     case 'allow': {
       const c = conflictsOn(btn.dataset.date || currentDate())[Number(btn.dataset.i)];
-      const b = get('blocks', c.ids[1]) || get('blocks', c.ids[0]); // calendar events can't be changed here
-      upsert('blocks', { ...b, allowOverlap: true }, { silent: true });
+      // (v72) only this pair: the other conflicts of the same block stay (calendar events can't be changed here)
+      const b = get('blocks', c.ids[1]) || get('blocks', c.ids[0]);
+      const other = b.id === c.ids[1] ? c.ids[0] : c.ids[1];
+      upsert('blocks', { ...b, okWith: [...(b.okWith || []).filter((o) => o.id !== other), { id: other, date: b.date, start: b.start }] }, { silent: true });
       changed();
       break;
     }
