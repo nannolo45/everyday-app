@@ -5,7 +5,7 @@
 // On a phone nothing changes.
 import { catName, catsOf, categories, esc, fmtDay, modal, relDay, route, toast, ui } from '../core.js';
 import { t } from '../i18n.js';
-import { eventReadiness, eventTasksOf, planTask, plannedWhen, setTaskDone } from '../model.js';
+import { eventReadiness, eventTasksOf, plannedWhen, setTaskDone } from '../model.js';
 import { openEvent, openTask } from '../editors.js';
 import { addDays, fmtDur, fmtTime, parseDate, today } from '../plan.js';
 import { trayTasks } from '../planning.js';
@@ -14,6 +14,7 @@ import { get, live, upsert } from '../store.js';
 import { changed, render } from '../shell.js';
 import { allItems, classic, curView, dateOf, LENS, matches, missing, openTriage, setLen, setView, setWhen, toPlanList, typeOf, viewList, viewName, WHEN_PICKS, whenPickOf } from './impegni.js';
 import { finderHtml } from '../finder.js';
+import { placeItem } from '../placing.js';
 import { openWeekGrid } from '../weekgrid.js';
 import { leaveShop, SH } from './shop.js';
 import { eventItems } from './events.js';
@@ -162,9 +163,7 @@ export function placePicked(date, start, min) {
   const x = ui.pick && get('tasks', ui.pick);
   if (!x) return false;
   if ((x.minutes || 30) > min) { toast(t('pnTooLong')); return true; }
-  const b = planTask(x, date, start);
   ui.pick = null;
-  toast(t('plannedToast', relDay(date), fmtTime(b.start)));
-  changed();
+  placeItem(x, date, start); // (v69) a routine follows its rhythm (one of N, a turn, instead of, one more)
   return true;
 }

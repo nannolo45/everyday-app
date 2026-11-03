@@ -1607,3 +1607,49 @@ dialog.wg-sheet .wg-sub { margin: 0 0 8px; }
 .fd-t.as-text { cursor: default; }
 .fd-day small { font-weight: 400; letter-spacing: 0; }
 .seg > button.on small { color: inherit; opacity: .85; }
+
+/* (v69) drag and drop on the agenda: where it fits lights up, where it doesn't dims */
+[draggable="true"] { -webkit-user-drag: element; }
+.fd-row[draggable="true"], .ag-row[draggable="true"] { cursor: grab; }
+body.dnd .ag-gap.dnd-fits > button { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); font-weight: 600; }
+body.dnd .ag-gap.dnd-nofit { opacity: .4; }
+body.dnd .dnd-over > button, body.dnd .ag-day.dnd-over, body.dnd .rl-day.dnd-over { background: color-mix(in srgb, var(--accent) 26%, transparent) !important; border-color: var(--accent) !important; }
+body.dnd .ag-day, body.dnd .rl-day { outline: 1px dashed color-mix(in srgb, var(--accent) 50%, transparent); outline-offset: -2px; }
+/* (v69) the Routine shelf */
+.fd-grip { color: var(--muted); align-self: center; padding-left: 2px; }
+.tly-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+.tly { display: flex; gap: 2px; flex: 1; max-width: 150px; }
+.tly i { height: 6px; flex: 1; border-radius: 3px; background: var(--line); }
+.tly i.done { background: var(--green); }
+.tly i.pl { background: var(--accent); }
+.tly-n { font-size: .74rem; font-weight: 600; white-space: nowrap; }
+.tly-legend { display: flex; gap: 10px; font-size: .72rem; color: var(--muted); }
+.tly-legend i { display: inline-block; width: 12px; height: 6px; border-radius: 3px; margin-right: 4px; vertical-align: 1px; background: var(--line); }
+.tly-legend i.done { background: var(--green); }
+.tly-legend i.pl { background: var(--accent); }
+.fd-ended-h { display: flex; align-items: center; gap: 6px; }
+.fd-ended-h .linkish { margin-left: auto; font-size: .72rem; text-transform: none; letter-spacing: 0; }
+.fd-row.ended { opacity: .75; align-items: center; }
+.fd-t small.warn-text { color: var(--warn); }
+/* (v69) counting turns of a "per N volte" routine */
+.es-count { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 8px 10px; border-radius: 11px; border: 1px dashed var(--line); }
+.es-count > span { flex: 1; font-size: .88rem; }
+.es-count small { display: block; color: var(--muted); font-size: .76rem; }
+.sw-btn { width: 44px; height: 26px; border-radius: 13px; background: var(--line); position: relative; border: 0; cursor: pointer; flex: none; padding: 0; }
+.sw-btn::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--surface); transition: left .15s; }
+.sw-btn.on { background: var(--accent); }
+.sw-btn.on::after { left: 21px; background: var(--accent-ink); }
+.rt-tly { max-width: none; margin: 6px 0 8px; }
+.rt-turns { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.rt-turns li { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 9px; background: var(--bg); font-size: .88rem; }
+.rt-turns li > span:nth-child(2) { flex: 1; }
+.rt-turns .rt-o { width: 18px; text-align: center; font-weight: 700; }
+.rt-turns .mchip { color: var(--muted); border: 1px solid var(--line); padding: 3px 10px; }
+.rt-turns .mchip.set { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.ed-wm { margin-top: 6px; }
+.ed-wm-what { margin: 2px 0 8px; }
+.wg-end { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }
+.wg-endn { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+.wg-endn input { width: 90px; margin: 0; }
+.wg-endn input[type=date] { width: auto; }
+.wg-endsum { margin: 2px 0 6px; }

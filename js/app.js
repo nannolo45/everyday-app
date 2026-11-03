@@ -33,7 +33,8 @@ import { applyTheme } from './theme.js';
 applyTheme();
 import { classic, curView, openFilters, openPick, openSort, openTriage, openViews, setView, setWhen, viewList } from './views/impegni.js';
 import { openWeekGrid } from './weekgrid.js';
-import { goToBlock, goToProposal, openChooser, openPropsList, sheetClick } from './finder.js';
+import { goToBlock, goToProposal, openChooser, openPropsList, resumeRoutine, sheetClick } from './finder.js';
+import { countToast, firstFreeStart, moveBlockTo, placeItem } from './placing.js';
 import { agendaAdd, agendaPlan, openGapFits, planStyle, showSteps } from './views/planner.js';
 import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName, SHOPS } from './views/shop.js';
 import { openTaskTools, taskFilter } from './views/tasks.js';
@@ -138,6 +139,7 @@ view.addEventListener('change', (e) => {
     const ok = trySetBlockDone(get('blocks', id), el.checked);
     if (!ok) { el.checked = false; return; }
     changed();
+    if (el.checked) countToast(id); // (v69) per N volte: counted, or not
   }
   if (el.dataset.ci != null && el.dataset.block) { // checklist inside an open row of the list view
     const cur = get('blocks', el.dataset.block);
@@ -255,6 +257,8 @@ view.addEventListener('click', (e) => {
     case 'pv-list': openPropsList(); break;
     case 'pv-go': goToProposal(id, btn.dataset.date); break;
     case 'fd-unpick': ui.pick = null; render(); break;
+    case 'fd-ended': ui.fdEnded = !ui.fdEnded; render(); break;
+    case 'rt-resume': resumeRoutine(id); break;
     case 'fd-pick': ui.pick = ui.pick === id ? null : id; render(); break;
     case 'fd-go': goToBlock(id); break;
     case 'fd-move': { const b = get('blocks', id); const x = b && get('tasks', b.taskId); if (x) openWeekGrid(x, { block: b, onClose: () => { modal.close(); render(); } }); break; }
@@ -353,7 +357,7 @@ view.addEventListener('click', (e) => {
     case 'event-plan': { const ev = eventOf(id); if (ev) planEventTasks(ev); break; }
     case 'open-block': { const b = get('blocks', id); if (b) openBlock(b); break; }
     case 'now-left': { const b = get('blocks', id); if (b) { setStepOutcome(b, btn.dataset.step, 'done'); toast(t('goodTrip')); changed(); } break; }
-    case 'now-done': { const b = get('blocks', id); if (b && runningBlock()?.id === id) finishTimer(); else if (b) { trySetBlockDone(b, true); changed(); } break; }
+    case 'now-done': { const b = get('blocks', id); if (b && runningBlock()?.id === id) finishTimer(); else if (b) { if (trySetBlockDone(b, true)) { changed(); countToast(id); } else changed(); } break; }
     case 'now-move': { const b = get('blocks', id); if (b) openBlock(b); break; }
     case 'reflow-undo': undoReflow(); break;
     case 'reflow-ok': ui.reflow = null; render(); break;
@@ -447,6 +451,46 @@ function planTripsNow() {
 }
 
 view.addEventListener('sorted', (e) => onSorted(e.detail));
+
+// (v69) Drag and drop (mouse): rows of the Planner's pane (tasks, routine turns, routines on the shelf) and
+// blocks in the agenda, onto a free stretch (where it fits lights up), a day of the week, or a day in the rail.
+let dnd = null;
+const dropTarget = (el) => el?.closest?.('.ag-gap, .ag-day, .rl-day');
+document.addEventListener('dragstart', (e) => {
+  const src = e.target.closest?.('[data-drag]'); if (!src) return;
+  dnd = { v: src.dataset.drag, min: Number(src.dataset.min) || 30 };
+  e.dataTransfer.setData('text/plain', dnd.v); e.dataTransfer.effectAllowed = 'move';
+  document.body.classList.add('dnd');
+  for (const g of document.querySelectorAll('.ag-gap button[data-min]')) g.parentElement.classList.toggle(Number(g.dataset.min) >= dnd.min ? 'dnd-fits' : 'dnd-nofit', true);
+  ui.dragging = true;
+});
+const dndEnd = () => {
+  dnd = null; ui.dragging = false; document.body.classList.remove('dnd');
+  for (const el of document.querySelectorAll('.dnd-fits, .dnd-nofit, .dnd-over')) el.classList.remove('dnd-fits', 'dnd-nofit', 'dnd-over');
+};
+document.addEventListener('dragend', () => { if (dnd) dndEnd(); });
+document.addEventListener('dragover', (e) => {
+  if (!dnd) return;
+  const tg = dropTarget(e.target); if (!tg || tg.classList.contains('dnd-nofit')) return;
+  e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+  for (const el of document.querySelectorAll('.dnd-over')) if (el !== tg) el.classList.remove('dnd-over');
+  tg.classList.add('dnd-over');
+});
+document.addEventListener('drop', (e) => {
+  if (!dnd) return;
+  const tg = dropTarget(e.target); if (!tg) return;
+  e.preventDefault();
+  const v = dnd.v; dndEnd();
+  const btn = tg.querySelector('button[data-date]') || tg;
+  const date = btn.dataset.date || tg.dataset.id || tg.querySelector('[data-id]')?.dataset.id;
+  if (!date) return;
+  const [kind, id, occ] = v.split(':');
+  if (kind === 'block') { const b = get('blocks', id); if (!b) return; moveBlockTo(id, date, btn.dataset.start != null ? Number(btn.dataset.start) : firstFreeStart({ ...b, minutes: b.minutes }, date)); return; }
+  const x = get('tasks', id); if (!x) return;
+  const start = btn.dataset.start != null ? Number(btn.dataset.start) : firstFreeStart(x, date);
+  if (btn.dataset.min && (x.minutes || 30) > Number(btn.dataset.min)) { toast(t('pnTooLong')); return; }
+  placeItem(x, date, start, { occ: kind === 'turn' && occ ? occ : null });
+});
 
 setupDrag(view, {
   dragging: (on) => { ui.dragging = on; document.body.classList.toggle('is-dragging', on); },

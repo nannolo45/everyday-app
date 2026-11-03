@@ -467,7 +467,8 @@ function agRow(it) {
     return `<li class="ag-row ev" style="--c:${esc(e.color || 'var(--muted)')}">${time}<button class="ag-c" type="button" data-action="event" data-id="${esc(e.id)}"><span class="ag-t">📅 ${esc(e.title)}</span>${e.location ? `<small>📍 ${esc(e.location)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
   }
   const b = it.b; const st = outcomeOf(b);
-  return `<li class="ag-row${st ? ` is-${st}` : ''}${ui.flash === b.id ? ' flash' : ''}" style="--c:${esc(catColor(b.category) || 'var(--accent)')}">${time}<button class="ag-c" type="button" data-action="open-block" data-id="${esc(b.id)}"><span class="ag-t">${st === 'done' ? '✓ ' : ''}${esc(b.title)}</span>${b.place ? `<small>📍 ${esc(b.place)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
+  // (v69) a block not yet done can be dragged to another free stretch or day (mouse)
+  return `<li class="ag-row${st ? ` is-${st}` : ''}${ui.flash === b.id ? ' flash' : ''}"${st ? '' : ` draggable="true" data-drag="block:${esc(b.id)}" data-min="${b.minutes || 30}"`} style="--c:${esc(catColor(b.category) || 'var(--accent)')}">${time}<button class="ag-c" type="button" data-action="open-block" data-id="${esc(b.id)}"><span class="ag-t">${st === 'done' ? '✓ ' : ''}${esc(b.title)}</span>${b.place ? `<small>📍 ${esc(b.place)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
 }
 const gapRow = (date, start, min) => {
   const pick = ui.pick && get('tasks', ui.pick); // (v56) something picked in the pane: where it fits lights up

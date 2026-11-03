@@ -6,7 +6,8 @@
 import { catName, esc, fmtDay, relDay, toast, ui } from './core.js';
 import { getLang, t } from './i18n.js';
 import { isMealType, isSaved, isTodo } from './kinds.js';
-import { ensureSeries } from './model.js';
+import { countedOf, ensureSeries, isEnded, turnCounts } from './model.js';
+import { setCounts } from './placing.js';
 import { addDays, fmtDur, fmtTime, inPause, isOccurrence, parseDate, REPEATS, ruleAt, today } from './plan.js';
 import { changed } from './shell.js';
 import { get, live, remove, upsert } from './store.js';
@@ -16,7 +17,9 @@ import { dayShort, openModal, repeatText } from './widgets.js';
 import { openPlanSaved, openTask } from './editors.js';
 import { isPalestra, PALESTRA_APP } from './palestra.js';
 
-export const isRoutine = (x) => Boolean(x && !x.deleted && !x.done && !x.travelRole && (isSaved(x) || (isTodo(x) && x.repeat)));
+export const isRoutine = (x) => Boolean(x && !x.deleted && !x.done && !x.travelRole && (isSaved(x) || (isTodo(x) && x.repeat)) && !isEnded(x));
+// (v69) Routines that have ended (a date or N turns): kept, listed apart as "Concluse".
+export const endedRoutines = () => live('tasks').filter((x) => x && !x.deleted && !x.travelRole && (isSaved(x) || isTodo(x)) && isEnded(x));
 // Workouts deleted in Palestra (v54): kept for their history, listed apart, never planned again.
 export const isArchived = (x) => Boolean(x?.archived);
 export const hasRhythm = (x) => Boolean((x?.repeat && (REPEATS.includes(x.repeat) || x.repeat === 'times')) || REPEATS.includes(x?.next?.repeat));
@@ -189,6 +192,7 @@ export function openRoutine(id) {
       ${rhythm ? row('period', t('rtPeriod'), x.repeatUntil ? t('rtFromTo', from ? relDay(from) : '…', relDay(x.repeatUntil)) : from ? t('rtFromOn', relDay(from)) : '') : ''}
       ${rhythm ? row('pause', t('rtPauses'), p.length ? p.map((q) => (q.to ? t('rtFromTo', relDay(q.from), relDay(q.to)) : t('rtFromOn', relDay(q.from)))).join(', ') : t('rtNoPause')) : ''}
     </div>`}
+    ${x.repeatCount ? countsSection(x) : ''}
     ${left.length ? `<div class="field-label">${esc(t('rtSkipThisWeek'))}</div>
     <div class="occ-chips">${left.map((d) => `<button class="occ-chip" value="skip:${d}" formnovalidate>${esc(relDay(d))}</button>`).join('')}</div>` : ''}
     <div class="button-row">
@@ -198,11 +202,21 @@ export function openRoutine(id) {
     </div>`, (form, action, e) => {
     const cur = get('tasks', x.id);
     if (action.startsWith('skip:')) { e.preventDefault(); skipDay(cur, action.slice(5)); openRoutine(x.id); return; }
+    if (action.startsWith('cnt:')) { e.preventDefault(); const b = get('blocks', action.slice(4)); if (b) setCounts(b.id, !turnCounts(b)); openRoutine(x.id); return; }
     if (action === 'period') { e.preventDefault(); openPeriod(cur); return; }
     if (action === 'pause') { e.preventDefault(); openPause(cur); return; }
     if (action === 'when' || action === 'more') { setTimeout(() => openTask(cur), 0); return; }
     if (action === 'plan') setTimeout(() => openPlanSaved(cur, td, { stay: true }), 0);
   }, { cls: 'sheet routine' });
+}
+// (v69) "Per N volte": how many count so far, and every recorded turn with a pill to count it or not.
+function countsSection(x) {
+  const n = countedOf(x); const N = Number(x.repeatCount);
+  const rec = live('blocks').filter((b) => b.taskId === x.id && b.kind !== 'prep' && !b.stepId && outcomeOf(b)).sort((a, b) => (a.date < b.date ? 1 : -1));
+  const mark = (b) => (outcomeOf(b) === 'done' ? '✓' : outcomeOf(b) === 'partial' ? '◐' : '✕');
+  return `<div class="field-label">${esc(t('turnsHistory'))} <small>${esc(t('turnsOf', n, N))}${n < N ? ` · ${esc(t('turnsLeftN', N - n))}` : ''}</small></div>
+    <div class="tly rt-tly">${Array.from({ length: Math.min(N, 30) }, (_, i) => `<i class="${i < n ? 'done' : ''}"></i>`).join('')}</div>
+    ${rec.length ? `<ul class="rt-turns">${rec.slice(0, 30).map((b) => `<li><span class="rt-o">${mark(b)}</span><span>${esc(relDay(b.date))}</span><button class="mchip${turnCounts(b) ? ' set' : ''}" value="cnt:${esc(b.id)}" formnovalidate>${esc(turnCounts(b) ? t('countsPill') : t('notCountsPill'))}</button></li>`).join('')}</ul>` : ''}`;
 }
 // The period: from when, until when (optional).
 function openPeriod(x) {

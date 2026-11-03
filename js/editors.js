@@ -4,10 +4,11 @@ import { routines } from './routines.js';
 import { classic, curView, RICETTE_APP, setView, setWhen, viewName, viewTokens, wouldShow } from './views/impegni.js';
 import { openWeekGrid } from './weekgrid.js';
 import { upcomingOf } from './finder.js';
+import { countToast, setCounts } from './placing.js';
 import { advancedOn, catChips, catChipsMulti, catColor, catName, catsOf, categories, readCats, esc, findCategory, fmtDay, hint, kitchen, modal, PALETTE, planSettings, quickFields, range, reasonText, relDay, route, small, toast, ui, weekdayNames } from './core.js';
 import { getLang, t } from './i18n.js';
 import { isEvent, isMealType, isSaved, isStep, withKind } from './kinds.js';
-import { alreadyPlanned, anchorIndex, anchorOffset, anchorTitle, applyTemplate, blocksOn, busyOn, checklistLeft, checklistOf, checkMealNow, deleteBlock, endSeries, ensureSeries, eventBlockOf, eventDate, eventOf, eventTasksOf, followParent, isCheckStep, isSeries, leadOf, mealRecipes, mealTitle, mealTypes, newBlock, nextBlockOf, nextPlanned, offsetDue, offsetText, openTasks, outcomeOf, plannedTaskIds, plannedWhen, planTask, PREP_PLACES, qtyText, readinessText, recipeOf, recipes, RULE_PLACES, RULE_WHEN, rulesOf, savedGroups, savedInfo, savedStart, saveEvent, savedTasks, seriesBlocks, setBlockDone, setOutcome, setStepOutcome, setTaskDone, shoppingItems, splitSeries, stepLen, stepsDoneOf, stepsOf, stepTimes, syncEventTasks, taskIssues, taskSpan, templates, travelTasks, trySetBlockDone, tryStep } from './model.js';
+import { alreadyPlanned, countedOf, turnCounts, anchorIndex, anchorOffset, anchorTitle, applyTemplate, blocksOn, busyOn, checklistLeft, checklistOf, checkMealNow, deleteBlock, endSeries, ensureSeries, eventBlockOf, eventDate, eventOf, eventTasksOf, followParent, isCheckStep, isSeries, leadOf, mealRecipes, mealTitle, mealTypes, newBlock, nextBlockOf, nextPlanned, offsetDue, offsetText, openTasks, outcomeOf, plannedTaskIds, plannedWhen, planTask, PREP_PLACES, qtyText, readinessText, recipeOf, recipes, RULE_PLACES, RULE_WHEN, rulesOf, savedGroups, savedInfo, savedStart, saveEvent, savedTasks, seriesBlocks, setBlockDone, setOutcome, setStepOutcome, setTaskDone, shoppingItems, splitSeries, stepLen, stepsDoneOf, stepsOf, stepTimes, syncEventTasks, taskIssues, taskSpan, templates, travelTasks, trySetBlockDone, tryStep } from './model.js';
 import { addDays, fmtDur, fmtTime, formatTemplateLines, parseDuration, freeSlot, groupTasks, IMPORTANCE, importanceOf, isDate, nowMinutes, parseDate, parseTemplateLines, parseTime, quickAdd, REPEATS, sortTasks, today } from './plan.js';
 import { AUTO_SPANS, partOfDay, placeGhosts, planEventTasks, planSoon, suggestSlot, trayTasks, tripItems, warnConflicts } from './planning.js';
 import { pantryCoverage } from './recipe-tools.js';
@@ -957,6 +958,7 @@ function collectWhen(form, x) {
     if (form.querySelector('input[name=repeatDays]')) x.repeatDays = [...form.querySelectorAll('input[name=repeatDays]:checked')].map((el) => Number(el.value));
     else if (x.repeat === 'weekly' && !(x.repeatDays || []).length) x.repeatDays = [plannedIso(x)];
     if (form.repeatUntil) x.repeatUntil = form.repeatUntil.value || null;
+    if (form.repeatCount) x.repeatCount = Math.max(0, Number(form.repeatCount.value) || 0) || null; // (v69) per N volte
     if (form.scope) x.scope = form.querySelector('input[name=scope]:checked')?.value || 'following';
     const tm = val('timeMode') || (x.pickTime || (x.pickTime == null && x.planTime == null) ? 'pick' : 'fixed');
     x.pickTime = x.repeat === 'times' || tm === 'pick';
@@ -971,7 +973,7 @@ function collectWhen(form, x) {
   if (x.slotTimes && (mode !== 'repeat' || x.repeat !== 'weekly' || x.pickTime)) x.slotTimes = null; // (v66)
 }
 export const whenModeOf = (x) => x.whenMode || (x.repeat ? 'repeat' : isSaved(x) && !x.planDate && !x.due ? 'anytime' : 'once');
-function whenEditor(x, { routine, linkedEvent, evLine, timeLabel, anchorLabel }) {
+function whenEditor(x, { routine, linkedEvent, evLine, timeLabel, anchorLabel, noTabs = false }) {
   const mode = whenModeOf(x);
   const td = today();
   const pill = (name, value, label, on, re = true) => `<label class="day-pill"><input type="radio" name="${name}" value="${esc(value)}" ${on ? 'checked' : ''} ${re ? 'data-rerender="1"' : ''}><span>${esc(label)}</span></label>`;
@@ -979,7 +981,7 @@ function whenEditor(x, { routine, linkedEvent, evLine, timeLabel, anchorLabel })
   const dueField = linkedEvent ? `<label>${esc(t('due'))}<span class="static">${esc(x.due ? relDay(x.due) : '—')}</span></label>`
     : x.due || x.showDue ? `<label>${esc(t('dueBy'))}${dateBox(`<input name="due" type="date" value="${esc(x.due || '')}">`, x.due || '')}</label>`
     : `<button class="linkish add-due" value="show-due" formnovalidate>+ ${esc(t('addDue'))}</button>`;
-  const tabs = `<div class="seg when-mode" role="radiogroup" aria-label="${esc(t('secWhen'))}">${['once', 'repeat', 'anytime'].map((m) => `<label class="${m === mode ? 'on' : ''}"><input type="radio" name="whenMode" value="${m}" ${m === mode ? 'checked' : ''} data-rerender="1"><span>${esc(t(`wm_${m}`))}</span></label>`).join('')}</div>`;
+  const tabs = noTabs ? '' : `<div class="seg when-mode" role="radiogroup" aria-label="${esc(t('secWhen'))}">${['once', 'repeat', 'anytime'].map((m) => `<label class="${m === mode ? 'on' : ''}"><input type="radio" name="whenMode" value="${m}" ${m === mode ? 'checked' : ''} data-rerender="1"><span>${esc(t(`wm_${m}`))}</span></label>`).join('')}</div>`;
   if (mode === 'once') {
     const chips = [[td, t('today')], [addDays(td, 1), t('tomorrow')]];
     return `${tabs}
@@ -1008,6 +1010,7 @@ function whenEditor(x, { routine, linkedEvent, evLine, timeLabel, anchorLabel })
     <label class="choice${pick ? ' on' : ''}"><input type="radio" name="timeMode" value="pick" ${pick ? 'checked' : ''} data-rerender="1"><span><b>${esc(t('tmPick'))}</b><small>${esc(t('tmPickHint'))}</small></span></label>
     ${pick ? whenPills('usuallyWhen') : ''}`}
     <label>${esc(t('repeatUntil'))}${dateBox(`<input name="repeatUntil" type="date" value="${esc(x.repeatUntil || '')}">`, x.repeatUntil || '')}</label>
+    ${classic() ? '' : `<label>${esc(t('repeatCount'))}<input name="repeatCount" type="number" min="1" max="500" step="1" value="${esc(x.repeatCount || '')}" placeholder="—"></label>`}
     ${x.fromOcc && (x.seriesFrom || x.due) && x.fromOcc > (x.seriesFrom || x.due) ? `<div class="field-label">${esc(t('applyTo'))}</div>
     <div class="days"><label class="day-pill"><input type="radio" name="scope" value="following" ${x.scope !== 'all' ? 'checked' : ''}><span>${esc(t('scopeFollowing', relDay(x.fromOcc)))}</span></label>
     <label class="day-pill"><input type="radio" name="scope" value="all" ${x.scope === 'all' ? 'checked' : ''}><span>${esc(t('scopeAll'))}</span></label></div>` : ''}`;
@@ -1225,7 +1228,7 @@ export function openTask(task, draft = null, opts = {}) {
       <div class="days"><label class="day-pill"><input type="radio" name="scope" value="following" ${x.scope !== 'all' ? 'checked' : ''}><span>${esc(t('scopeFollowing', relDay(x.fromOcc)))}</span></label>
       <label class="day-pill"><input type="radio" name="scope" value="all" ${x.scope === 'all' ? 'checked' : ''}><span>${esc(t('scopeAll'))}</span></label></div>` : ''}
     </div>` : ''}
-    ${remindField(x)}` : !helper ? whenEditor(x, { routine, linkedEvent, evLine, timeLabel, anchorLabel: x.steps.length > 1 && ai > 0 && anchor ? t('anchorAt', anchor.title || '…') : t('usualTimeOpt') }) + `
+    ${remindField(x)}` : !helper ? whenEditor(x, { routine, linkedEvent, evLine, timeLabel, noTabs: short, anchorLabel: x.steps.length > 1 && ai > 0 && anchor ? t('anchorAt', anchor.title || '…') : t('usualTimeOpt') }) + `
     ${remindField(x)}` : '';
   // Tasks it needs done first (not itself, not meals, not ones that already need it: no loops).
   const needCandidates = live('tasks').filter((y) => y.id !== x.id && !isMealType(y) && !y.check && !y.done && !(y.after || []).includes(x.id) && !(x.after || []).includes(y.id))
@@ -1282,7 +1285,9 @@ export function openTask(task, draft = null, opts = {}) {
   const slotLine = x.slotTimes && x.repeat === 'weekly' ? `${(x.repeatDays || []).map((d) => `${dayShort(d)} ${fmtTime((x.slotTimes[d] ?? x.seriesTime ?? 0) + leadOf(x))}`).join(' · ')}${Number(x.every) === 2 ? ` · ${t('wg2w').toLowerCase()}` : ''}` : '';
   const whenChip = slotLine || (x.repeat ? `↻ ${x.repeat === 'times' ? t('timesShort', x.timesN || 3, t(`per_${x.timesPer || 'week'}`)) : repeatText(x)}` : ups.length ? `${relDay(ups[0].date)} ${fmtTime(ups[0].start)}${ups.length > 1 ? ` +${ups.length - 1}` : ''}` : x.due ? t('dueOn', relDay(x.due)) : t('whenChip'));
   const c0 = catsOf(x)[0];
-  const shortTop = short ? `<div class="ed-chips">
+  const wm = whenModeOf(x);
+  const modeSeg = short && !isMealType(x) ? `<div class="seg when-mode ed-wm" role="radiogroup" aria-label="${esc(t('secWhen'))}">${['once', 'repeat', 'anytime'].map((m) => `<label class="${m === wm ? 'on' : ''}"><input type="radio" name="whenMode" value="${m}" ${m === wm ? 'checked' : ''} data-rerender="1"><span>${esc(t(`wm_${m}`))}</span></label>`).join('')}</div><p class="hint ed-wm-what">${esc(t(`wmWhat_${wm}`))}</p>` : '';
+  const shortTop = short ? `${modeSeg}<div class="ed-chips">
       <button class="mchip ed-chip${c0 ? ' set' : ''}" value="pop:cat" formnovalidate aria-expanded="${edPop === 'cat'}">${c0 ? `<i class="cat-dot" style="--c:${esc(catColor(c0))}"></i>` : ''}${esc(catName0 || t('mGroup'))}</button>
       <button class="mchip ed-chip set" value="pop:len" formnovalidate aria-expanded="${edPop === 'len'}">⏱ ${esc(fmtDur(lenNow))}</button>
       <button class="mchip ed-chip${ups.length || x.repeat || x.due ? ' set' : ''}" value="when" formnovalidate>🕒 ${esc(whenChip)}</button>
@@ -1294,7 +1299,6 @@ export function openTask(task, draft = null, opts = {}) {
     <div class="field-label">${esc(t('inPlan'))}</div>
     ${ups.length ? `<ul class="ed-plan">${ups.slice(0, 6).map((b) => `<li><span><b>${esc(relDay(b.date))} · ${esc(fmtTime(b.start))}–${esc(fmtTime(b.start + (b.minutes || 0)))}</b>${b.stepId ? `<small>${esc(b.title)}</small>` : ''}</span><button class="btn small" value="mv:${esc(b.id)}" formnovalidate>${esc(t('moveBtn'))}</button><button class="icon" value="unplan:${esc(b.id)}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></li>`).join('')}</ul>${ups.length > 6 ? `<p class="hint">${esc(t('findMoreN', ups.length - 6))}</p>` : ''}` : `<p class="hint">${esc(t('inPlanNone'))}</p>`}` : '';
   const optsBody = `${helper || x.travelRole ? '' : `<label>${esc(t('bufferAfter'))}<select name="buffer"><option value="" ${x.buffer == null || x.buffer === '' ? 'selected' : ''}>${esc(t('bufferDefault', Number(state.settings.taskBuffer) || 0))}</option>${[0, 5, 10, 15, 30, 60].map((m) => `<option value="${m}" ${x.buffer != null && x.buffer !== '' && Number(x.buffer) === m ? 'selected' : ''}>${m ? esc(fmtDur(m)) : esc(t('none'))}</option>`).join('')}</select></label>`}
-    ${isMealType(x) ? '' : `<label class="check"><input type="checkbox" name="routine" ${routine ? 'checked' : ''}> <span>★ ${esc(t('keepSaved'))}${small('keepSavedHint')}</span></label>`}
     ${routine ? `<label class="check"><input type="checkbox" name="meal" data-rerender="1" ${isMealType(x) ? 'checked' : ''}> <span>${esc(t('isMeal'))}</span></label>` : ''}`;
   const shortMore = short ? `<div class="field-label ed-more-h">${esc(t('moreSec'))}</div><div class="ed-more">
     ${sec('when', `↻ ${esc(t('secRepeat'))}`, [x.repeat ? (slotLine || repeatText(x)) : '', x.due ? t('dueOn', relDay(x.due)) : ''].filter(Boolean).join(' · ') || '—', whenBody, false)}
@@ -1304,7 +1308,7 @@ export function openTask(task, draft = null, opts = {}) {
     ${x.check ? '' : sec('checklist', `☑ ${esc(t('checklist'))}`, x.checklist.length ? String(x.checklist.length) : '—', `<label><textarea name="checklist" rows="3" placeholder="${esc(t('checklistPh'))}" aria-label="${esc(t('checklist'))}">${esc((x.checklist || []).join('\n'))}</textarea>
       ${small('checklistHint')}</label>`, false)}
     ${advancedOn() || taskRules.length || isMealType(x) ? sec('rules', `⚙ ${esc(t(x.steps.length ? 'rulesWhole' : 'rules'))}`, taskRules.length ? String(taskRules.length) : '—', rulesBody, false) : ''}
-    ${sec('opts', `◦ ${esc(t('secOptions'))}`, [routine ? `★ ${t('keepSaved')}` : '', x.buffer ? fmtDur(Number(x.buffer)) : ''].filter(Boolean).join(' · ') || '—', optsBody, false)}
+    ${sec('opts', `◦ ${esc(t('secOptions'))}`, [x.buffer ? fmtDur(Number(x.buffer)) : ''].filter(Boolean).join(' · ') || '—', optsBody, false)}
     ${sec('notes', `✎ ${esc(t('notes'))}`, x.notes ? x.notes.slice(0, 30) : '—', `<label><textarea name="notes" rows="2" aria-label="${esc(t('notes'))}">${esc(x.notes || '')}</textarea></label>`, false)}
   </div>` : '';
   openModal(`
@@ -1497,6 +1501,8 @@ export function openTask(task, draft = null, opts = {}) {
       }
     }
     if (!helper && !evMode) collectWhen(form, x);
+    // (v69) the short sheet: whether it's a routine follows the Quando choice (no separate switch any more)
+    if (short && !isMealType(x) && ['todo', 'saved'].includes(x.kind || 'todo')) x.kind = x.whenMode === 'anytime' ? 'saved' : x.whenMode === 'once' ? 'todo' : x.kind || 'todo';
     if (!helper && evMode) {
       if (form.due) x.due = form.due.value || null;
       x.repeat = form.repeat.value || null;
@@ -1688,11 +1694,13 @@ export function openBlock(block, defaults = {}) {
   // apart from editing it (Salva · Annulla · ⋯ with Duplica and Elimina). The classic layout keeps the old row.
   const esNew = !classic();
   const running = Boolean(b.startedAt && !b.endedAt);
+  const nTimes = task?.repeatCount && status ? Number(task.repeatCount) : 0;
+  const cnt = nTimes ? (() => { const on = turnCounts(b); const n = countedOf(task); return `<div class="es-count"><span>${esc(t('countsFor', nTimes))}<small>${esc(on ? t('countsWill', n, nTimes) : t('countsStays', n, nTimes))}</small></span><button class="sw-btn${on ? ' on' : ''}" value="count-toggle" formnovalidate aria-pressed="${on}" aria-label="${esc(t('countsFor', nTimes))}"></button></div>`; })() : '';
   const esito = !esNew || isNew ? '' : `<div class="esito"><div class="es-q">${esc(t('esito'))}</div>${status === 'done' || status === 'partial'
     ? `<div class="es-state done"><span>✓ ${esc(b.endedAt ? `${t('esDoneLine')} · ${t('realOf', fmtDur(b.minutes), fmtDur(b.plannedMinutes || b.minutes))}` : t('esDoneLine'))}</span><button class="btn small" value="reset" formnovalidate>${esc(t('undo'))}</button></div>`
     : status === 'failed' ? `<div class="es-state fail"><span>✕ ${esc(t('esFailLine'))}</span><button class="btn small" value="reset" formnovalidate>${esc(t('undo'))}</button></div>`
     : running ? `<div class="es-state run"><span>⏱ ${esc(t('esRunning', Math.max(1, Math.round((Date.now() - b.startedAt) / 60000))))}</span></div><div class="es-row"><button class="btn primary" value="finish" formnovalidate>■ ${esc(t('esFinish'))}</button><button class="btn" value="fail" formnovalidate>✕ ${esc(t('esFail'))}</button></div>`
-    : `<div class="es-row">${b.date === today() && !isShop ? `<button class="btn" value="block-start" formnovalidate>▶ ${esc(t(isPalestra(task) ? 'palStart' : 'esStart'))}</button>` : ''}<button class="btn primary" value="done" formnovalidate>✓ ${esc(t('esDone'))}</button><button class="btn" value="fail" formnovalidate>✕ ${esc(t('esFail'))}</button></div>`}</div>`;
+    : `<div class="es-row">${b.date === today() && !isShop ? `<button class="btn" value="block-start" formnovalidate>▶ ${esc(t(isPalestra(task) ? 'palStart' : 'esStart'))}</button>` : ''}<button class="btn primary" value="done" formnovalidate>✓ ${esc(t('esDone'))}</button><button class="btn" value="fail" formnovalidate>✕ ${esc(t('esFail'))}</button></div>`}${cnt}</div>`;
   openModal(`
     ${!esNew || isShop ? `<h2>${esc(isShop ? `🛒 ${t('groceryTitle')}` : isNew ? t('newBlock') : t('editBlock'))}</h2>` : ''}
     ${parent ? `<p class="hint">↳ ${esc(t('prepForBlock', parent.title, fmtTime(parent.start)))}</p>` : ''}
@@ -1737,10 +1745,11 @@ export function openBlock(block, defaults = {}) {
     if (stepAction(b, action, e, openBlock)) return;
     // (v67) Esito: Fatto (a checklist or a rule may ask first) and Fine of a running timer
     if (action === 'done') {
-      setTimeout(() => { const ok = trySetBlockDone(get('blocks', b.id), true); changed(); if (ok) toast(t('esDoneToast'), 5000, [{ label: t('undo'), run: () => { setOutcome(get('blocks', b.id), null); changed(); } }]); }, 0);
+      setTimeout(() => { const ok = trySetBlockDone(get('blocks', b.id), true); changed(); if (ok && !countToast(b.id)) toast(t('esDoneToast'), 5000, [{ label: t('undo'), run: () => { setOutcome(get('blocks', b.id), null); changed(); } }]); }, 0);
       return;
     }
     if (action === 'finish') { setTimeout(() => finishTimer(), 0); return; }
+    if (action === 'count-toggle') { e.preventDefault(); setCounts(b.id, !turnCounts(get('blocks', b.id))); openBlock(get('blocks', b.id)); return; }
     if (action === 'block-start') { const nb = startBlock(get('blocks', b.id)); if (isPalestra(task)) openPalestra(task, nb); afterStart(nb); return; }
     if (action === 'edit-task') { setTimeout(() => openTask(get('tasks', task.id), null, { fromOcc: b.occ || null }), 0); return; }
     if (action === 'to-task') {

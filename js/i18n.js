@@ -6,6 +6,18 @@ const plural = (n, one, many) => (n === 1 ? one : many);
 
 const dict = {
   en: {
+    // (v69) placing routines, the shelf, the end of a routine, counting turns
+    dropEnded: (d) => `This routine ends ${d}`, dropTimesFull: (n) => `already ${n} of ${n} that week`, dropInstead: (s) => `Instead of ${s}`, dropInsteadSub: 'that turn moves here', dropOnlyThis: 'only that one',
+    dropFixedThere: 'Already on the plan that day: drag the block to move it', dropExtra: 'One more', dropExtraSub: 'one extra turn, the others stay',
+    pnTabRout: 'Routines', shelfHint: (p) => `Drag a routine onto a free stretch: it stays here. Counts are for ${p}.`, shelfWeek: 'the week on screen', shelfMonth: 'the month on screen',
+    grpRhythm: 'With a rhythm', grpEnded: 'Finished', periodWeek: 'this week', periodMonth: (m) => `in ${m}`, countOf: (a, b, p) => `${a} of ${b} ${p}`, countN: (n, p) => `${n} ${n === 1 ? 'time' : 'times'} ${p}`,
+    lgDone: 'done', lgPlan: 'on the plan', lgMiss: 'missing', endsOn: (d) => `until ${d}`, endsSoon: (d) => `ends ${d}`, turnsOf: (a, b) => `${a} of ${b} times`,
+    resumeBtn: 'Resume', endedInfo: (d, n) => `ended ${d} · ${n} ${n === 1 ? 'time' : 'times'}`, endedN: (n) => `${n} ${n === 1 ? 'time' : 'times'}`, showBtn: 'Show', hideBtn: 'Hide', resumed: (d) => `Starts again ${d}`,
+    endChoice: 'For how long?', endAlways: 'Always', endWeeks: 'For … weeks', endTimes: 'For … times', endUntil: 'Until…', endWeeksN: 'weeks', endTimesN: 'times', forN: 'For', untilLbl: 'Until',
+    endSumAlways: 'No end.', endSumWeeks: (n, d) => `For ${n} ${n === 1 ? 'week' : 'weeks'}, until ${d}.`, endSumTimes: (n) => `For ${n} times (the ones that count).`, endSumUntil: (d) => `Until ${d}.`, repeatCount: 'For how many times',
+    countsFor: (n) => `Counts toward the ${n} times`, countsWill: (a, b) => `it will be ${a} of ${b}`, countsStays: (a, b) => `stays ${a} of ${b}; one more turn is added at the end`,
+    tickCounted: (a, b) => `Done · ${a} of ${b}, counted`, tickNotCounted: (a, b) => `Not counted (${a} of ${b})`, countIt: 'Count it', dontCount: "Don't count it", countsPill: 'counts', notCountsPill: "doesn't count", turnsHistory: 'Done and not done', turnsLeftN: (n) => `${n} to go`,
+    wmWhat_once: 'A task: done once, on a day, by a deadline, or with no date.', wmWhat_repeat: 'A routine with a rhythm: it comes back by itself. It can have an end.', wmWhat_anytime: 'A routine without a rhythm: it waits on the Routines shelf in the Planner; place it when you like.',
     fdGrpTasks: 'Tasks', fdGrpRoutines: 'Routines this week',
     // (v67) the block sheet's Esito, the Pianifica choice, the proposals list
     esito: 'Outcome', esStart: 'Start', esDone: 'Done', esFail: "Didn't manage", esDoneAt: (tm) => `Done · ${tm}`, esDoneLine: 'Done', esFailLine: "Didn't manage", esRunning: (n) => `Running · ${n} min`, esFinish: 'Finish', esDoneToast: 'Done ✓',
@@ -318,6 +330,18 @@ const dict = {
     r_morning: 'your morning slot', r_afternoon: 'your afternoon slot', r_evening: 'your evening slot',
   },
   it: {
+    // (v69) mettere le routine nel piano, lo scaffale, la fine di una routine, contare i turni
+    dropEnded: (d) => `Questa routine finisce ${d}`, dropTimesFull: (n) => `già ${n} di ${n} quella settimana`, dropInstead: (s) => `Al posto di ${s}`, dropInsteadSub: 'quel turno si sposta qui', dropOnlyThis: 'solo quella',
+    dropFixedThere: 'Già nel piano quel giorno: trascina il blocco per spostarlo', dropExtra: 'In più', dropExtraSub: 'una volta in più, le altre restano',
+    pnTabRout: 'Routine', shelfHint: (p) => `Trascina una routine in uno spazio libero: resta qui. I conti sono per ${p}.`, shelfWeek: 'la settimana che stai guardando', shelfMonth: 'il mese che stai guardando',
+    grpRhythm: 'Con un ritmo', grpEnded: 'Concluse', periodWeek: 'questa settimana', periodMonth: (m) => `a ${m}`, countOf: (a, b, p) => `${a} di ${b} ${p}`, countN: (n, p) => `${n} ${n === 1 ? 'volta' : 'volte'} ${p}`,
+    lgDone: 'fatte', lgPlan: 'nel piano', lgMiss: 'mancano', endsOn: (d) => `fino al ${d}`, endsSoon: (d) => `finisce ${d}`, turnsOf: (a, b) => `${a} di ${b} volte`,
+    resumeBtn: 'Riprendi', endedInfo: (d, n) => `finita ${d} · ${n} ${n === 1 ? 'volta' : 'volte'}`, endedN: (n) => `${n} ${n === 1 ? 'volta' : 'volte'}`, showBtn: 'Mostra', hideBtn: 'Nascondi', resumed: (d) => `Riprende ${d}`,
+    endChoice: 'Per quanto?', endAlways: 'Sempre', endWeeks: 'Per … settimane', endTimes: 'Per … volte', endUntil: 'Fino al…', endWeeksN: 'settimane', endTimesN: 'volte', forN: 'Per', untilLbl: 'Fino al',
+    endSumAlways: 'Senza fine.', endSumWeeks: (n, d) => `Per ${n} ${n === 1 ? 'settimana' : 'settimane'}, fino a ${d}.`, endSumTimes: (n) => `Per ${n} volte (quelle che contano).`, endSumUntil: (d) => `Fino a ${d}.`, repeatCount: 'Per quante volte',
+    countsFor: (n) => `Conta per le ${n} volte`, countsWill: (a, b) => `sarà la ${a}ª di ${b}`, countsStays: (a, b) => `resta ${a} di ${b}; se ne aggiunge una alla fine`,
+    tickCounted: (a, b) => `Fatta · ${a}ª di ${b}, contata`, tickNotCounted: (a, b) => `Non contata (${a} di ${b})`, countIt: 'Contala', dontCount: 'Non contarla', countsPill: 'conta', notCountsPill: 'non conta', turnsHistory: 'Fatte e non fatte', turnsLeftN: (n) => `ne mancano ${n}`,
+    wmWhat_once: 'È un\'attività: la fai una volta, un giorno, entro una scadenza o senza data.', wmWhat_repeat: 'È una routine con un ritmo: torna da sola. Può avere una fine.', wmWhat_anytime: 'È una routine quando capita: aspetta sullo scaffale Routine del Planner, e la metti quando vuoi.',
     fdGrpTasks: 'Attività', fdGrpRoutines: 'Routine questa settimana',
     // (v67) l'Esito del blocco, la scelta Pianifica, l'elenco delle proposte
     esito: 'Esito', esStart: 'Inizia', esDone: 'Fatto', esFail: 'Non riuscito', esDoneAt: (tm) => `Fatta · ${tm}`, esDoneLine: 'Fatta', esFailLine: 'Non riuscito', esRunning: (n) => `In corso · ${n} min`, esFinish: 'Fine', esDoneToast: 'Fatto ✓',
@@ -625,6 +649,18 @@ const dict = {
     r_morning: 'la tua fascia del mattino', r_afternoon: 'la tua fascia del pomeriggio', r_evening: 'la tua fascia serale',
   },
   de: {
+    // (v69) Routinen einplanen, das Regal, das Ende einer Routine, Durchgänge zählen
+    dropEnded: (d) => `Diese Routine endet ${d}`, dropTimesFull: (n) => `schon ${n} von ${n} in der Woche`, dropInstead: (s) => `Statt ${s}`, dropInsteadSub: 'dieser Durchgang wandert hierher', dropOnlyThis: 'nur dieser',
+    dropFixedThere: 'An dem Tag schon im Plan: zieh den Block, um ihn zu verschieben', dropExtra: 'Zusätzlich', dropExtraSub: 'einmal mehr, die anderen bleiben',
+    pnTabRout: 'Routinen', shelfHint: (p) => `Zieh eine Routine in eine freie Zeit: sie bleibt hier. Gezählt wird für ${p}.`, shelfWeek: 'die angezeigte Woche', shelfMonth: 'den angezeigten Monat',
+    grpRhythm: 'Mit Rhythmus', grpEnded: 'Beendet', periodWeek: 'diese Woche', periodMonth: (m) => `im ${m}`, countOf: (a, b, p) => `${a} von ${b} ${p}`, countN: (n, p) => `${n}× ${p}`,
+    lgDone: 'erledigt', lgPlan: 'im Plan', lgMiss: 'fehlen', endsOn: (d) => `bis ${d}`, endsSoon: (d) => `endet ${d}`, turnsOf: (a, b) => `${a} von ${b}`,
+    resumeBtn: 'Fortsetzen', endedInfo: (d, n) => `beendet ${d} · ${n}×`, endedN: (n) => `${n}×`, showBtn: 'Zeigen', hideBtn: 'Ausblenden', resumed: (d) => `Beginnt wieder ${d}`,
+    endChoice: 'Wie lange?', endAlways: 'Immer', endWeeks: '… Wochen lang', endTimes: '… Mal', endUntil: 'Bis…', endWeeksN: 'Wochen', endTimesN: 'Mal', forN: 'Für', untilLbl: 'Bis',
+    endSumAlways: 'Ohne Ende.', endSumWeeks: (n, d) => `${n} ${n === 1 ? 'Woche' : 'Wochen'} lang, bis ${d}.`, endSumTimes: (n) => `${n} Mal (die zählen).`, endSumUntil: (d) => `Bis ${d}.`, repeatCount: 'Wie oft',
+    countsFor: (n) => `Zählt für die ${n} Mal`, countsWill: (a, b) => `wird ${a} von ${b}`, countsStays: (a, b) => `bleibt ${a} von ${b}; am Ende kommt einer dazu`,
+    tickCounted: (a, b) => `Erledigt · ${a} von ${b}, gezählt`, tickNotCounted: (a, b) => `Nicht gezählt (${a} von ${b})`, countIt: 'Zählen', dontCount: 'Nicht zählen', countsPill: 'zählt', notCountsPill: 'zählt nicht', turnsHistory: 'Erledigt und nicht erledigt', turnsLeftN: (n) => `noch ${n}`,
+    wmWhat_once: 'Eine Aufgabe: einmal, an einem Tag, bis zu einer Frist oder ohne Datum.', wmWhat_repeat: 'Eine Routine mit Rhythmus: sie kommt von selbst wieder. Sie kann enden.', wmWhat_anytime: 'Eine Routine ohne Rhythmus: sie wartet im Routinen-Regal des Planers; du planst sie, wann du willst.',
     fdGrpTasks: 'Aufgaben', fdGrpRoutines: 'Routinen diese Woche',
     // (v67) das Ergebnis im Block, die Wahl Planen, die Vorschlagsliste
     esito: 'Ergebnis', esStart: 'Starten', esDone: 'Erledigt', esFail: 'Nicht geschafft', esDoneAt: (tm) => `Erledigt · ${tm}`, esDoneLine: 'Erledigt', esFailLine: 'Nicht geschafft', esRunning: (n) => `Läuft · ${n} Min`, esFinish: 'Fertig', esDoneToast: 'Erledigt ✓',

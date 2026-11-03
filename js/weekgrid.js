@@ -3,7 +3,7 @@
 // time to pick another). Only this time (blocks of their own), every week or every 2 weeks (a weekly
 // series with a time for each day: `slotTimes` {isoDay: minute}, read by ensureSeries). Opened from the +
 // sheet, the task sheet, Rivedi, the planner pane ("Sposta") and the search.
-import { esc, planSettings, toast } from './core.js';
+import { esc, planSettings, relDay, toast } from './core.js';
 import { t } from './i18n.js';
 import { anchorOffset, busyOn, deleteBlock, ensureSeries, followParent, isSeries, leadOf, outcomeOf, planTask, seriesBlocks } from './model.js';
 import { addDays, fmtDur, fmtTime, freeSlot, isoDay, nowMinutes, parseDate, today, weekday } from './plan.js';
@@ -89,10 +89,27 @@ export function openWeekGrid(task, { block = null, onClose = () => {} } = {}) {
   const td = today();
   const ws0 = mondayOf(td);
   const cur = moving ? { sel: [], mode: 'once' } : current(x, ws0);
+  // (v69) how long a routine runs: always, N weeks, N times (that count), or until a date
+  const end0 = x.repeatCount ? 'times' : x.repeatUntil ? 'until' : 'always';
+  const endSt = { end: end0, weeks: 4, times: Number(x.repeatCount) || 10, until: x.repeatUntil || addDays(today(), 27) };
   const st = { w: moving ? Math.max(0, Math.round((parseDate(mondayOf(moving.date)) - parseDate(ws0)) / (7 * 864e5))) : 0, sel: cur.sel, mode: cur.mode, editing: null, note: '' };
   if (!moving && cur.sel.length) st.w = Math.max(0, Math.round((parseDate(mondayOf(cur.sel.map((p) => p.date).sort()[0])) - parseDate(ws0)) / (7 * 864e5)));
   const skip = new Set(moving ? [moving.id] : []);
   const key = (p) => `${p.date}~${p.part}`;
+  const firstSel = () => [...st.sel].map((p) => p.date).sort()[0] || today();
+  const endOf = () => {
+    if (endSt.end === 'weeks') return { repeatUntil: addDays(mondayOf(firstSel()), 7 * endSt.weeks - 1), repeatCount: null };
+    if (endSt.end === 'times') return { repeatUntil: null, repeatCount: endSt.times };
+    if (endSt.end === 'until') return { repeatUntil: endSt.until, repeatCount: null };
+    return { repeatUntil: null, repeatCount: null };
+  };
+  const endSum = () => {
+    const e = endOf();
+    if (endSt.end === 'weeks') return t('endSumWeeks', endSt.weeks, relDay(e.repeatUntil));
+    if (endSt.end === 'times') return t('endSumTimes', endSt.times);
+    if (endSt.end === 'until') return t('endSumUntil', relDay(endSt.until));
+    return t('endSumAlways');
+  };
   const draw = () => {
     x = get('tasks', x.id) || x;
     const ws = addDays(ws0, st.w * 7);
@@ -132,11 +149,21 @@ export function openWeekGrid(task, { block = null, onClose = () => {} } = {}) {
       ${st.note ? `<p class="hint warn-text">${esc(st.note)}</p>` : ''}
       ${moving ? '' : `<div class="field-label">${esc(t('wgRepeat'))}</div>
       <div class="seg wg-mode">${[['once', 'wgOnce'], ['weekly', 'wgWeekly'], ['2w', 'wg2w']].map(([m, k]) => `<button class="${st.mode === m ? 'on' : ''}" value="mode~${m}" formnovalidate aria-pressed="${st.mode === m}">${esc(t(k))}</button>`).join('')}</div>
+      ${st.mode === 'once' ? '' : `<div class="field-label">${esc(t('endChoice'))}</div>
+      <div class="pills wg-end">${[['always', 'endAlways'], ['weeks', 'endWeeks'], ['times', 'endTimes'], ['until', 'endUntil']].map(([k, l]) => `<button class="mchip${endSt.end === k ? ' set' : ''}" value="end~${k}" formnovalidate aria-pressed="${endSt.end === k}">${esc(t(l))}</button>`).join('')}</div>
+      ${endSt.end === 'weeks' ? `<label class="wg-endn">${esc(t('forN'))} <input name="endWeeks" type="number" min="1" max="104" value="${endSt.weeks}"> ${esc(t('endWeeksN'))}</label>` : ''}
+      ${endSt.end === 'times' ? `<label class="wg-endn">${esc(t('forN'))} <input name="endTimes" type="number" min="1" max="500" value="${endSt.times}"> ${esc(t('endTimesN'))}</label>` : ''}
+      ${endSt.end === 'until' ? `<label class="wg-endn">${esc(t('untilLbl'))} <input name="endUntil" type="date" value="${esc(endSt.until)}"></label>` : ''}
+      <p class="hint wg-endsum">${esc(endSum())}</p>`}
       <button class="linkish wg-more" value="more" formnovalidate>${esc(t('wgMore'))}</button>`}
       ${picked}
       <div class="button-row wg-go"><button class="btn primary" value="go" ${canGo ? '' : 'disabled'}>${esc(go)}</button></div>`, (form, action, e) => {
       e.preventDefault();
+      if (form.endWeeks) endSt.weeks = Math.max(1, Number(form.endWeeks.value) || 1);
+      if (form.endTimes) endSt.times = Math.max(1, Number(form.endTimes.value) || 1);
+      if (form.endUntil && form.endUntil.value) endSt.until = form.endUntil.value;
       const [a, b1, b2] = action.split('~');
+      if (a === 'end') { endSt.end = b1; draw(); return; }
       if (a === 'back') { onClose('back'); return; }
       if (a === 'more') { onClose('more'); return; }
       if (a === 'quick') { onClose('quick', b1); return; }
@@ -170,7 +197,7 @@ export function openWeekGrid(task, { block = null, onClose = () => {} } = {}) {
       if (a === 'rm') st.sel = st.sel.filter((p) => key(p) !== `${b1}~${b2}`);
       if (a === 'time') { const p = st.sel.find((q) => key(q) === `${b1}~${b2}`); if (p) p.start = Number(action.split('~')[3]); st.editing = null; }
       if (a === 'go') {
-        const r = moving ? moveTo(x, moving, st.sel[0]) : apply(x, cur, st.sel, st.mode);
+        const r = moving ? moveTo(x, moving, st.sel[0]) : apply(x, cur, st.sel, st.mode, endOf());
         changed();
         if (r) toast(r);
         onClose('done');
@@ -191,7 +218,7 @@ function moveTo(x, b, p) {
   return t('plannedToast', p.date === today() ? t('today') : `${dayShort(isoDay(p.date))} ${parseDate(p.date).getDate()}`, fmtTime(p.start + leadOf(x)));
 }
 // The cells chosen, as the plan: blocks of their own (only this time) or a weekly series.
-function apply(x, cur, sel, mode) {
+function apply(x, cur, sel, mode, end = { repeatUntil: null, repeatCount: null }) {
   const td = today();
   if (mode === 'once') {
     if (isSeries(x)) { // a routine becomes a one-off: its open occurrences go (done ones stay)
@@ -220,7 +247,7 @@ function apply(x, cur, sel, mode) {
   // one-off blocks it had are replaced by the series
   for (const b of openBlocksOf(x).filter((y) => !y.seriesId)) deleteBlock(b);
   const from = first < td ? td : first;
-  const rec = upsert('tasks', { ...x, repeat: 'weekly', repeatDays: days, every: mode === '2w' ? 2 : 1, slotTimes, seriesTime: slotTimes[isoDay(first)], pickTime: false, whenMode: 'repeat', due: from, seriesFrom: from, skipped: (x.skipped || []).filter((d) => d < from), noDate: false }, { silent: true });
+  const rec = upsert('tasks', { ...x, ...end, repeat: 'weekly', repeatDays: days, every: mode === '2w' ? 2 : 1, slotTimes, seriesTime: slotTimes[isoDay(first)], pickTime: false, whenMode: 'repeat', due: from, seriesFrom: from, skipped: (x.skipped || []).filter((d) => d < from), noDate: false }, { silent: true });
   // the series' own open blocks follow the new times (blocks moved by hand keep theirs)
   ensureSeries(rec);
   return t('wgSaved', slotsText(list, mode));

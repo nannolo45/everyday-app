@@ -2,15 +2,17 @@
 // piano · Tutte, and a search over all of them. A task shows where it is on the plan as pills; a pill
 // jumps there and the block flashes. "Sposta…" opens the week grid for that one block.
 import { catColor, catName, catsOf, esc, relDay, toast, ui } from './core.js';
-import { t } from './i18n.js';
-import { isEvent } from './kinds.js';
-import { leadOf, outcomeOf } from './model.js';
-import { addDays, fmtDur, fmtTime, isoDay, today } from './plan.js';
+import { getLang, t } from './i18n.js';
+import { isEvent, isMealType } from './kinds.js';
+import { countedOf, ensureSeries, leadOf, outcomeOf } from './model.js';
+import { addDays, fmtDur, fmtTime, isoDay, occurrences, today } from './plan.js';
 import { trayTasks } from './planning.js';
 import { matchesQ } from './shoplist.js';
-import { get, live } from './store.js';
-import { render } from './shell.js';
-import { agendaAdd, agendaPlan, fixProps, ghostTitle, ghostWhy } from './views/planner.js';
+import { get, live, upsert } from './store.js';
+import { endedRoutines, hasRhythm, routines } from './routines.js';
+
+import { currentDate, render } from './shell.js';
+import { agendaAdd, agendaPlan, currentView, fixProps, ghostTitle, ghostWhy } from './views/planner.js';
 import { modal } from './core.js';
 import { openPickSheet, openTask } from './editors.js';
 import { setWhen } from './views/impegni.js';
@@ -50,7 +52,7 @@ function turnRows(rows) {
       ? `${r.options.map((o) => `<button type="button" class="fd-pill" data-action="fix-occ" data-id="${esc(x.id)}" data-date="${r.date}" data-start="${o.start}">${esc(fmtTime(o.start))}</button>`).join('') || `<small class="hint">${esc(t('noFreeSlotDay'))}</small>`}
         <button type="button" class="fd-pill act" data-action="occ-more" data-id="${esc(x.id)}" data-date="${r.date}">${esc(t('otherTime'))}</button><button type="button" class="fd-pill act" data-action="occ-skip" data-id="${esc(x.id)}" data-date="${r.date}">${esc(t('skip'))}</button>`
       : r.placements.map((pl) => `<button type="button" class="fd-pill" data-action="fix-times" data-id="${esc(x.id)}" data-date="${pl.date}" data-start="${pl.start}" data-minutes="${pl.minutes}">${esc(`${dayLabel(pl.date)} ${fmtTime(pl.start)}`)}</button>`).join('') || `<small class="hint">${esc(t('noFreeSlotWeek'))}</small>`;
-    return `<li class="fd-row turn">${bar(x)}<div class="fd-c"><span class="fd-t as-text">↻ ${esc(head)}<small>${esc(sub)}</small></span><div class="fd-pills">${chips}</div></div></li>`;
+    return `<li class="fd-row turn" draggable="true" data-drag="turn:${esc(x.id)}:${r.date || ''}" data-min="${x.minutes || 30}">${bar(x)}<div class="fd-c"><span class="fd-t as-text">↻ ${esc(head)}<small>${esc(sub)}</small></span><div class="fd-pills">${chips}</div></div></li>`;
   }).join('')}</ul>`;
 }
 // Da pianificare: pick one and the free time it fits in lights up; then the routine turns of the week.
@@ -62,7 +64,7 @@ function todoRows() {
   const turnsHtml = turns.length ? `${both || !list.length ? `<div class="fd-day">${esc(t('fdGrpRoutines'))} <small>${turns.length}</small></div>` : ''}${turnRows(turns)}` : '';
   if (!list.length) return turnsHtml;
   const pick = ui.pick && get('tasks', ui.pick);
-  return `<p class="hint">${esc(pick ? t('pnPicked', pick.title) : t('pnPick'))}</p>${both ? `<div class="fd-day">${esc(t('fdGrpTasks'))} <small>${list.length}</small></div>` : ''}<ul class="fd-list">${list.map((x) => `<li class="fd-row${ui.pick === x.id ? ' on' : ''}">${bar(x)}<div class="fd-c">
+  return `<p class="hint">${esc(pick ? t('pnPicked', pick.title) : t('pnPick'))}</p>${both ? `<div class="fd-day">${esc(t('fdGrpTasks'))} <small>${list.length}</small></div>` : ''}<ul class="fd-list">${list.map((x) => `<li class="fd-row${ui.pick === x.id ? ' on' : ''}" draggable="true" data-drag="task:${esc(x.id)}" data-min="${x.minutes || 30}">${bar(x)}<div class="fd-c">
     <button type="button" class="fd-t" data-action="fd-pick" data-id="${esc(x.id)}" aria-pressed="${ui.pick === x.id}">${esc(x.title)}<small>${esc([x.lenSet === false ? '' : fmtDur(x.minutes || 30), x.due ? relDay(x.due) : '', ...catsOf(x).map((c) => catName(get('categories', c)))].filter(Boolean).join(' · '))}</small></button>
     <div class="fd-pills"><button type="button" class="fd-pill act" data-action="fd-when" data-id="${esc(x.id)}">${esc(t('whenChip'))}</button></div></div></li>`).join('')}</ul>${turnsHtml}`;
 }
@@ -98,6 +100,55 @@ export function goToProposal(fk, date) {
   setTimeout(() => { document.querySelector(`.plan-main [data-fk="${fk}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 150);
   setTimeout(() => { if (ui.flash === fk) { ui.flash = null; render(); } }, 3600);
 }
+// ---------- (v69) the Routine shelf: every routine, staying after a drop, with its count for the period on screen
+// (the Planner's month in the month view, otherwise the week of the day shown).
+function shelfPeriod() {
+  const d = currentDate(); const v = currentView();
+  if (v === 'month') { const from = `${d.slice(0, 7)}-01`; const to = addDays(`${d.slice(0, 7)}-01`, new Date(Number(d.slice(0, 4)), Number(d.slice(5, 7)), 0).getDate() - 1); return { from, to, label: t('periodMonth', new Date(`${from}T12:00`).toLocaleDateString(getLang(), { month: 'long' })), month: true }; }
+  const from = addDays(d, -((new Date(`${d}T12:00`).getDay() + 6) % 7));
+  return { from, to: addDays(from, 6), label: t('periodWeek'), month: false };
+}
+function shelfCount(x, p) {
+  const bl = live('blocks').filter((b) => b.taskId === x.id && b.kind !== 'prep' && !b.stepId && b.date >= p.from && b.date <= p.to && b.outcome !== 'failed');
+  const doneN = bl.filter((b) => outcomeOf(b) === 'done').length;
+  let target = null;
+  if (x.repeat === 'times') target = (Number(x.timesN) || 1) * ((x.timesPer || 'week') === 'week' ? (p.month ? Math.round(((new Date(`${p.to}T12:00`) - new Date(`${p.from}T12:00`)) / 864e5 + 1) / 7) : 1) : 1);
+  else if (x.repeat) target = occurrences(x, p.from, p.to).length;
+  return { n: bl.length, doneN, target };
+}
+function shelfRow(x, p) {
+  const c = shelfCount(x, p);
+  const bits = [fmtDur(x.minutes || 30), x.repeat === 'times' ? t('timesShort', x.timesN || 3, t(`per_${x.timesPer || 'week'}`)) : x.repeat ? repeatText(x) : t('wm_anytime')];
+  const soon = x.repeatUntil && x.repeatUntil <= addDays(today(), 7);
+  const end = x.repeatCount ? t('turnsOf', countedOf(x), x.repeatCount) : x.repeatUntil ? (soon ? t('endsSoon', relDay(x.repeatUntil)) : t('endsOn', relDay(x.repeatUntil))) : '';
+  const barHtml = c.target ? `<span class="tly">${Array.from({ length: Math.min(c.target, 14) }, (_, i) => `<i class="${i < c.doneN ? 'done' : i < c.n ? 'pl' : ''}"></i>`).join('')}</span><span class="tly-n">${esc(t('countOf', c.n, c.target, p.label))}</span>`
+    : `<span class="tly-n">${esc(t('countN', c.n, p.label))}</span>`;
+  return `<li class="fd-row${ui.pick === x.id ? ' on' : ''}" draggable="true" data-drag="rout:${esc(x.id)}" data-min="${x.minutes || 30}">${bar(x)}<div class="fd-c">
+    <button type="button" class="fd-t" data-action="fd-pick" data-id="${esc(x.id)}">↻ ${esc(x.title)}<small>${esc(bits.join(' · '))}</small>${end ? `<small class="${soon ? 'warn-text' : ''}">${esc(end)}</small>` : ''}</button>
+    <div class="tly-row">${barHtml}</div></div><span class="fd-grip" aria-hidden="true">⠿</span></li>`;
+}
+function shelfRows() {
+  const p = shelfPeriod();
+  const all = routines().filter((x) => !x.archived && !isMealType(x)).sort((a, b) => a.title.localeCompare(b.title));
+  const rh = all.filter((x) => hasRhythm(x)); const any = all.filter((x) => !hasRhythm(x));
+  const ended = endedRoutines().sort((a, b) => (b.repeatUntil || '').localeCompare(a.repeatUntil || ''));
+  return `<p class="hint">${esc(t('shelfHint', p.month ? t('shelfMonth') : t('shelfWeek')))}</p>
+    <div class="tly-legend"><span><i class="done"></i>${esc(t('lgDone'))}</span><span><i class="pl"></i>${esc(t('lgPlan'))}</span><span><i></i>${esc(t('lgMiss'))}</span></div>
+    ${rh.length ? `<div class="fd-day">${esc(t('grpRhythm'))}</div><ul class="fd-list">${rh.map((x) => shelfRow(x, p)).join('')}</ul>` : ''}
+    ${any.length ? `<div class="fd-day">${esc(t('wm_anytime'))}</div><ul class="fd-list">${any.map((x) => shelfRow(x, p)).join('')}</ul>` : ''}
+    ${!all.length ? `<p class="hint fd-empty">${esc(t('noSaved'))}</p>` : ''}
+    ${ended.length ? `<div class="fd-day fd-ended-h">${esc(t('grpEnded'))} <small>${ended.length}</small><button type="button" class="linkish" data-action="fd-ended">${esc(ui.fdEnded ? t('hideBtn') : t('showBtn'))}</button></div>
+      ${ui.fdEnded ? `<ul class="fd-list">${ended.map((x) => `<li class="fd-row ended">${bar(x)}<div class="fd-c"><span class="fd-t as-text">↻ ${esc(x.title)}<small>${esc(x.repeatUntil && (!x.repeatCount || countedOf(x) < x.repeatCount) ? t('endedInfo', relDay(x.repeatUntil), countedOf(x)) : t('endedN', countedOf(x)))}</small></span></div><button type="button" class="btn small" data-action="rt-resume" data-id="${esc(x.id)}">${esc(t('resumeBtn'))}</button></li>`).join('')}</ul>` : ''}` : ''}`;
+}
+// "Riprendi": the same rhythm again from next Monday, with no end.
+export function resumeRoutine(id) {
+  const x = get('tasks', id); if (!x) return;
+  const td = today(); const mon = addDays(td, 7 - ((new Date(`${td}T12:00`).getDay() + 6) % 7));
+  const nu = upsert('tasks', { ...x, repeatUntil: null, repeatCount: null, seriesFrom: mon, due: mon, skipped: [] });
+  ensureSeries(nu);
+  toast(t('resumed', relDay(mon)));
+  render();
+}
 export function finderHtml({ props = false } = {}) {
   const q = (ui.fdQ || '').trim();
   const tab = ui.fdTab || 'todo';
@@ -107,11 +158,12 @@ export function finderHtml({ props = false } = {}) {
     const hits = items.filter((x) => matchesQ(taskHay(x), q));
     body = hits.length ? `<div class="fd-day">${esc(t('findN', hits.length))}</div><ul class="fd-list">${hits.map(itemRow).join('')}</ul>` : `<p class="hint fd-empty">${esc(t('findNone', q))}</p>`;
   } else if (tab === 'plan') body = planRows();
+  else if (tab === 'rout') body = shelfRows();
   else if (tab === 'all') body = `<ul class="fd-list">${items.sort((a, b) => a.title.localeCompare(b.title)).map(itemRow).join('')}</ul>`;
   else body = todoRows();
   const nTodo = trayTasks().length + routineTurns().length; // the same number as the Planner's card
   const nPlan = new Set(live('blocks').filter((b) => b.taskId && !outcomeOf(b) && b.date >= today() && b.date <= addDays(today(), 13) && b.kind !== 'prep').map((b) => b.taskId)).size;
-  const tabs = [['todo', 'pnTabTodo', nTodo], ['plan', 'pnTabPlan', nPlan], ['all', 'pnTabAll', items.length]];
+  const tabs = [['todo', 'pnTabTodo', nTodo], ['rout', 'pnTabRout', routines().filter((x) => !x.archived && !isMealType(x)).length], ['plan', 'pnTabPlan', nPlan], ['all', 'pnTabAll', items.length]];
   const pv = props ? proposalsHtml() : '';
   return `<div class="fd">
     ${searchBox({ id: 'fd-q', value: ui.fdQ || '', ph: t('findPh') })}
@@ -180,6 +232,8 @@ export function sheetClick(btn) {
     case 'fd-move': { const b = get('blocks', id); const x = b && get('tasks', b.taskId); if (x) openWeekGrid(x, { block: b, onClose: () => { close(); render(); } }); return true; }
     case 'fd-when': { const x = get('tasks', id); if (x) openWeekGrid(x, { onClose: (how, k) => { if (how === 'quick') setWhen(get('tasks', id), k); close(); render(); } }); return true; }
     case 'task-edit': { const x = get('tasks', id); if (x) openTask(x); return true; }
+    case 'fd-ended': ui.fdEnded = !ui.fdEnded; redrawMine(); return true;
+    case 'rt-resume': resumeRoutine(id); redrawMine(); return true;
     // a routine turn's free time, another time, or skip it this week
     case 'fix-occ': { const x = get('tasks', id); if (x) { const b = fixOcc(x, btn.dataset.date, Number(btn.dataset.start)); toast(t('plannedToast', relDay(b.date), fmtTime(b.start + leadOf(x)))); render(); redrawMine(); } return true; }
     case 'fix-times': { const x = get('tasks', id); if (x) { fixTimes(x, { taskId: id, date: btn.dataset.date, start: Number(btn.dataset.start), minutes: Number(btn.dataset.minutes) }); render(); redrawMine(); } return true; }

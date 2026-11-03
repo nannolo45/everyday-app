@@ -6,9 +6,9 @@
 import { catName, catsOf, categories, esc, modal, relDay, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { isTodo } from '../kinds.js';
-import { nextPlanned } from '../model.js';
+import { countedOf, nextPlanned } from '../model.js';
 import { addDays, fmtDur, fmtTime, sortTasks, today } from '../plan.js';
-import { isArchived, isRoutine, legend, routineRow, weekHeader } from '../routines.js';
+import { endedRoutines, isArchived, isRoutine, legend, routineRow, weekHeader } from '../routines.js';
 import { matchesQ } from '../shoplist.js';
 import { get, live, remove, saveSettings, state, upsert } from '../store.js';
 import { render } from '../shell.js';
@@ -185,9 +185,20 @@ export function viewImpegni() {
   ${hasRep ? weekHeader(list.filter((x) => typeOf(x) === 'repeat'), ws) : ''}
   ${list.length ? body : `<p class="empty">${esc(q || n ? t('noMatch') : t('vwEmpty'))}</p>`}
   ${hasRep ? legend() : ''}
+  ${endedHtml(v)}
   ${done.length ? `<section class="fold-sec grp-sec">${foldBtn('grp_done', t('grp_done'), done.length)}
     ${folded('grp_done') ? '' : `<ul class="list tasks done">${done.slice(0, 50).map((x) => taskRow(x)).join('')}</ul>
     <button class="btn small ghost" type="button" data-action="clear-done">${esc(t('clearDone'))}</button>`}</section>` : ''}`;
+}
+
+// (v69) Routines that have ended, folded at the bottom of views that show routines: kept, with Riprendi.
+function endedHtml(v) {
+  const f = filterOf(v);
+  if (f.type?.length && !f.type.includes('repeat')) return '';
+  const list = endedRoutines().filter((x) => !f.cat?.length || catsOf(x).some((c) => f.cat.includes(c)));
+  if (!list.length) return '';
+  return `<section class="fold-sec grp-sec">${foldBtn('grp_ended', t('grpEnded'), list.length)}
+    ${folded('grp_ended') ? '' : `<ul class="list tasks ended">${list.map((x) => `<li class="vw-row"><span class="vw-rep" aria-hidden="true">↻</span><button class="task-main" type="button" data-action="routine-open" data-id="${esc(x.id)}"><span class="item-text">${esc(x.title)}<small>${esc(x.repeatUntil && (!x.repeatCount || countedOf(x) < x.repeatCount) ? t('endedInfo', relDay(x.repeatUntil), countedOf(x)) : t('endedN', countedOf(x)))}</small></span></button><button class="btn small" type="button" data-action="rt-resume" data-id="${esc(x.id)}">${esc(t('resumeBtn'))}</button></li>`).join('')}</ul>`}</section>`;
 }
 
 // ---------- sorting things in place ----------

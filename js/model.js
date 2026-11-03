@@ -246,11 +246,32 @@ export const isSeries = (x) => Boolean(x && (REPEATS.includes(x.repeat) || REPEA
 // week grid's "every week"); otherwise one time for all.
 const seriesTimeOn = (task, d) => { const r = ruleAt(task, d); return r.slotTimes?.[isoDay(d)] ?? r.seriesTime; };
 export const seriesBlocks = (taskId) => live('blocks').filter((b) => b.seriesId === taskId);
+// ---------- (v69) the end of a routine ----------
+// A routine may end on a date (`repeatUntil`) or after N turns that count (`repeatCount`). A turn counts
+// when it's marked done, unless you said otherwise on it (`block.counts`); a turn not done, or done in
+// part, counts only if you say so. Ended routines leave the lists and the plan; they're kept ("Concluse").
+export const turnCounts = (b) => (b.counts != null ? Boolean(b.counts) : outcomeOf(b) === 'done');
+export function countedOf(x) {
+  if (!x) return 0;
+  return live('blocks').filter((b) => b.taskId === x.id && b.kind !== 'prep' && !b.stepId && outcomeOf(b) && turnCounts(b)).length + (x.doneLog || []).length;
+}
+export const turnsLeftOf = (x) => (x?.repeatCount ? Math.max(0, Number(x.repeatCount) - countedOf(x)) : Infinity);
+export const openTurnsOf = (x, td = today()) => live('blocks').filter((b) => b.taskId === x.id && b.kind !== 'prep' && !b.stepId && !outcomeOf(b) && b.date >= td).length;
+export function isEnded(x, td = today()) {
+  if (!x || !(x.repeat || x.next?.repeat)) return false;
+  if (x.repeatUntil && td > x.repeatUntil) return true;
+  return Boolean(x.repeatCount) && countedOf(x) >= Number(x.repeatCount);
+}
 export function ensureSeries(task) {
   if (!isSeries(task) || (task.seriesTime == null && task.next?.seriesTime == null) || task.done) return;
   const td = today();
-  const want = occurrences(task, td, addDays(td, SERIES_DAYS)).filter((d) => seriesTimeOn(task, d) != null && !ruleAt(task, d).pickTime);
+  let want = isEnded(task) ? [] : occurrences(task, td, addDays(td, SERIES_DAYS)).filter((d) => seriesTimeOn(task, d) != null && !ruleAt(task, d).pickTime);
   const have = new Map(seriesBlocks(task.id).map((b) => [b.occ, b]));
+  if (task.repeatCount) { // "per N volte": recorded turns stay; only as many open ones as still count
+    const recorded = (d) => have.get(d) && outcomeOf(have.get(d));
+    const open = want.filter((d) => !recorded(d)).slice(0, turnsLeftOf(task));
+    want = want.filter((d) => recorded(d) || open.includes(d));
+  }
   for (const d of want) {
     const start = Math.max(0, seriesTimeOn(task, d) - anchorOffset(null, task));
     const b = have.get(d);
@@ -876,13 +897,14 @@ export function periodKey(date, per) {
 }
 // How many more times it should happen in the period of `date`: target − done − planned − previewed.
 export function timesLeft(x, date) {
-  if (x.repeat !== 'times') return 0;
+  if (x.repeat !== 'times' || isEnded(x)) return 0;
   const per = x.timesPer || 'week'; const pk = periodKey(date, per);
   const inP = (d) => periodKey(d, per) === pk;
   const blocks = live('blocks').filter((b) => b.taskId === x.id && b.kind !== 'prep' && inP(b.date) && b.outcome !== 'failed');
   const logged = (x.doneLog || []).filter(inP).length;
   const ghosts = (ui.assign?.ghosts || []).filter((g) => g.taskId === x.id && inP(g.date)).length;
-  return Math.max(0, (Number(x.timesN) || 1) - blocks.length - logged - ghosts);
+  const n = Math.max(0, (Number(x.timesN) || 1) - blocks.length - logged - ghosts);
+  return x.repeatCount ? Math.min(n, Math.max(0, turnsLeftOf(x) - openTurnsOf(x) - ghosts)) : n; // (v69) per N volte
 }
 export function timesDone(x, date) {
   if (x.repeat !== 'times') return 0;
