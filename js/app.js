@@ -34,7 +34,7 @@ applyTheme();
 import { classic, curView, openFilters, openPick, openSort, openTriage, openViews, setView, setWhen, viewList } from './views/impegni.js';
 import { openWeekGrid } from './weekgrid.js';
 import { goToBlock, goToProposal, openChooser, openPropsList, resumeRoutine, sheetClick } from './finder.js';
-import { countToast, firstFreeStart, moveBlockTo, openConflictChoice, openSwap, placeItem } from './placing.js';
+import { countToast, firstFreeStart, moveBlockTo, openConflictChoice, openSwap, openSwapEvent, placeItem } from './placing.js';
 import { agendaAdd, agendaPlan, openGapFits, planStyle, showSteps } from './views/planner.js';
 import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName, SHOPS } from './views/shop.js';
 import { openTaskTools, taskFilter } from './views/tasks.js';
@@ -192,7 +192,7 @@ view.addEventListener('change', (e) => {
     // "Breathing room" is one number: the margin after each task and the gap the planner keeps between blocks.
     const breath = Number(f.taskBuffer) || 0;
     saveSettings({
-      dayStart, dayEnd: Math.max(dayEnd, dayStart + 1), buffer: Math.min(breath, 15), taskBuffer: breath, maxLoad: Number(f.maxLoad), splitOver: Number(f.splitOver ?? 4), weekCardDay: Number(f.weekCardDay ?? state.settings.weekCardDay ?? 0), weekCardHour: Number(f.weekCardHour ?? state.settings.weekCardHour ?? 18), defaultView: f.defaultView ?? state.settings.defaultView, planStyle: f.planStyle || planStyle(), freeWeekends: el.form.freeWeekends.checked,
+      dayStart, dayEnd: Math.max(dayEnd, dayStart + 1), buffer: Math.min(breath, 15), taskBuffer: breath, maxLoad: Number(f.maxLoad), splitOver: Number(f.splitOver ?? 4), weekCardDay: Number(f.weekCardDay ?? state.settings.weekCardDay ?? 0), weekCardHour: Number(f.weekCardHour ?? state.settings.weekCardHour ?? 18), defaultView: f.defaultView ?? state.settings.defaultView, planStyle: f.planStyle || planStyle(), freeWeekends: el.form.freeWeekends.checked, smartLearn: el.form.smartLearn ? el.form.smartLearn.checked : Boolean(state.settings.smartLearn),
       autoHours: { wd: hr('ahWdF', 'ahWdT', autoHoursFor('2026-11-02')), we: hr('ahWeF', 'ahWeT', autoHoursFor('2026-11-07')) },
     });
     if (el.name === 'defaultView') ui.view = null;
@@ -257,6 +257,7 @@ view.addEventListener('click', (e) => {
     case 'pv-list': openPropsList(); break;
     case 'pv-go': goToProposal(id, btn.dataset.date); break;
     case 'fd-unpick': ui.pick = null; ui.pickOcc = null; ui.pickBlock = null; render(); break;
+    case 'swap-event': openSwapEvent(id); break; // (v71) placing on an invitation: you won't go, it takes its slot
     case 'swap-block': openSwap(id); break; // (v70) placing something on a busy block: it takes that slot
     case 'conflict-choose': openConflictChoice(conflictsOn(btn.dataset.date || currentDate())[Number(btn.dataset.i)]); break;
     case 'fd-ended': ui.fdEnded = !ui.fdEnded; render(); break;
@@ -457,7 +458,7 @@ view.addEventListener('sorted', (e) => onSorted(e.detail));
 // (v69) Drag and drop (mouse): rows of the Planner's pane (tasks, routine turns, routines on the shelf) and
 // blocks in the agenda, onto a free stretch (where it fits lights up), a day of the week, or a day in the rail.
 let dnd = null;
-const dropTarget = (el) => el?.closest?.('.ag-gap, .ag-day, .rl-day, .ag-row[data-drag^="block:"]');
+const dropTarget = (el) => el?.closest?.('.ag-gap, .ag-day, .rl-day, .ag-row[data-drag^="block:"], .ag-row[data-ev]');
 document.addEventListener('dragstart', (e) => {
   const src = e.target.closest?.('[data-drag]'); if (!src) return;
   dnd = { v: src.dataset.drag, min: Number(src.dataset.min) || 30 };
@@ -483,10 +484,10 @@ document.addEventListener('drop', (e) => {
   const tg = dropTarget(e.target); if (!tg) return;
   e.preventDefault();
   const v = dnd.v; dndEnd();
-  if (tg.classList.contains('ag-row')) { // (v70) onto a block: it takes that slot, you say where the other goes
-    const yId = tg.dataset.drag.slice(6); const [k0, id0, occ0] = v.split(':');
+  if (tg.classList.contains('ag-row')) { // (v70) onto a block: it takes that slot, you say where the other goes (v71: or onto an invitation)
+    const yId = tg.dataset.ev ? null : tg.dataset.drag.slice(6); const [k0, id0, occ0] = v.split(':');
     if (k0 === 'block') { if (id0 === yId) return; ui.pickBlock = id0; ui.pick = null; } else { ui.pick = id0; ui.pickOcc = k0 === 'turn' && occ0 ? occ0 : null; ui.pickBlock = null; }
-    openSwap(yId); return;
+    if (tg.dataset.ev) openSwapEvent(tg.dataset.ev); else openSwap(yId); return;
   }
   const btn = tg.querySelector('button[data-date]') || tg;
   const date = btn.dataset.date || tg.dataset.id || tg.querySelector('[data-id]')?.dataset.id;

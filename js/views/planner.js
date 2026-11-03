@@ -4,7 +4,7 @@ import { openAutoPlanner } from '../editors.js';
 import { catColor, esc, fmtDay, hint, PPM, range, reasonText, relDay, toast, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { isEvent, isMealType } from '../kinds.js';
-import { alreadyPlanned, autoApply, autoChecks, blocksOn, blockTimeText, checklistLeft, checklistOf, checkMissed, conflictsOn, conflictText, eventsOn, ISSUE_SEC, issueText, linkFor, nextPlanned, outcomeOf, partsLeft, plannedWhen, prereqsOf, splitsSteps, stepTimes, taskDayOf, taskIssues, timedEventsOn, timesLeft } from '../model.js';
+import { alreadyPlanned, autoApply, autoChecks, blocksOn, blockTimeText, checklistLeft, checklistOf, checkMissed, conflictsOn, conflictText, eventsOn, isInvite, ISSUE_SEC, issueText, linkFor, nextPlanned, outcomeOf, partsLeft, plannedWhen, prereqsOf, splitsSteps, stepTimes, taskDayOf, taskIssues, timedEventsOn, timesLeft } from '../model.js';
 import { addDays, dateStr, dayTotals, fmtDur, fmtTime, importanceOf, layoutBlocks, parseDate, sortTasks, today, weekday } from '../plan.js';
 import { addGhostList, autoHoursFor, hoursShort, inRange, loadOf, selecting, spreadLabel, trayTasks } from '../planning.js';
 import { changed, currentDate, render } from '../shell.js';
@@ -282,7 +282,7 @@ export function blockHtml(b, startMin, conflict, compact = false) {
 export function eventHtml(e, startMin, conflict) {
   const left = `calc(${(e.col / e.cols) * 100}% + 1px)`;
   const width = `calc(${100 / e.cols}% - 3px)`;
-  return `<div class="block event${e.busy === false ? ' free' : ''}${e.minutes < 30 ? ' short' : ''}${conflict ? ' conflict' : ''}" data-id="${esc(e.id)}"
+  return `<div class="block event${e.busy === false ? ' free' : ''}${e.skipped ? ' skipped' : ''}${e.minutes < 30 ? ' short' : ''}${conflict ? ' conflict' : ''}" data-id="${esc(e.id)}"
     style="--c:${esc(e.color || '#6b7280')};top:${(e.start - startMin) * P}px;height:${Math.max(e.minutes * P, 16)}px;left:${left};width:${width}">
     <div class="blk-body"><div class="blk-title">${conflict ? '<span class="warn-ico">⚠</span> ' : ''}${esc(e.title)}</div>
     <div class="blk-time">${range(e.start, e.minutes)} · ${esc(e.calendar)}</div></div></div>`;
@@ -454,6 +454,8 @@ function agItems(date) {
     ...timedEventsOn(date).map((e) => ({ k: 'event', e, start: e.start, minutes: e.minutes || 0 })), ...ghosts, ...fixes]
     .sort((a, b) => a.start - b.start);
 }
+// (v71) What you answered to an invitation.
+export const invTag = (e) => (e.rsvp === 'accepted' ? `<span class="inv-tag yes">${esc(t('invYes'))}</span>` : `<span class="inv-tag">${esc(e.rsvp === 'tentative' ? t('invMaybe') : t('invPending'))}</span>`);
 const lenBar = (m) => `<span class="ag-len"><i style="width:${Math.min(100, Math.round((m / 180) * 100))}%"></i><b>${esc(fmtDur(m))}</b></span>`;
 function agRow(it) {
   const end = it.start + it.minutes;
@@ -466,7 +468,10 @@ function agRow(it) {
   const placing = Boolean(ui.pick || ui.pickBlock);
   if (it.k === 'event') {
     const e = it.e;
-    return `<li class="ag-row ev${placing ? ' locked' : ''}" style="--c:${esc(e.color || 'var(--muted)')}">${time}<button class="ag-c" type="button" data-action="event" data-id="${esc(e.id)}"><span class="ag-t">📅 ${esc(e.title)}</span>${e.location ? `<small>📍 ${esc(e.location)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
+    // (v71) invitations say so, and while placing you can take their slot; your own events stay put
+    const inv = isInvite(e) && !e.skipped; const swap = placing && inv;
+    const tag = e.skipped ? `<span class="inv-tag no">${esc(t('invNotGoing'))}</span>` : inv ? invTag(e) : '';
+    return `<li class="ag-row ev${e.skipped ? ' skipped' : ''}${placing && !swap ? ' locked' : ''}"${inv ? ` data-ev="${esc(e.id)}"` : ''} style="--c:${esc(e.color || 'var(--muted)')}">${time}<button class="ag-c${swap ? ' swap' : ''}" type="button" data-action="${swap ? 'swap-event' : 'event'}" data-id="${esc(e.id)}">${swap ? `<span class="ag-swap">${esc(t('swapHere'))}</span>` : placing && !e.skipped && !inv ? `<span class="ag-swap lock">${esc(t('invOwnLocked'))}</span>` : ''}<span class="ag-t">📅 ${esc(e.title)}</span>${tag}${e.location ? `<small>📍 ${esc(e.location)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
   }
   const b = it.b; const st = outcomeOf(b);
   const swap = placing && !st && b.id !== ui.pickBlock; // (v70) tap it to put what you're placing here instead

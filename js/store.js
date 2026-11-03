@@ -171,7 +171,7 @@ export async function replaceCollection(collection, items) {
 // Settings that describe how you plan (not this device) travel with your data: each is one record in
 // `config` ({id: 'set:<key>', value}), so the newest change on any device wins, per setting. The token,
 // the repositories, the language, view toggles and what is folded stay on the device.
-export const SHARED_SETTINGS = ['dayStart', 'dayEnd', 'buffer', 'taskBuffer', 'maxLoad', 'splitOver', 'weekCardDay', 'weekCardHour', 'weekCardLater', 'defaultView', 'freeWeekends', 'autoHours',
+export const SHARED_SETTINGS = ['dayStart', 'dayEnd', 'buffer', 'taskBuffer', 'maxLoad', 'splitOver', 'weekCardDay', 'weekCardHour', 'weekCardLater', 'defaultView', 'freeWeekends', 'smartLearn', 'autoHours',
   'travel', 'snap', 'longUnits', 'advancedFeatures', 'glance', 'taskGroups'];
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 export async function saveSettings(patch) {

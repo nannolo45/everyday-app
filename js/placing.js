@@ -9,7 +9,7 @@
 // Every placement can be undone from the bar at the bottom.
 import { esc, planSettings, relDay, toast, ui } from './core.js';
 import { t } from './i18n.js';
-import { busyOn, countedOf, deleteBlock, ensureSeries, followParent, isEnded, isSeries, itemById, leadOf, outcomeOf, planTask, timesLeft, turnCounts } from './model.js';
+import { busyOn, countedOf, evSkipOf, rsvpAsks, setEvSkip, setRsvpAsks, deleteBlock, ensureSeries, followParent, isEnded, isSeries, itemById, leadOf, outcomeOf, planTask, timesLeft, turnCounts } from './model.js';
 import { isEvent } from './kinds.js';
 import { addDays, fmtDur as fmtDurShort, fmtTime, freeSlot, isOccurrence, nowMinutes, parseDate, ruleAt, today } from './plan.js';
 import { autoHoursFor, warnConflicts } from './planning.js';
@@ -39,7 +39,7 @@ export function firstFreeStart(x, date) {
 const openBlocks = (x) => live('blocks').filter((b) => b.taskId === x.id && !outcomeOf(b) && b.kind !== 'prep' && !b.stepId);
 // After a placement: `extra.then` runs (v70: the block it took the place of moves), and Undo undoes both.
 const done = (made, undo, extra = {}) => {
-  if (made && extra.then) extra.then();
+  if (made && extra.then) extra.then(made);
   changed();
   if (!made) return;
   warnConflicts(get('blocks', made.id));
@@ -151,6 +151,50 @@ export function openSwap(yId) {
     else placeItem(px, y.date, y.start, { occ, then, alsoUndo: () => undoY() });
     if (how === 'pick') { location.hash = `#/plan/${y.date}`; changed(); }
   }, { cls: 'sheet choose-sheet' });
+}
+// (v71) Placing something on an invitation: you won't go, it takes its slot. The invitation stays in the day,
+// greyed ("Non ci vai"); "Rispondi No anche su Google" asks the calendar sync to decline it there too.
+export function openSwapEvent(eventId) {
+  const e = get('events', eventId); if (!e || !e.rsvp || e.own) return;
+  const pb = ui.pickBlock && get('blocks', ui.pickBlock);
+  const px = !pb && ui.pick && get('tasks', ui.pick);
+  if (!pb && !px) return;
+  const title = pb ? pb.title : px.title;
+  openModal(`<h2>${esc(t('swapTitle', title, fmtTime(e.start)))}</h2><p class="hint">📅 ${esc(e.title)}${e.from ? ` · ${esc(t('invFrom', e.from))}` : ''}</p>
+    ${e.rsvp === 'accepted' ? `<p class="notice warn-amber">${esc(t('invSaidYes'))}</p>` : ''}
+    <div class="choose"><button class="btn primary choose-opt" value="skip-ev"><b>${esc(t('invSkipPut', title))}</b><small>${esc(t('invSkipPutSub'))}</small></button></div>
+    ${e.gcal ? `<label class="check inv-google"><input type="checkbox" name="google"> <span>${esc(t('invAlsoGoogle'))}<small>${esc(t('invAlsoGoogleSub', e.from || '…'))}</small></span></label>` : ''}
+    <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('cancel'))}</button></div>`, (form, action) => {
+    if (action !== 'skip-ev') return;
+    const google = Boolean(form.google?.checked);
+    const occ = ui.pickOcc;
+    ui.pick = null; ui.pickOcc = null; ui.pickBlock = null;
+    const then = (made) => skipEvent(e, { took: made?.id, google });
+    const alsoUndo = () => unskipEvent(e.id);
+    if (pb) moveBlockTo(pb.id, e.date, e.start, { then, alsoUndo });
+    else placeItem(px, e.date, e.start, { occ, then, alsoUndo });
+  }, { cls: 'sheet choose-sheet' });
+}
+// Not going (with or without something in its place).
+export function skipEvent(e, { took = null, google = false } = {}) {
+  setEvSkip(e.id, { at: new Date().toISOString(), ...(took ? { took } : {}), ...(google ? { google: true } : {}) });
+  if (google && e.gcal) setRsvpAsks([...rsvpAsks().filter((a) => !(a.cal === e.gcal.cal && a.ev === e.gcal.ev)), { cal: e.gcal.cal, ev: e.gcal.ev, at: new Date().toISOString() }]);
+}
+export function unskipEvent(id) {
+  const e = get('events', id);
+  setEvSkip(id, null);
+  if (e?.gcal) setRsvpAsks(rsvpAsks().filter((a) => !(a.cal === e.gcal.cal && a.ev === e.gcal.ev)));
+}
+// "Ci vado di nuovo": the invitation counts again; what took its place moves to the first free time.
+export function rejoinEvent(id) {
+  const sk = evSkipOf(id); if (!sk) return;
+  const e = get('events', id);
+  unskipEvent(id);
+  const y = sk.took && get('blocks', sk.took);
+  let undoY = () => {};
+  if (y && !outcomeOf(y) && e && y.date === e.date && y.start < e.start + (e.minutes || 0) && e.start < y.start + (y.minutes || 30)) undoY = applyMove(y, 'free');
+  changed();
+  toast(t(sk.google ? 'invRejoinedG' : 'invRejoined'), 6000, [{ label: t('undo'), run: () => { undoY(); setEvSkip(id, sk); changed(); toast(t('undone')); } }]);
 }
 // A conflict, by hand: the two side by side with "Tieni questo"; then where the other one goes.
 export function openConflictChoice(c) {

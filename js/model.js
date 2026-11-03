@@ -23,7 +23,25 @@ import { planGroceryTrips } from './planning.js';
 export function blocksOn(date) { return live('blocks').filter((b) => b.date === date); }
 // Google Calendar events that day (read-only; see data-repo/scripts/gcal-sync.mjs), plus your own
 // all-day events (events with a time are blocks of their event task, see ---------- events).
-export function eventsOn(date) { return [...(state.settings.showEvents === false ? [] : live('events').filter((e) => e.date === date)), ...ownAllDayOn(date)]; }
+// (v71) Invitations you said you won't go to: {[eventId]: {at, took?, hidden?, google?}}. They stay in the day,
+// greyed and no longer busy (hidden: gone from the day, still in Google).
+export const evSkips = () => get('config', 'evSkips')?.value || {};
+export const evSkipOf = (id) => evSkips()[id] || null;
+export function setEvSkip(id, v) {
+  const all = { ...evSkips() };
+  if (v) all[id] = v; else delete all[id];
+  upsert('config', { id: 'evSkips', value: all }, { silent: true });
+}
+// (v71) The answers to send to Google ("No"), read by the calendar sync.
+export const rsvpAsks = () => get('config', 'gcalRsvp')?.value || [];
+export function setRsvpAsks(list) { upsert('config', { id: 'gcalRsvp', value: list }, { silent: true }); }
+export const isInvite = (e) => Boolean(e && e.rsvp && !e.own);
+export function eventsOn(date) {
+  const sk = evSkips();
+  const evs = state.settings.showEvents === false ? [] : live('events').filter((e) => e.date === date && !sk[e.id]?.hidden)
+    .map((e) => (sk[e.id] ? { ...e, skipped: true, busy: false } : e));
+  return [...evs, ...ownAllDayOn(date)];
+}
 export function timedEventsOn(date) { return eventsOn(date).filter((e) => !e.allDay).map((e) => ({ ...e, isEvent: true, fixed: true })); }
 // Everything that takes up time: your blocks plus busy calendar events.
 export function busyOn(date) { return [...blocksOn(date), ...timedEventsOn(date).filter((e) => e.busy !== false)]; }
@@ -216,7 +234,7 @@ export function newBlock(fields) {
 export function planTask(task, date, start = null, extra = {}) {
   const s = planSettings();
   const { series, ...fields } = extra;
-  const minutes = fields.minutes || (fields.stepId ? task.minutes : minutesLeft(task)) || 30;
+  const minutes = fields.minutes || (fields.stepId ? task.minutes : !(task.stepsDone || []).length && task.dayMinutes && isSeries(task) ? minutesOn(task, date) : minutesLeft(task)) || 30;
   let at = start;
   if (at == null) {
     const from = (date === today() ? nowMinutes() : s.dayStart) + leadOf(task);
@@ -245,6 +263,37 @@ export const isSeries = (x) => Boolean(x && (REPEATS.includes(x.repeat) || REPEA
 // (v66) A weekly series may have a time for each day it comes back on (`slotTimes` {isoDay: minute}, the
 // week grid's "every week"); otherwise one time for all.
 const seriesTimeOn = (task, d) => { const r = ruleAt(task, d); return r.slotTimes?.[isoDay(d)] ?? r.seriesTime; };
+// (v71) …and a length for some of its days (`dayMinutes` {isoDay: minutes}): Pulizie 45m on Tue and Thu, 2h on Sat.
+export const hasDayLen = (x) => Boolean(x && x.repeat === 'weekly' && (x.repeatDays || []).length > 1);
+export function minutesOn(task, d) {
+  const r = ruleAt(task, d);
+  return (r.repeat === 'weekly' && r.dayMinutes?.[isoDay(d)]) || r.minutes || task.minutes || 30;
+}
+export function setDayMinutes(task, iso, minutes) {
+  const dm = { ...(task.dayMinutes || {}) };
+  if (!minutes || minutes === task.minutes) delete dm[iso]; else dm[iso] = minutes;
+  return upsert('tasks', { ...task, dayMinutes: Object.keys(dm).length ? dm : null }, { silent: true });
+}
+// (v71) "Apprendimento intelligente" (a setting): when a weekday's turns took a lot more or less than planned
+// three times in a row (real times, from the timer or a corrected end), the block's Esito offers that length.
+export function learnHint(b) {
+  if (!state.settings.smartLearn || !b?.taskId || !b.endedAt) return null;
+  const x = get('tasks', b.taskId);
+  if (!hasDayLen(x) || (x.learnOff || []).includes('all')) return null;
+  const iso = isoDay(b.date);
+  if ((x.learnOff || []).includes(iso)) return null;
+  const same = live('blocks').filter((y) => y.taskId === x.id && !y.stepId && y.kind !== 'prep' && y.endedAt && outcomeOf(y) === 'done' && isoDay(y.date) === iso && y.date <= b.date)
+    .sort((a, c) => (a.date < c.date ? 1 : -1)).slice(0, 3);
+  if (same.length < 3) return null;
+  const cur = minutesOn(x, b.date);
+  const real = same.map((y) => y.minutes);
+  const far = (m) => Math.abs(m - cur) >= Math.max(15, cur * 0.25);
+  if (!real.every(far) || !(real.every((m) => m > cur) || real.every((m) => m < cur))) return null;
+  const med = [...real].sort((a, c) => a - c)[1];
+  const minutes = Math.max(5, Math.round(med / 15) * 15);
+  if (minutes === cur) return null;
+  return { task: x, iso, minutes, cur, real, longer: minutes > cur };
+}
 export const seriesBlocks = (taskId) => live('blocks').filter((b) => b.seriesId === taskId);
 // ---------- (v69) the end of a routine ----------
 // A routine may end on a date (`repeatUntil`) or after N turns that count (`repeatCount`). A turn counts
@@ -275,9 +324,10 @@ export function ensureSeries(task) {
   for (const d of want) {
     const start = Math.max(0, seriesTimeOn(task, d) - anchorOffset(null, task));
     const b = have.get(d);
-    if (!b) { planTask(task, d, start, { seriesId: task.id, occ: d, auto: true, series: true }); continue; }
-    if (b.auto && !outcomeOf(b) && (b.start !== start || b.minutes !== task.minutes || b.title !== task.title || (b.category || null) !== (task.category || null))) {
-      upsert('blocks', { ...b, start, minutes: task.minutes, title: task.title, category: task.category || null }, { silent: true });
+    const len = minutesOn(task, d);
+    if (!b) { planTask(task, d, start, { seriesId: task.id, occ: d, auto: true, series: true, minutes: len }); continue; }
+    if (b.auto && !outcomeOf(b) && (b.start !== start || b.minutes !== len || b.title !== task.title || (b.category || null) !== (task.category || null))) {
+      upsert('blocks', { ...b, start, minutes: len, title: task.title, category: task.category || null }, { silent: true });
     }
   }
   const wantSet = new Set(want);

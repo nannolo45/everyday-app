@@ -4,12 +4,12 @@ import { routines } from './routines.js';
 import { classic, curView, RICETTE_APP, setView, setWhen, viewName, viewTokens, wouldShow } from './views/impegni.js';
 import { openWeekGrid } from './weekgrid.js';
 import { upcomingOf } from './finder.js';
-import { countToast, setCounts } from './placing.js';
+import { countToast, rejoinEvent, setCounts, skipEvent, unskipEvent } from './placing.js';
 import { advancedOn, catChips, catChipsMulti, catColor, catName, catsOf, categories, readCats, esc, findCategory, fmtDay, hint, kitchen, modal, PALETTE, planSettings, quickFields, range, reasonText, relDay, route, small, toast, ui, weekdayNames } from './core.js';
 import { getLang, t } from './i18n.js';
 import { isEvent, isMealType, isSaved, isStep, withKind } from './kinds.js';
-import { alreadyPlanned, countedOf, turnCounts, anchorIndex, anchorOffset, anchorTitle, applyTemplate, blocksOn, busyOn, checklistLeft, checklistOf, checkMealNow, deleteBlock, endSeries, ensureSeries, eventBlockOf, eventDate, eventOf, eventTasksOf, followParent, isCheckStep, isSeries, leadOf, mealRecipes, mealTitle, mealTypes, newBlock, nextBlockOf, nextPlanned, offsetDue, offsetText, openTasks, outcomeOf, plannedTaskIds, plannedWhen, planTask, PREP_PLACES, qtyText, readinessText, recipeOf, recipes, RULE_PLACES, RULE_WHEN, rulesOf, savedGroups, savedInfo, savedStart, saveEvent, savedTasks, seriesBlocks, setBlockDone, setOutcome, setStepOutcome, setTaskDone, shoppingItems, splitSeries, stepLen, stepsDoneOf, stepsOf, stepTimes, syncEventTasks, taskIssues, taskSpan, templates, travelTasks, trySetBlockDone, tryStep } from './model.js';
-import { addDays, fmtDur, fmtTime, formatTemplateLines, parseDuration, freeSlot, groupTasks, IMPORTANCE, importanceOf, isDate, nowMinutes, parseDate, parseTemplateLines, parseTime, quickAdd, REPEATS, sortTasks, today } from './plan.js';
+import { alreadyPlanned, hasDayLen, learnHint, minutesOn, setDayMinutes, evSkipOf, isInvite, setEvSkip, countedOf, turnCounts, anchorIndex, anchorOffset, anchorTitle, applyTemplate, blocksOn, busyOn, checklistLeft, checklistOf, checkMealNow, deleteBlock, endSeries, ensureSeries, eventBlockOf, eventDate, eventOf, eventTasksOf, followParent, isCheckStep, isSeries, leadOf, mealRecipes, mealTitle, mealTypes, newBlock, nextBlockOf, nextPlanned, offsetDue, offsetText, openTasks, outcomeOf, plannedTaskIds, plannedWhen, planTask, PREP_PLACES, qtyText, readinessText, recipeOf, recipes, RULE_PLACES, RULE_WHEN, rulesOf, savedGroups, savedInfo, savedStart, saveEvent, savedTasks, seriesBlocks, setBlockDone, setOutcome, setStepOutcome, setTaskDone, shoppingItems, splitSeries, stepLen, stepsDoneOf, stepsOf, stepTimes, syncEventTasks, taskIssues, taskSpan, templates, travelTasks, trySetBlockDone, tryStep } from './model.js';
+import { addDays, fmtDur, fmtTime, isoDay, formatTemplateLines, parseDuration, freeSlot, groupTasks, IMPORTANCE, importanceOf, isDate, nowMinutes, parseDate, parseTemplateLines, parseTime, quickAdd, REPEATS, sortTasks, today } from './plan.js';
 import { AUTO_SPANS, partOfDay, placeGhosts, planEventTasks, planSoon, suggestSlot, trayTasks, tripItems, warnConflicts } from './planning.js';
 import { pantryCoverage } from './recipe-tools.js';
 import { ingredientsOf } from './kitchen.js';
@@ -21,7 +21,7 @@ import { get, has, kvGet, kvSet, live, remove, saveSettings, state, uid, upsert 
 import { fetchRicettePhoto, ricetteConfigured } from './sync.js';
 import { applyTravel, hereNow, isTravelStep, ownMinutes, realSteps, scheduleTravelRefresh, travelCfg, travelOf } from './travel-plan.js';
 import { MODE_ICON, MODES as TRAVEL_MODES } from './travel.js';
-import { impBadge } from './views/planner.js';
+import { impBadge, invTag } from './views/planner.js';
 import { remindDefault, remindLabel, REMINDS } from './views/settings.js';
 import { SHOPS, shopAdd, shopsList, tripRowsHtml } from './views/shop.js';
 import { fixOcc, skipOcc, slotOptions } from './weekpick.js';
@@ -77,6 +77,48 @@ export function askScope({ title, thisLabel, followingLabel, onThis, onFollowing
   });
 }
 
+// (v71) In the editor: "Durata diversa in certi giorni", a length for each day of a weekly routine.
+function dayLenPart(x) {
+  if (!hasDayLen(x) || x.steps.length) return '';
+  const on = Boolean(x.dayMinutes);
+  const days = [...x.repeatDays].sort((a, b) => a - b);
+  const rows = on ? `<div class="daylen">${days.map((d) => `<span class="dl-d">${esc(dayShort(d))}</span>${durField(`dm_${d}`, x.dayMinutes[d] || x.minutes || 30, { label: `${t('duration')} ${dayShort(d)}` })}`).join('')}</div>` : '';
+  return `<label class="check"><input type="checkbox" name="dayLen" data-rerender="1" ${on ? 'checked' : ''}> <span>${esc(t('dlSwitch'))}<small>${esc(on ? dayLenSummary(x) : t('dlSwitchOff'))}</small></span></label>${rows}`;
+}
+export function dayLenSummary(x) {
+  if (!x?.dayMinutes) return '';
+  const g = new Map();
+  for (const d of [...(x.repeatDays || [])].sort((a, b) => a - b)) { const m = x.dayMinutes[d] || x.minutes || 30; g.set(m, [...(g.get(m) || []), dayShort(d)]); }
+  return [...g].map(([m, ds]) => `${ds.join(', ')}: ${fmtDur(m)}`).join(' · ');
+}
+// (v71) A routine turn got a new length: every <Saturday> (that weekday only), only this one, or all from here on.
+function askDayLen(task, b, rec, finish) {
+  const iso = isoDay(b.date);
+  const others = (task.repeatDays || []).filter((d) => d !== iso);
+  const othersTxt = others.map((d) => `${dayShort(d)} ${fmtDur(minutesOn(task, nextOn(task, d) || b.date))}`).join(', ');
+  const undoWith = (before, blocks) => () => { upsert('tasks', before, { silent: true }); for (const y of blocks) upsert('blocks', y, { silent: true }); changed(); toast(t('undone')); };
+  openModal(`<h2>${esc(`${fmtDur(b.minutes)} → ${fmtDur(rec.minutes)}`)}</h2><p class="hint">${esc(t('dlWhich', task.title))}</p>
+    <div class="choose">
+      <button class="btn primary choose-opt" value="day"><b>${esc(t('dlEveryDay', iso))}</b><small>${esc(t('dlEveryDaySub', relDay(b.date), othersTxt))}</small></button>
+      <button class="btn choose-opt" value="this"><b>${esc(t('onlyThisOcc', relDay(b.date)))}</b><small>${esc(t('dlThisSub', fmtDur(b.minutes)))}</small></button>
+      <button class="btn choose-opt" value="all"><b>${esc(t('dlAll'))}</b><small>${esc(t('dlAllSub', fmtDur(rec.minutes)))}</small></button>
+    </div>
+    <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('cancel'))}</button></div>`, (form, action) => {
+    if (!['day', 'this', 'all'].includes(action)) return;
+    const before = { ...get('tasks', task.id) };
+    const blocks = live('blocks').filter((y) => y.taskId === task.id).map((y) => ({ ...y }));
+    if (action === 'this') { finish({ ...rec, ...(b.seriesId ? { auto: false } : {}) }); toast(t('dlDoneThis', relDay(b.date), fmtDur(rec.minutes)), 5000, [{ label: t('undo'), run: undoWith(before, blocks) }]); return; }
+    let tk = get('tasks', task.id);
+    if (action === 'day') tk = setDayMinutes(tk, iso, rec.minutes);
+    else tk = upsert('tasks', { ...tk, minutes: rec.minutes, dayMinutes: null }, { silent: true });
+    // this turn and the later ones on that weekday (or all) take the new length (series turns follow it again)
+    for (const y of live('blocks').filter((z) => z.taskId === tk.id && z.kind !== 'prep' && !z.stepId && z.date >= b.date && !outcomeOf(z) && (action === 'all' || isoDay(z.date) === iso))) upsert('blocks', { ...y, minutes: rec.minutes, ...(y.seriesId ? { auto: true } : {}) }, { silent: true });
+    ensureSeries(get('tasks', tk.id));
+    finish({ ...get('blocks', b.id), notes: rec.notes, allowOverlap: rec.allowOverlap, ...(b.seriesId ? { auto: true } : {}), minutes: rec.minutes });
+    toast(action === 'day' ? t('dlDoneDay', iso, fmtDur(rec.minutes)) : t('dlDoneAll', task.title, fmtDur(rec.minutes)), 5000, [{ label: t('undo'), run: undoWith(before, blocks) }]);
+  }, { cls: 'sheet choose-sheet' });
+}
+const nextOn = (task, iso) => { for (let i = 0; i < 7; i++) { const d = addDays(today(), i); if (isoDay(d) === iso) return d; } return null; };
 // A step whose result matters ("Check the backpack": ready, or not?): ticking it asks how it went.
 export function openOutcome(block, sid = null, { thenWhole = false } = {}) {
   const failRules = rulesOf(block, sid).filter((r) => r.when === 'failed');
@@ -539,6 +581,21 @@ export function openPlanSaved(x, date, { stay = false } = {}) {
   });
 }
 
+// (v71) An invitation: who from, your answer, and "Non ci vado" (or, once skipped, "Ci vado di nuovo").
+function inviteBox(e) {
+  const sk = evSkipOf(e.id);
+  if (sk) {
+    const took = sk.took && get('blocks', sk.took);
+    return `<div class="inv-box skipped"><p><span class="inv-tag no">${esc(t('invNotGoing'))}</span>${took ? ` <small>${esc(t('invTookBy', took.title))}</small>` : ''}${sk.google ? ` <small>· ${esc(t('invGoogleNo'))}</small>` : ''}</p>
+      <div class="button-row left"><button class="btn small primary" value="ev-rejoin" formnovalidate>${esc(t('invRejoin'))}</button><button class="btn small" value="ev-hide" formnovalidate>${esc(t('invHide'))}</button></div>
+      <small class="hint">${esc(took ? t('invRejoinSub', took.title) : t('invHideSub'))}</small></div>`;
+  }
+  if (!isInvite(e)) return '';
+  return `<div class="inv-box"><p>${e.from ? `${esc(t('invFrom', e.from))} · ` : ''}${esc(t('invYourAnswer'))} ${invTag(e)}</p>
+    ${e.rsvp === 'accepted' ? `<p class="notice warn-amber">${esc(t('invSaidYes'))}</p>` : ''}
+    ${e.gcal ? `<label class="check inv-google"><input type="checkbox" name="google"> <span>${esc(t('invAlsoGoogle'))}<small>${esc(t('invAlsoGoogleSub', e.from || '…'))}</small></span></label>` : ''}
+    <div class="button-row left"><button class="btn small" value="ev-skip" formnovalidate>${esc(t('invSkip'))}</button></div></div>`;
+}
 // An imported (Google Calendar) event: read-only, but tasks can be attached to it like to your own.
 export function openEvent(e) {
   const list = eventTasksOf(e.id);
@@ -546,6 +603,7 @@ export function openEvent(e) {
     <h2>${esc(e.title)}</h2>
     <p class="hint"><span class="cat" style="--c:${esc(e.color)}">${esc(e.calendar)}</span> · ${esc(fmtDay(e.date))}${e.allDay ? '' : ` · ${range(e.start, e.minutes)}`}</p>
     ${e.location ? `<p>📍 ${esc(e.location)}</p>` : ''}
+    ${inviteBox(e)}
     ${hint('eventReadOnly')}
     <div class="field-label">✓ ${esc(t('secEventTasks'))}${list.length ? ` <small>${esc(readinessText(e.id))}</small>` : ''}</div>
     ${list.length ? `<ul class="list ev-tasks">${list.map((y) => { const nb = nextPlanned(y.id); return `<li class="${y.done ? 'done' : ''}"><button class="task-main" value="ev-task:${esc(y.id)}" formnovalidate><span class="item-text">${y.done ? '✓ ' : ''}${esc(y.title)}<small>${esc([offsetText(y.eventOffset), y.due ? relDay(y.due) : ''].filter(Boolean).join(' · '))}</small><small class="${y.done ? '' : nb ? 'ok' : 'warn'}">${esc(y.done ? t('doneLabel') : nb ? t('plannedAt', relDay(nb.date), fmtTime(nb.start)) : t('toPlanLabel'))}</small></span></button></li>`; }).join('')}</ul>` : ''}
@@ -557,6 +615,12 @@ export function openEvent(e) {
       ${e.link ? `<a class="btn" href="${esc(e.link)}" target="_blank" rel="noopener">${esc(t('openInGoogle'))}</a>` : ''}
       <button class="btn" value="cancel">${esc(t('close'))}</button>
     </div>`, (form, action) => {
+    if (action === 'ev-skip') { // (v71) not going, nothing in its place
+      skipEvent(e, { google: Boolean(form.google?.checked) }); changed();
+      toast(t('invSkipped'), 5000, [{ label: t('undo'), run: () => { unskipEvent(e.id); changed(); toast(t('undone')); } }]);
+    }
+    if (action === 'ev-rejoin') rejoinEvent(e.id);
+    if (action === 'ev-hide') { const sk = evSkipOf(e.id); setEvSkip(e.id, { ...sk, hidden: true }); changed(); toast(t('invHidden'), 5000, [{ label: t('undo'), run: () => { setEvSkip(e.id, sk); changed(); } }]); }
     if (action === 'add-task') setTimeout(() => openEventTaskAdd(e, { back: true }), 0);
     if (action === 'plan-tasks') { planEventTasks(e); setTimeout(() => openEvent(get('events', e.id)), 0); }
     if (action.startsWith('ev-task:')) setTimeout(() => openTask(get('tasks', action.slice(8))), 0);
@@ -971,6 +1035,7 @@ function collectWhen(form, x) {
     x.repeat = null; x.pickTime = null; x.planDate = ''; x.planTime = null;
   }
   if (x.slotTimes && (mode !== 'repeat' || x.repeat !== 'weekly' || x.pickTime)) x.slotTimes = null; // (v66)
+  if (x.dayMinutes && (mode !== 'repeat' || x.repeat !== 'weekly')) x.dayMinutes = null; // (v71)
 }
 export const whenModeOf = (x) => x.whenMode || (x.repeat ? 'repeat' : isSaved(x) && !x.planDate && !x.due ? 'anytime' : 'once');
 function whenEditor(x, { routine, linkedEvent, evLine, timeLabel, anchorLabel, noTabs = false }) {
@@ -1195,6 +1260,7 @@ export function openTask(task, draft = null, opts = {}) {
       ${helper || x.travelRole ? '' : `<label>${esc(t('bufferAfter'))}<select name="buffer"><option value="" ${x.buffer == null || x.buffer === '' ? 'selected' : ''}>${esc(t('bufferDefault', Number(state.settings.taskBuffer) || 0))}</option>${[0, 5, 10, 15, 30, 60].map((m) => `<option value="${m}" ${x.buffer != null && x.buffer !== '' && Number(x.buffer) === m ? 'selected' : ''}>${m ? esc(fmtDur(m)) : esc(t('none'))}</option>`).join('')}</select></label>`}
       ${helper || evMode ? '' : `<label>${esc(t('importance'))}<select name="importance">${IMPORTANCE.map((n) => `<option value="${n}" ${n === x.importance ? 'selected' : ''}>${'★'.repeat(n)}${'☆'.repeat(5 - n)} ${esc(t(`imp_${n}`))}</option>`).join('')}</select></label>`}
     </div>
+    ${dayLenPart(x)}
     ${helper ? '' : `<div class="field-label">${esc(t('categories'))}</div>${catChipsMulti(x)}`}
     ${helper || isMealType(x) || evMode ? '' : `<label class="check"><input type="checkbox" name="routine" ${routine ? 'checked' : ''}> <span>★ ${esc(t('keepSaved'))}${small('keepSavedHint')}</span></label>`}
     ${routine ? `<label class="check"><input type="checkbox" name="meal" data-rerender="1" ${isMealType(x) ? 'checked' : ''}> <span>${esc(t('isMeal'))}</span></label>` : ''}`;
@@ -1289,12 +1355,12 @@ export function openTask(task, draft = null, opts = {}) {
   const modeSeg = short && !isMealType(x) ? `<div class="seg when-mode ed-wm" role="radiogroup" aria-label="${esc(t('secWhen'))}">${['once', 'repeat', 'anytime'].map((m) => `<label class="${m === wm ? 'on' : ''}"><input type="radio" name="whenMode" value="${m}" ${m === wm ? 'checked' : ''} data-rerender="1"><span>${esc(t(`wm_${m}`))}</span></label>`).join('')}</div><p class="hint ed-wm-what">${esc(t(`wmWhat_${wm}`))}</p>` : '';
   const shortTop = short ? `${modeSeg}<div class="ed-chips">
       <button class="mchip ed-chip${c0 ? ' set' : ''}" value="pop:cat" formnovalidate aria-expanded="${edPop === 'cat'}">${c0 ? `<i class="cat-dot" style="--c:${esc(catColor(c0))}"></i>` : ''}${esc(catName0 || t('mGroup'))}</button>
-      <button class="mchip ed-chip set" value="pop:len" formnovalidate aria-expanded="${edPop === 'len'}">⏱ ${esc(fmtDur(lenNow))}</button>
+      <button class="mchip ed-chip set" value="pop:len" formnovalidate aria-expanded="${edPop === 'len'}">⏱ ${esc(x.dayMinutes && Object.keys(x.dayMinutes).length ? dayLenSummary(x) : fmtDur(lenNow))}</button>
       <button class="mchip ed-chip${ups.length || x.repeat || x.due ? ' set' : ''}" value="when" formnovalidate>🕒 ${esc(whenChip)}</button>
       <button class="mchip ed-chip set" value="pop:imp" formnovalidate aria-expanded="${edPop === 'imp'}" aria-label="${esc(t('importance'))}">${'★'.repeat(x.importance || 3)}</button>
     </div>
     ${edPop === 'cat' ? `<div class="ed-pop">${catChipsMulti(x)}</div>` : ''}
-    ${edPop === 'len' ? `<div class="ed-pop">${x.steps.length ? `<p class="hint">${esc(fromRecipes ? t('durationRecipes', fmtDur(stepTotal)) : t('durationFromSteps', fmtDur(stepTotal)))}</p>` : `<label>${esc(t('duration'))}${durField('minutes', x.minutes || 30)}</label>`}</div>` : ''}
+    ${edPop === 'len' ? `<div class="ed-pop">${x.steps.length ? `<p class="hint">${esc(fromRecipes ? t('durationRecipes', fmtDur(stepTotal)) : t('durationFromSteps', fmtDur(stepTotal)))}</p>` : `<label>${esc(t('duration'))}${durField('minutes', x.minutes || 30)}</label>${dayLenPart(x)}`}</div>` : ''}
     ${edPop === 'imp' ? `<div class="ed-pop"><label>${esc(t('importance'))}<select name="importance">${IMPORTANCE.map((n) => `<option value="${n}" ${n === x.importance ? 'selected' : ''}>${'★'.repeat(n)}${'☆'.repeat(5 - n)} ${esc(t(`imp_${n}`))}</option>`).join('')}</select></label></div>` : ''}
     <div class="field-label">${esc(t('inPlan'))}</div>
     ${ups.length ? `<ul class="ed-plan">${ups.slice(0, 6).map((b) => `<li><span><b>${esc(relDay(b.date))} · ${esc(fmtTime(b.start))}–${esc(fmtTime(b.start + (b.minutes || 0)))}</b>${b.stepId ? `<small>${esc(b.title)}</small>` : ''}</span><button class="btn small" value="mv:${esc(b.id)}" formnovalidate>${esc(t('moveBtn'))}</button><button class="icon" value="unplan:${esc(b.id)}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></li>`).join('')}</ul>${ups.length > 6 ? `<p class="hint">${esc(t('findMoreN', ups.length - 6))}</p>` : ''}` : `<p class="hint">${esc(t('inPlanNone'))}</p>`}` : '';
@@ -1484,6 +1550,10 @@ export function openTask(task, draft = null, opts = {}) {
       return { ...rest, title: form[`st_t_${i}`].value.trim(), minutes, ...(rec ? { from: 'recipes' } : {}) };
     });
     x.minutes = x.steps.length ? x.steps.reduce((n, y) => n + lenOf(y), 0) || 30 : readDur(form, 'minutes', x.minutes || 30);
+    if (form.dayLen) { // (v71) a length for each day (only the ones that differ are kept)
+      if (!form.dayLen.checked) x.dayMinutes = null;
+      else { const dm = {}; for (const d of x.repeatDays || []) { const m = readDur(form, `dm_${d}`, (x.dayMinutes || {})[d] || x.minutes); if (m !== x.minutes) dm[d] = m; } x.dayMinutes = dm; }
+    }
     if (form.checklist) x.checklist = lines(form.checklist.value);
     x.notes = form.notes.value.trim();
     if (form.importance) x.importance = Number(form.importance.value) || 3;
@@ -1695,12 +1765,17 @@ export function openBlock(block, defaults = {}) {
   const esNew = !classic();
   const running = Boolean(b.startedAt && !b.endedAt);
   const nTimes = task?.repeatCount && status ? Number(task.repeatCount) : 0;
+  // (v71) Apprendimento intelligente: this weekday keeps taking longer (or shorter): use that length?
+  const lh = !isNew && !b.learnSeen && (status === 'done') ? learnHint(b) : null;
+  const learn = lh ? `<div class="es-learn"><b>${esc(t(lh.longer ? 'lrLonger' : 'lrShorter', lh.iso))}</b><small>${esc(t('lrLast', lh.iso, lh.real.map((m) => fmtDur(m)).join(', ')))}</small>
+    <button class="btn primary small" value="learn-yes" formnovalidate>${esc(t('lrUse', fmtDur(lh.minutes), lh.iso))}</button>
+    <div class="es-row"><button class="btn small" value="learn-no" formnovalidate>${esc(t('lrKeep'))}</button><button class="btn small ghost" value="learn-never" formnovalidate>${esc(t('lrNever'))}</button></div></div>` : '';
   const cnt = nTimes ? (() => { const on = turnCounts(b); const n = countedOf(task); return `<div class="es-count"><span>${esc(t('countsFor', nTimes))}<small>${esc(on ? t('countsWill', n, nTimes) : t('countsStays', n, nTimes))}</small></span><button class="sw-btn${on ? ' on' : ''}" value="count-toggle" formnovalidate aria-pressed="${on}" aria-label="${esc(t('countsFor', nTimes))}"></button></div>`; })() : '';
   const esito = !esNew || isNew ? '' : `<div class="esito"><div class="es-q">${esc(t('esito'))}</div>${status === 'done' || status === 'partial'
     ? `<div class="es-state done"><span>✓ ${esc(b.endedAt ? `${t('esDoneLine')} · ${t('realOf', fmtDur(b.minutes), fmtDur(b.plannedMinutes || b.minutes))}` : t('esDoneLine'))}</span><button class="btn small" value="reset" formnovalidate>${esc(t('undo'))}</button></div>`
     : status === 'failed' ? `<div class="es-state fail"><span>✕ ${esc(t('esFailLine'))}</span><button class="btn small" value="reset" formnovalidate>${esc(t('undo'))}</button></div>`
     : running ? `<div class="es-state run"><span>⏱ ${esc(t('esRunning', Math.max(1, Math.round((Date.now() - b.startedAt) / 60000))))}</span></div><div class="es-row"><button class="btn primary" value="finish" formnovalidate>■ ${esc(t('esFinish'))}</button><button class="btn" value="fail" formnovalidate>✕ ${esc(t('esFail'))}</button></div>`
-    : `<div class="es-row">${b.date === today() && !isShop ? `<button class="btn" value="block-start" formnovalidate>▶ ${esc(t(isPalestra(task) ? 'palStart' : 'esStart'))}</button>` : ''}<button class="btn primary" value="done" formnovalidate>✓ ${esc(t('esDone'))}</button><button class="btn" value="fail" formnovalidate>✕ ${esc(t('esFail'))}</button></div>`}${cnt}</div>`;
+    : `<div class="es-row">${b.date === today() && !isShop ? `<button class="btn" value="block-start" formnovalidate>▶ ${esc(t(isPalestra(task) ? 'palStart' : 'esStart'))}</button>` : ''}<button class="btn primary" value="done" formnovalidate>✓ ${esc(t('esDone'))}</button><button class="btn" value="fail" formnovalidate>✕ ${esc(t('esFail'))}</button></div>`}${cnt}${learn}</div>`;
   openModal(`
     ${!esNew || isShop ? `<h2>${esc(isShop ? `🛒 ${t('groceryTitle')}` : isNew ? t('newBlock') : t('editBlock'))}</h2>` : ''}
     ${parent ? `<p class="hint">↳ ${esc(t('prepForBlock', parent.title, fmtTime(parent.start)))}</p>` : ''}
@@ -1749,6 +1824,20 @@ export function openBlock(block, defaults = {}) {
       return;
     }
     if (action === 'finish') { setTimeout(() => finishTimer(), 0); return; }
+    if (action === 'learn-yes' || action === 'learn-no' || action === 'learn-never') {
+      e.preventDefault();
+      const h = learnHint(get('blocks', b.id));
+      upsert('blocks', { ...get('blocks', b.id), learnSeen: true }, { silent: true });
+      if (h && action === 'learn-yes') {
+        const before = { ...h.task }; const blocks = live('blocks').filter((y) => y.taskId === h.task.id).map((y) => ({ ...y }));
+        for (const y of live('blocks').filter((z) => z.taskId === h.task.id && !z.seriesId && z.kind !== 'prep' && !z.stepId && z.date > b.date && !outcomeOf(z) && isoDay(z.date) === h.iso)) upsert('blocks', { ...y, minutes: h.minutes }, { silent: true });
+        ensureSeries(setDayMinutes(h.task, h.iso, h.minutes));
+        changed();
+        toast(t('dlDoneDay', h.iso, fmtDur(h.minutes)), 5000, [{ label: t('undo'), run: () => { upsert('tasks', before, { silent: true }); for (const y of blocks) upsert('blocks', y, { silent: true }); changed(); toast(t('undone')); } }]);
+      }
+      if (h && action === 'learn-never') upsert('tasks', { ...get('tasks', h.task.id), learnOff: [...(h.task.learnOff || []), 'all'] }, { silent: true });
+      openBlock(get('blocks', b.id)); return;
+    }
     if (action === 'count-toggle') { e.preventDefault(); setCounts(b.id, !turnCounts(get('blocks', b.id))); openBlock(get('blocks', b.id)); return; }
     if (action === 'block-start') { const nb = startBlock(get('blocks', b.id)); if (isPalestra(task)) openPalestra(task, nb); afterStart(nb); return; }
     if (action === 'edit-task') { setTimeout(() => openTask(get('tasks', task.id), null, { fromOcc: b.occ || null }), 0); return; }
@@ -1808,6 +1897,13 @@ export function openBlock(block, defaults = {}) {
       warnConflicts(get('blocks', saved.id));
     };
     const seriesChange = b.seriesId && task && !isNew && (rec.start !== b.start || rec.minutes !== b.minutes || rec.title !== b.title || (rec.category || null) !== (b.category || null));
+    // (v71) only the length changed, on a routine of a few weekdays: all those weekdays, only this one, or all
+    const onlyLen = (seriesChange || (b.pickOcc && task && !isNew)) && rec.minutes !== b.minutes && rec.start === b.start && rec.title === b.title && (rec.category || null) === (b.category || null) && rec.date === b.date && hasDayLen(task) && !realSteps(task).length;
+    if (onlyLen) {
+      e.preventDefault();
+      setTimeout(() => askDayLen(task, b, rec, finish), 0);
+      return;
+    }
     if (seriesChange) {
       e.preventDefault();
       const occ = b.occ;
@@ -1818,7 +1914,7 @@ export function openBlock(block, defaults = {}) {
           const tk = get('tasks', task.id);
           const own = realSteps(tk).length ? ownMinutes(tk) : Math.max(5, rec.minutes - (tk.minutes - ownMinutes(tk)));
           const main = (tk.steps || []).map((y) => (y.main ? { ...y, minutes: own } : y));
-          const upd = upsert('tasks', { ...tk, title: rec.title, category: rec.category || null, seriesTime: rec.start + off2, steps: main, minutes: realSteps(tk).length ? tk.minutes : main.reduce((n, y) => n + (Number(y.minutes) || 0), 0) || own }, { silent: true });
+          const upd = upsert('tasks', { ...tk, ...(rec.minutes !== b.minutes ? { dayMinutes: null } : {}), title: rec.title, category: rec.category || null, seriesTime: rec.start + off2, steps: main, minutes: realSteps(tk).length ? tk.minutes : main.reduce((n, y) => n + (Number(y.minutes) || 0), 0) || own }, { silent: true });
           // Earlier occurrences keep their time; this one and the later ones follow the series.
           for (const sb of seriesBlocks(tk.id).filter((y) => y.occ < occ && y.auto)) upsert('blocks', { ...sb, auto: false }, { silent: true });
           for (const sb of seriesBlocks(tk.id).filter((y) => y.occ >= occ && !outcomeOf(y))) upsert('blocks', { ...sb, auto: true }, { silent: true });

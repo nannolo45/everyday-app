@@ -14,7 +14,7 @@ import { get, live, remove, upsert } from './store.js';
 import { ricetteConfigured } from './sync.js';
 import { weekStart } from './views/planner.js';
 import { dayShort, openModal, repeatText } from './widgets.js';
-import { openPlanSaved, openTask } from './editors.js';
+import { dayLenSummary, openPlanSaved, openTask } from './editors.js';
 import { isPalestra, PALESTRA_APP } from './palestra.js';
 
 export const isRoutine = (x) => Boolean(x && !x.deleted && !x.done && !x.travelRole && (isSaved(x) || (isTodo(x) && x.repeat)) && !isEnded(x));
@@ -188,7 +188,7 @@ export function openRoutine(id) {
     </div>
     ${x.archived ? `<p class="hint">${esc(t('palArchivedNote'))}</p>` : `<div class="field-label">${esc(t('rtRhythm'))}</div>
     <div class="rt-sets">
-      ${row('when', t('rtWhen'), [rhythmText(x) || t('wm_anytime'), x.pickTime ? t('rtPicked') : x.seriesTime != null ? fmtTime(x.seriesTime) : '', fmtDur(x.minutes || 30)].filter(Boolean).join(' · '))}
+      ${row('when', t('rtWhen'), [rhythmText(x) || t('wm_anytime'), x.pickTime ? t('rtPicked') : x.seriesTime != null ? fmtTime(x.seriesTime) : '', x.dayMinutes && Object.keys(x.dayMinutes).length ? dayLenSummary(x) : fmtDur(x.minutes || 30)].filter(Boolean).join(' · '))}
       ${rhythm ? row('period', t('rtPeriod'), x.repeatUntil ? t('rtFromTo', from ? relDay(from) : '…', relDay(x.repeatUntil)) : from ? t('rtFromOn', relDay(from)) : '') : ''}
       ${rhythm ? row('pause', t('rtPauses'), p.length ? p.map((q) => (q.to ? t('rtFromTo', relDay(q.from), relDay(q.to)) : t('rtFromOn', relDay(q.from)))).join(', ') : t('rtNoPause')) : ''}
     </div>`}

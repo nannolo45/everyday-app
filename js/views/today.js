@@ -35,7 +35,7 @@ export function viewToday() {
   const items = todayItems(td);
   const totals = dayTotals(blocksOn(td));
   const open = items.filter((b) => !b.isEvent && !outcomeOf(b));
-  const upcoming = items.filter((b) => b.isEvent || !outcomeOf(b)); // blocks and appointments alike, in time order
+  const upcoming = items.filter((b) => (b.isEvent && !b.skipped) || (!b.isEvent && !outcomeOf(b))); // blocks and appointments alike, in time order
   const current = upcoming.find((b) => b.start <= now && b.start + b.minutes > now);
   const next = upcoming.find((b) => b.start > now);
   // The card: your own block that is running, or one you must leave for within 15 minutes (even during
@@ -72,7 +72,7 @@ export function viewToday() {
     const cls = b === card ? ' current' : st ? ` ${st}` : b.start + b.minutes <= now ? ' past' : '';
     const evb = !b.isEvent && b.taskId && isEvent(get('tasks', b.taskId));
     const inner = `<span class="td-time${lgb && lgb.trip > 0 ? ' leave' : ''}">${fmtTime(b.start)}</span><span class="td-title">${evb ? '📅 ' : ''}${esc(b.title)}${lgb && lgb.trip > 0 ? ` <small>· ${esc(t('startWord'))} ${fmtTime(lgb.start)}</small>` : ''}${b.seriesId ? ' <span class="series-ico">↻</span>' : ''}</span><small class="td-meta">${esc(b.isEvent ? b.calendar || t('calendar') : st === 'done' ? t('doneLabel') : st === 'failed' ? t('couldnt') : fmtDur(b.minutes))}</small>`;
-    return b.isEvent ? `<button class="td-row event${cls}" type="button" data-action="event" data-id="${esc(b.id)}" style="--c:${esc(b.color || '#6b7280')}">${inner}</button>`
+    return b.isEvent ? `<button class="td-row event${cls}${b.skipped ? ' skipped' : ''}" type="button" data-action="event" data-id="${esc(b.id)}" style="--c:${esc(b.color || '#6b7280')}">${inner}</button>`
       : `<button class="td-row${cls}" type="button" data-action="open-block" data-id="${esc(b.id)}" style="--c:${esc(catColor(b.category) || 'var(--accent)')}">${inner}</button>`;
   };
   const gap = next ? Math.floor((next.start - Math.max(now, current ? current.start + current.minutes : now)) / 5) * 5 : (now < planSettings().dayEnd ? planSettings().dayEnd - now : 0);

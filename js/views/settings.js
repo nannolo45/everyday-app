@@ -53,6 +53,7 @@ export function settingsHtml(s, msg) {
     </div>
     <label>${esc(t('splitOver'))}<select name="splitOver">${opts([0, 2, 3, 4, 5, 6], s.splitOver ?? 4, (h) => (h ? t('splitOverH', h) : t('splitNever')))}</select>${why('splitOverWhy')}</label>
     <label class="check"><input type="checkbox" name="freeWeekends" ${s.freeWeekends ? 'checked' : ''}> <span>${esc(t('freeWeekends'))}</span></label>
+    <label class="check"><input type="checkbox" name="smartLearn" ${s.smartLearn ? 'checked' : ''}> <span>✦ ${esc(t('smartLearn'))}<small>${esc(t('smartLearnWhy'))}</small></span></label>
     ${PLAN_CUT}
     <div class="field-label">${esc(t('weekCardSet'))}</div>
     <div class="two">

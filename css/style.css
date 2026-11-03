@@ -1673,3 +1673,24 @@ body.dnd .ag-row.dnd-over .ag-c { background: color-mix(in srgb, var(--accent) 2
 /* (v70) the conflict row has three buttons now: they wrap under the text on a phone */
 .notice li { flex-wrap: wrap; row-gap: 6px; }
 .notice li > span { flex: 1 1 100%; }
+
+/* (v71) Google invitations: your answer as a tag; skipped ones stay greyed and struck through */
+.inv-tag { display: inline-block; align-self: flex-start; margin-top: 2px; padding: 1px 7px; border-radius: 999px; font-size: .72rem; font-weight: 600; background: color-mix(in srgb, var(--accent) 14%, var(--surface)); color: var(--accent); }
+.inv-tag.yes { background: color-mix(in srgb, var(--green) 16%, var(--surface)); color: var(--green); }
+.inv-tag.no { background: color-mix(in srgb, var(--muted) 16%, var(--surface)); color: var(--muted); }
+.ag-row.ev.skipped .ag-c { background: var(--surface); filter: grayscale(1); opacity: .7; }
+.ag-row.ev.skipped .ag-t { text-decoration: line-through; }
+.ag-swap.lock { color: var(--muted); font-weight: 500; }
+.block.event.skipped { filter: grayscale(1); opacity: .55; }
+.block.event.skipped .blk-title { text-decoration: line-through; }
+.inv-box { margin: 8px 0 10px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.inv-box p { margin: 0 0 6px; }
+.inv-box .button-row { margin-top: 6px; }
+.inv-google small { display: block; color: var(--muted); font-size: .76rem; }
+.notice.warn-amber, .warn-amber { display: block; padding: 8px 10px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); background: color-mix(in srgb, var(--warn) 12%, var(--surface)); color: var(--warn); font-size: .86rem; }
+.td-row.event.skipped { opacity: .55; filter: grayscale(1); } .td-row.event.skipped .td-title { text-decoration: line-through; }
+/* (v71) a length for each day of a routine; the learning card in the Esito */
+.daylen { display: grid; grid-template-columns: 52px 1fr; gap: 8px 10px; align-items: center; margin: 4px 0 10px; }
+.daylen .dl-d { font-weight: 700; }
+.es-learn { margin-top: 10px; padding: 10px 12px; border: 1.5px dashed var(--accent); border-radius: 12px; display: grid; gap: 6px; }
+.es-learn small { color: var(--muted); }
