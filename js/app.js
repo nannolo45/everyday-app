@@ -35,8 +35,8 @@ import { classic, curView, openFilters, openPick, openSort, openTriage, openView
 import { openWeekGrid } from './weekgrid.js';
 import { goToBlock, goToProposal, openChooser, openPropsList, resumeRoutine, sheetClick } from './finder.js';
 import { setLowPref } from './lowstock.js';
-import { countToast, firstFreeStart, moveBlockTo, openConflictChoice, openSwap, openSwapEvent, placeItem } from './placing.js';
-import { agendaAdd, agendaPlan, openGapFits, planStyle, showSteps } from './views/planner.js';
+import { countToast, firstFreeStart, moveBlockTo, openConflictChoice, openDropOn, placeItem } from './placing.js';
+import { agendaAdd, agendaPlan, keepFix, keepGhost, openGapFits, planStyle, showSteps } from './views/planner.js';
 import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName, SHOPS } from './views/shop.js';
 import { openTaskTools, taskFilter } from './views/tasks.js';
 import { clearSearch, syncDateText, tidyTime } from './widgets.js';
@@ -259,8 +259,9 @@ view.addEventListener('click', (e) => {
     case 'pv-list': openPropsList(); break;
     case 'pv-go': goToProposal(id, btn.dataset.date); break;
     case 'fd-unpick': ui.pick = null; ui.pickOcc = null; ui.pickBlock = null; render(); break;
-    case 'swap-event': openSwapEvent(id); break; // (v71) placing on an invitation: you won't go, it takes its slot
-    case 'swap-block': openSwap(id); break; // (v70) placing something on a busy block: it takes that slot
+    case 'swap-event': openDropOn('event', id); break;
+    case 'box-fold': { ui.boxFold = ui.boxFold || new Set(); if (ui.boxFold.has(id)) ui.boxFold.delete(id); else ui.boxFold.add(id); render(); break; } // (v71) placing on an invitation: you won't go, it takes its slot
+    case 'swap-block': openDropOn('block', id); break; // (v76) right after it, in its place, or together // (v70) placing something on a busy block: it takes that slot
     case 'conflict-choose': openConflictChoice(conflictsOn(btn.dataset.date || currentDate())[Number(btn.dataset.i)]); break;
     case 'fd-ended': ui.fdEnded = !ui.fdEnded; render(); break;
     case 'rt-resume': resumeRoutine(id); break;
@@ -341,7 +342,10 @@ view.addEventListener('click', (e) => {
     case 'ev-new': openQuickTask({ kind: 'event' }); break;
     case 'ag-plan': agendaPlan(); break;
     case 'ag-add': agendaAdd(); break;
-    case 'ag-cancel': ui.assign.ghosts = []; ui.assign.fix = null; render(); break;
+    case 'ag-cancel': ui.assign.ghosts = []; ui.assign.fix = null; ui.assign.kept = 0; render(); break; // (v76) what you kept stays
+    case 'ghost-keep': keepGhost(Number(btn.dataset.i)); break;
+    case 'fix-keep': keepFix(id, btn.dataset.date, Number(btn.dataset.start)); break;
+    case 'fix-drop': keepFix(id, btn.dataset.date, Number(btn.dataset.start), false); break;
     case 'ag-gap': if (placePicked(btn.dataset.date, Number(btn.dataset.start), Number(btn.dataset.min))) break; openGapFits(btn.dataset.date, Number(btn.dataset.start), Number(btn.dataset.min)); break;
     case 'assign-clear': ui.assign.ghosts = []; render(); break;
     case 'assign-add': addGhosts(); break;
@@ -491,7 +495,7 @@ document.addEventListener('drop', (e) => {
   if (tg.classList.contains('ag-row')) { // (v70) onto a block: it takes that slot, you say where the other goes (v71: or onto an invitation)
     const yId = tg.dataset.ev ? null : tg.dataset.drag.slice(6); const [k0, id0, occ0] = v.split(':');
     if (k0 === 'block') { if (id0 === yId) return; ui.pickBlock = id0; ui.pick = null; } else { ui.pick = id0; ui.pickOcc = k0 === 'turn' && occ0 ? occ0 : null; ui.pickBlock = null; }
-    if (tg.dataset.ev) openSwapEvent(tg.dataset.ev); else openSwap(yId); return;
+    if (tg.dataset.ev) openDropOn('event', tg.dataset.ev); else openDropOn('block', yId); return;
   }
   const btn = tg.querySelector('button[data-date]') || tg;
   const date = btn.dataset.date || tg.dataset.id || tg.querySelector('[data-id]')?.dataset.id;

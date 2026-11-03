@@ -381,7 +381,7 @@ function previewListHtml(ghosts) {
   ghosts.map((g, i) => ({ ...g, i })).sort((x, y) => (x.date === y.date ? x.start - y.start : x.date < y.date ? -1 : 1))
     .forEach((g) => { if (!byDay.has(g.date)) byDay.set(g.date, []); byDay.get(g.date).push(g); });
   return [...byDay].map(([date, gs]) => `<div class="why-day"><button type="button" class="linkish" data-action="why-day" data-id="${esc(date)}">${esc(relDay(date))}</button><small>${gs.length} · ${esc(fmtDur(gs.reduce((n, g) => n + g.minutes, 0)))}</small></div>
-    ${gs.map((g) => `<div class="why-row" style="--c:${esc(catColor(get('tasks', g.taskId)?.category) || 'var(--accent)')}"><span class="why-time">${esc(fmtTime(g.start))}</span><span class="why-main"><span class="why-title">${esc(ghostTitle(g))}</span><small class="why-line">${esc([fmtDur(g.minutes), ghostWhy(g)].filter(Boolean).join(' · '))}</small></span><button type="button" class="icon why-x" data-action="ghost-rm" data-i="${g.i}" aria-label="${esc(t('takeBack', ghostTitle(g)))}">✕</button></div>`).join('')}`).join('');
+    ${gs.map((g) => `<div class="why-row" style="--c:${esc(catColor(get('tasks', g.taskId)?.category) || 'var(--accent)')}"><span class="why-time">${esc(fmtTime(g.start))}</span><span class="why-main"><span class="why-title">${esc(ghostTitle(g))}</span><small class="why-line">${esc([fmtDur(g.minutes), ghostWhy(g)].filter(Boolean).join(' · '))}</small></span><button type="button" class="icon why-x ok" data-action="ghost-keep" data-i="${g.i}" aria-label="${esc(t('propKeep'))}">✓</button><button type="button" class="icon why-x" data-action="ghost-rm" data-i="${g.i}" aria-label="${esc(t('takeBack', ghostTitle(g)))}">✕</button></div>`).join('')}`).join('');
 }
 export function ghostTitle(g) {
   const task = get('tasks', g.taskId);
@@ -417,6 +417,25 @@ export function fixProps() {
   }
   return out;
 }
+// (v76) One proposal at a time: ✓ puts it on the plan now, ✕ takes it back; the others wait.
+export function keepGhost(i) {
+  const gs = ui.assign?.ghosts || []; if (!gs[i]) return;
+  const [g] = gs.splice(i, 1);
+  addGhostList([g]); ui.assign.kept = (ui.assign.kept || 0) + 1;
+  toast(t('propKept', ghostTitle(g))); changed();
+}
+export function keepFix(taskId, date, start, keep = true) {
+  const rows = ui.assign?.fix || [];
+  for (const r of rows) {
+    if (r.x.id !== taskId) continue;
+    if (r.date === date && r.options?.[0]?.start === start) { if (keep) fixAll([{ ...r, placements: [] }]); r.options = []; }
+    const pi = (r.placements || []).findIndex((p) => p.date === date && p.start === start);
+    if (pi >= 0) { const [p] = r.placements.splice(pi, 1); if (keep) fixAll([{ x: r.x, placements: [p] }]); }
+  }
+  ui.assign.fix = rows.filter((r) => (r.date && r.options?.length) || (r.placements || []).length);
+  if (keep) { ui.assign.kept = (ui.assign.kept || 0) + 1; toast(t('propKept', get('tasks', taskId)?.title || '')); }
+  changed();
+}
 export function agendaPlan() {
   const td = today();
   if (!ui.assign) ui.assign = { sel: new Set(), ghosts: [], range: null, opts: false, open: false, q: '' };
@@ -425,7 +444,7 @@ export function agendaPlan() {
 }
 export function agendaAdd() {
   const n = addGhostList(ui.assign?.ghosts || []) + fixAll(ui.assign?.fix || []);
-  ui.assign.ghosts = []; ui.assign.fix = null;
+  ui.assign.ghosts = []; ui.assign.fix = null; ui.assign.kept = 0;
   toast(t('assignAdded', n)); changed();
 }
 // One card for both: what's still to plan and the routines still to set; then the proposals.
@@ -435,7 +454,8 @@ export function planCard() {
   const wide = isWide();
   if (props) {
     const nDays = new Set([...(ui.assign?.ghosts || []).map((g) => g.date), ...fixProps().map((f) => f.date)]).size;
-    return `<div class="ag-card-top on${wide ? '' : ' two-row'}"><span><b>✦ ${esc(t('agProposals', props))}</b><small>${esc(t('propsDays', nDays))}</small></span>${wide ? '' : `<button class="btn small" type="button" data-action="pv-list">${esc(t('propsList'))}</button>`}<button class="btn small" type="button" data-action="ag-cancel">${esc(t('cancel'))}</button><button class="btn small primary" type="button" data-action="ag-add">${esc(t('add'))}</button></div>`;
+    const kept = ui.assign?.kept || 0; // (v76) proposals kept one by one
+    return `<div class="ag-card-top on${wide ? '' : ' two-row'}"><span><b>✦ ${esc(t('agProposals', props))}</b><small>${esc([kept ? t('propsKeptN', kept) : '', t('propsDays', nDays)].filter(Boolean).join(' · '))}</small></span>${wide ? '' : `<button class="btn small" type="button" data-action="pv-list">${esc(t('propsList'))}</button>`}<button class="btn small" type="button" data-action="ag-cancel">${esc(t('cancel'))}</button><button class="btn small primary" type="button" data-action="ag-add">${esc(kept ? t('addTheRest') : t('add'))}</button></div>`;
   }
   // (v67) a task picked to place by hand: say what, and how to stop
   const pick = (ui.pickBlock && get('blocks', ui.pickBlock)) || (ui.pick && get('tasks', ui.pick));
@@ -463,15 +483,17 @@ function agRow(it) {
   if (it.k === 'ghost' || it.k === 'fix') {
     const g = it.g;
     const fk = it.k === 'ghost' ? `g${g.i}` : `f${g.taskId}~${g.date}`;
-    return `<li class="ag-row ghost${ui.flash === fk ? ' flash' : ''}" data-fk="${esc(fk)}" style="--c:${esc(catColor(g.category || get('tasks', g.taskId)?.category) || 'var(--accent)')}">${time}<span class="ag-c"><span class="ag-t">${esc(it.k === 'ghost' ? ghostTitle(g) : g.title)}</span><small>${esc(it.k === 'ghost' ? ghostWhy(g) : t('agToFix', 1))}</small>${lenBar(it.minutes)}</span>${it.k === 'ghost' ? `<button class="icon" type="button" data-action="ghost-rm" data-i="${g.i}" aria-label="${esc(t('remove'))}">✕</button>` : ''}</li>`;
+    return `<li class="ag-row ghost${ui.flash === fk ? ' flash' : ''}" data-fk="${esc(fk)}" style="--c:${esc(catColor(g.category || get('tasks', g.taskId)?.category) || 'var(--accent)')}">${time}<span class="ag-c"><span class="ag-t">${esc(it.k === 'ghost' ? ghostTitle(g) : g.title)}</span><small>${esc(it.k === 'ghost' ? ghostWhy(g) : t('agToFix', 1))}</small>${lenBar(it.minutes)}</span><span class="ag-keep">${it.k === 'ghost'
+      ? `<button class="icon ok" type="button" data-action="ghost-keep" data-i="${g.i}" aria-label="${esc(t('propKeep'))}" title="${esc(t('propKeep'))}">✓</button><button class="icon" type="button" data-action="ghost-rm" data-i="${g.i}" aria-label="${esc(t('remove'))}">✕</button>`
+      : `<button class="icon ok" type="button" data-action="fix-keep" data-id="${esc(g.taskId)}" data-date="${g.date}" data-start="${g.start}" aria-label="${esc(t('propKeep'))}" title="${esc(t('propKeep'))}">✓</button><button class="icon" type="button" data-action="fix-drop" data-id="${esc(g.taskId)}" data-date="${g.date}" data-start="${g.start}" aria-label="${esc(t('remove'))}">✕</button>`}</span></li>`;
   }
   const placing = Boolean(ui.pick || ui.pickBlock);
   if (it.k === 'event') {
     const e = it.e;
     // (v71) invitations say so, and while placing you can take their slot; your own events stay put
-    const inv = isInvite(e) && !e.skipped; const swap = placing && inv;
-    const tag = e.skipped ? `<span class="inv-tag no">${esc(t('invNotGoing'))}</span>` : inv ? invTag(e) : '';
-    return `<li class="ag-row ev${e.skipped ? ' skipped' : ''}${placing && !swap ? ' locked' : ''}"${inv ? ` data-ev="${esc(e.id)}"` : ''} style="--c:${esc(e.color || 'var(--muted)')}">${time}<button class="ag-c${swap ? ' swap' : ''}" type="button" data-action="${swap ? 'swap-event' : 'event'}" data-id="${esc(e.id)}">${swap ? `<span class="ag-swap">${esc(t('swapHere'))}</span>` : placing && !e.skipped && !inv ? `<span class="ag-swap lock">${esc(t('invOwnLocked'))}</span>` : ''}<span class="ag-t">📅 ${esc(e.title)}</span>${tag}${e.location ? `<small>📍 ${esc(e.location)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
+    const inv = isInvite(e) && !e.skipped; const swap = placing && !e.skipped; // (v76) any event: after it, together, or (an invitation) instead
+    const tag = e.skipped ? `<span class="inv-tag no">${esc(t('invNotGoing'))}</span>` : inv ? invTag(e) : e.busy === false ? `<span class="inv-tag no">${esc(t('evFreeTag'))}</span>` : '';
+    return `<li class="ag-row ev${e.skipped ? ' skipped' : e.busy === false ? ' free' : ''}${placing && !swap ? ' locked' : ''}"${!e.skipped ? ` data-ev="${esc(e.id)}"` : ''} style="--c:${esc(e.color || 'var(--muted)')}">${time}<button class="ag-c${swap ? ' swap' : ''}" type="button" data-action="${swap ? 'swap-event' : 'event'}" data-id="${esc(e.id)}">${swap ? `<span class="ag-swap">${esc(inv ? t('swapHere') : t('dropHereEv'))}</span>` : ''}<span class="ag-t">📅 ${esc(e.title)}</span>${tag}${e.location ? `<small>📍 ${esc(e.location)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
   }
   const b = it.b; const st = outcomeOf(b);
   const swap = placing && !st && b.id !== ui.pickBlock; // (v70) tap it to put what you're placing here instead
@@ -483,6 +505,50 @@ const gapRow = (date, start, min) => {
   const fits = pick && (pick.minutes || 30) <= min;
   return `<li class="ag-gap${pick ? (fits ? ' fits' : ' nofit') : ''}"><button type="button" data-action="ag-gap" data-date="${date}" data-start="${start}" data-min="${min}"><span class="ag-time">${esc(fmtTime(start))}</span><span>${esc(t('agFree', fmtDur(min)))} · <u>${esc(fits ? t('agHere') : pick ? t('agHereShort') : t('agFits'))}</u></span></button></li>`;
 };
+// (v74–v76) What takes time on the agenda: an invitation you're not going to doesn't, nor an event shown as
+// free in Google, nor a block that may overlap anything; a proposal does.
+const takesTime = (it) => !(it.k === 'event' && (it.e.skipped || it.e.busy === false)) && !(it.k === 'block' && it.b.allowOverlap);
+// (v76) Boxes: a block or event of 2 hours or more holds the things that fall wholly inside it.
+function boxItems(items) {
+  const inner = new Set(); const out = [];
+  for (const it of items) {
+    if (inner.has(it)) continue;
+    const end = it.start + it.minutes;
+    if ((it.k === 'block' || it.k === 'event') && it.minutes >= 120) {
+      const kids = items.filter((x) => x !== it && !inner.has(x) && x.start >= it.start && x.start + x.minutes <= end && x.minutes < it.minutes);
+      if (kids.length) { for (const k of kids) inner.add(k); out.push({ ...it, inner: kids }); continue; }
+    }
+    out.push(it);
+  }
+  return out.filter((x) => !inner.has(x));
+}
+// The rows of a stretch of the day: its things in time order, and the free stretches between them.
+function rowsFor(list, from, to, gaps, date, from0) {
+  const rows = []; const free = []; let cur = from;
+  for (const it of list) {
+    if (!it.inner && !takesTime(it)) continue;
+    if (gaps && it.start - cur >= 30 && cur < to) free.push({ start: cur, min: Math.min(it.start, to) - cur });
+    cur = Math.max(cur, it.start + it.minutes);
+  }
+  if (gaps && to - cur >= 30) free.push({ start: cur, min: to - cur });
+  let fi = 0;
+  for (const it of list) {
+    while (fi < free.length && free[fi].start <= it.start) { rows.push(gapRow(date, free[fi].start, free[fi].min)); fi++; }
+    rows.push(it.inner ? boxHtml(it, gaps, date, from0) : agRow(it));
+  }
+  while (fi < free.length) { rows.push(gapRow(date, free[fi].start, free[fi].min)); fi++; }
+  return rows;
+}
+function boxHtml(it, gaps, date, from0) {
+  const id = it.k === 'block' ? it.b.id : it.e.id;
+  const color = it.k === 'block' ? catColor(it.b.category) || 'var(--accent)' : it.e.color || 'var(--muted)';
+  const end = it.start + it.minutes; const open = !ui.boxFold?.has(id);
+  const head = agRow({ ...it, inner: null });
+  const inner = open ? rowsFor(it.inner, from0(it.start), end, gaps && !takesTime(it), date, from0).join('') : '';
+  const sum = it.inner.map((x) => `${x.k === 'block' ? x.b.title : x.k === 'event' ? x.e.title : x.k === 'ghost' ? ghostTitle(x.g) : x.g.title} ${fmtTime(x.start)}`).join(' · ');
+  return `<li class="ag-box${open ? '' : ' shut'}" style="--c:${esc(color)}"><ul class="ag-box-l">${head}${inner}</ul>
+    <div class="ag-box-end"><span>${esc(open ? t('boxEnd', fmtTime(end % 1440)) : sum)}</span><button type="button" class="link" data-action="box-fold" data-id="${esc(id)}" aria-expanded="${open}">${esc(open ? t('boxClose') : t('boxOpen', it.inner.length))}</button></div></li>`;
+}
 export function agendaDay(date) {
   prepareDays([date]);
   const td = today();
@@ -490,23 +556,12 @@ export function agendaDay(date) {
   const items = agItems(date);
   const [h0, h1] = autoHoursFor(date);
   const now = new Date(); const nowM = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 15) * 15;
-  let cur = date === td ? Math.max(h0, nowM) : h0;
   const gaps = date >= td;
-  // (v74) free stretches come from what takes time: an invitation you're not going to doesn't, so its
-  // time is free (the stretch is listed where it starts, the greyed invitation inside it)
-  const rows = []; const free = [];
-  for (const it of items) {
-    if (it.k === 'event' && it.e.skipped) continue;
-    if (gaps && it.start - cur >= 30 && cur < h1) free.push({ start: cur, min: Math.min(it.start, h1) - cur });
-    cur = Math.max(cur, it.start + it.minutes);
-  }
-  if (gaps && h1 - cur >= 30) free.push({ start: cur, min: h1 - cur });
-  let fi = 0;
-  for (const it of items) {
-    while (fi < free.length && free[fi].start <= it.start) { rows.push(gapRow(date, free[fi].start, free[fi].min)); fi++; }
-    rows.push(agRow(it));
-  }
-  while (fi < free.length) { rows.push(gapRow(date, free[fi].start, free[fi].min)); fi++; }
+  const from0 = (st) => (date === td ? Math.max(st, nowM) : st);
+  // (v76) a long block or event with other things inside is a box that holds them (its free time inside
+  // too, when it lets other things happen); the rest of the day around it as before
+  const top = boxItems(items);
+  const rows = rowsFor(top, from0(h0), h1, gaps, date, from0);
   return `${planCard()}${conflictBanner(date)}
     ${allDay.length ? `<div class="allday">${allDay.map((e) => `<button class="allday-chip" type="button" data-action="event" data-id="${esc(e.id)}" style="--c:${esc(e.color)}">${esc(e.title)}</button>`).join('')}</div>` : ''}
     ${items.length ? '' : `<p class="empty ag-empty">${esc(t('agEmpty'))}</p>`}

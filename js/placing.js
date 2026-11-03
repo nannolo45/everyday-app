@@ -157,25 +157,44 @@ export function openSwap(yId) {
 }
 // (v71) Placing something on an invitation: you won't go, it takes its slot. The invitation stays in the day,
 // greyed ("Non ci vai"); "Rispondi No anche su Google" asks the calendar sync to decline it there too.
-export function openSwapEvent(eventId) {
-  const e = get('events', eventId); if (!e || !e.rsvp || e.own) return;
+export function openSwapEvent(eventId) { openDropOn('event', eventId); }
+// (v76) Something dropped (or tapped while placing) on a time that's taken: right after it, in its place,
+// or together with it (no warning for these two). On an invitation: "Non ci vado · metti qui" too.
+export function openDropOn(kind, id) {
   const pb = ui.pickBlock && get('blocks', ui.pickBlock);
   const px = !pb && ui.pick && get('tasks', ui.pick);
   if (!pb && !px) return;
+  const y = kind === 'block' ? get('blocks', id) : get('events', id);
+  if (!y || (pb && pb.id === y.id)) return;
   const title = pb ? pb.title : px.title;
-  openModal(`<h2>${esc(t('swapTitle', title, fmtTime(e.start)))}</h2><p class="hint">📅 ${esc(e.title)}${e.from ? ` · ${esc(t('invFrom', e.from))}` : ''}</p>
-    ${e.rsvp === 'accepted' ? `<p class="notice warn-amber">${esc(t('invSaidYes'))}</p>` : ''}
-    <div class="choose"><button class="btn primary choose-opt" value="skip-ev"><b>${esc(t('invSkipPut', title))}</b><small>${esc(t('invSkipPutSub'))}</small></button></div>
-    ${e.gcal ? `<label class="check inv-google"><input type="checkbox" name="google"> <span>${esc(t('invAlsoGoogle'))}<small>${esc(t('invAlsoGoogleSub', e.from || '…'))}</small></span></label>` : ''}
-    <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('cancel'))}</button></div>`, (form, action) => {
-    if (action !== 'skip-ev') return;
+  const len = pb ? pb.minutes || 30 : (px.minutes || 30) + leadOf(px);
+  const inv = kind === 'event' && y.rsvp && !y.own && !evSkipOf(y.id);
+  const canSwap = kind === 'block' && !outcomeOf(y);
+  const yEnd = y.start + (y.minutes || 0);
+  const span = (a, m) => `${fmtTime(a)}–${fmtTime((a + m) % 1440)}`;
+  openModal(`<h2>${esc(t('dropOnTitle', fmtTime(y.start), y.title))}</h2><p class="hint">${esc(`${title} · ${fmtDurShort(len)}`)}</p>
+    <div class="vs drop-vs"><div class="vs-side"><b>${esc(title)}</b><small>${esc(span(y.start, len))}</small></div><span aria-hidden="true">⇄</span><div class="vs-side${kind === 'event' ? ' ev' : ''}"><b>${kind === 'event' ? '📅 ' : ''}${esc(y.title)}</b><small>${esc(span(y.start, y.minutes || 0))}</small></div></div>
+    ${inv && y.rsvp === 'accepted' ? `<p class="notice warn-amber">${esc(t('invSaidYes'))}</p>` : ''}
+    <div class="choose">
+      <button class="btn primary choose-opt" value="after"><b>${esc(t('dropAfter'))}</b><small>${esc(t('dropAfterSub', span(yEnd, len), y.title))}</small></button>
+      ${canSwap ? `<button class="btn choose-opt" value="swap"><b>${esc(t('dropSwap', y.title))}</b><small>${esc(t('dropSwapSub', y.title))}</small></button>` : ''}
+      ${inv ? `<button class="btn choose-opt" value="skip-ev"><b>${esc(t('invSkipPut', title))}</b><small>${esc(t('invSkipPutSub'))}</small></button>` : ''}
+      <button class="btn choose-opt" value="par"><b>${esc(t('dropPar'))}</b><small>${esc(t('dropParSub', y.title))}</small></button>
+    </div>
+    ${inv && y.gcal ? `<label class="check inv-google"><input type="checkbox" name="google"> <span>${esc(t('invAlsoGoogle'))}<small>${esc(t('invAlsoGoogleSub', y.from || '…'))}</small></span></label>` : ''}
+    <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('cancel'))}</button></div>`, (form, action, e) => {
+    if (action === 'swap') { e.preventDefault(); setTimeout(() => openSwap(y.id), 0); return; }
+    if (!['after', 'skip-ev', 'par'].includes(action)) return;
     const google = Boolean(form.google?.checked);
     const occ = ui.pickOcc;
     ui.pick = null; ui.pickOcc = null; ui.pickBlock = null;
-    const then = (made) => skipEvent(e, { took: made?.id, google });
-    const alsoUndo = () => unskipEvent(e.id);
-    if (pb) moveBlockTo(pb.id, e.date, e.start, { then, alsoUndo });
-    else placeItem(px, e.date, e.start, { occ, then, alsoUndo });
+    const put = (start, ex) => { if (pb) moveBlockTo(pb.id, y.date, start, ex); else placeItem(px, y.date, start, { occ, ...ex }); };
+    if (action === 'after') { put(yEnd); return; }
+    if (action === 'par') {
+      put(y.start, { then: (made) => { const m = get('blocks', made.id); if (m) upsert('blocks', { ...m, okWith: [...(m.okWith || []).filter((o) => o.id !== y.id), { id: y.id, date: m.date, start: m.start }] }, { silent: true }); } });
+      return;
+    }
+    put(y.start, { then: (made) => skipEvent(y, { took: made?.id, google }), alsoUndo: () => unskipEvent(y.id) });
   }, { cls: 'sheet choose-sheet' });
 }
 // Not going (with or without something in its place).
