@@ -17,7 +17,7 @@ import { setupDrag } from './drag.js';
 import { afterStart, openPalestra, doShift, finishTimer, openAddMenu, openPickSheet, openQuickTask, plusKind, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, openMeal, openPlanSaved, openSavedPicker, openShopRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
 import { t } from './i18n.js';
 import { isEvent } from './kinds.js';
-import { anchorOffset, autoChecks, checklistLeft, checkMissed, conflictsOn, eventOf, followParent, migrateBlocksToEvents, normalizeKinds, planTask, saveEvent, seedMeals, setOutcome, setStepOutcome, setTaskDone, syncEventTasks, travelTasks, trySetBlockDone, tryStep } from './model.js';
+import { anchorOffset, autoChecks, leadOf, checklistLeft, checkMissed, conflictsOn, eventOf, followParent, migrateBlocksToEvents, normalizeKinds, planTask, saveEvent, seedMeals, setOutcome, setStepOutcome, setTaskDone, syncEventTasks, travelTasks, trySetBlockDone, tryStep } from './model.js';
 import { fmtTime, isDate, parseTime, quickAdd, today } from './plan.js';
 import { addGhosts, assignDrop, autoHoursFor, fixConflict, placeGhosts, planEventTasks, planGroceryTrips, spreadDays, trayTasks, undoReflow, warnConflicts } from './planning.js';
 import { changed, currentDate, positionNow, released, render, renderIfSafe, renderShell, runSync, scheduleSync, scrollToGhost, syncScheduled, typing, updateSyncBadge } from './shell.js';
@@ -497,11 +497,12 @@ document.addEventListener('drop', (e) => {
   const date = btn.dataset.date || tg.dataset.id || tg.querySelector('[data-id]')?.dataset.id;
   if (!date) return;
   const [kind, id, occ] = v.split(':');
-  if (kind === 'block') { const b = get('blocks', id); if (!b) return; moveBlockTo(id, date, btn.dataset.start != null ? Number(btn.dataset.start) : firstFreeStart({ ...b, minutes: b.minutes }, date)); return; }
+  // (v75) a stretch too short takes it too: the bar warns of the overlap, or of the time it lacks
+  const room = btn.dataset.min ? Number(btn.dataset.min) : null;
+  if (kind === 'block') { const b = get('blocks', id); if (!b) return; moveBlockTo(id, date, btn.dataset.start != null ? Number(btn.dataset.start) : firstFreeStart({ ...b, minutes: b.minutes }, date), { short: room != null ? Math.max(0, (b.minutes || 30) - room) : 0 }); return; }
   const x = get('tasks', id); if (!x) return;
   const start = btn.dataset.start != null ? Number(btn.dataset.start) : firstFreeStart(x, date);
-  if (btn.dataset.min && (x.minutes || 30) > Number(btn.dataset.min)) { toast(t('pnTooLong')); return; }
-  placeItem(x, date, start, { occ: kind === 'turn' && occ ? occ : null });
+  placeItem(x, date, start, { occ: kind === 'turn' && occ ? occ : null, short: room != null ? Math.max(0, (x.minutes || 30) + leadOf(x) - room) : 0 });
 });
 
 setupDrag(view, {

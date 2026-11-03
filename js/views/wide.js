@@ -3,9 +3,9 @@
 // they are), the tab in the middle, and a pane on the right: what you tapped on Impegni and Eventi, the
 // things to plan on the Planner (pick one and the free time it fits in lights up), what's waiting on Oggi.
 // On a phone nothing changes.
-import { catName, catsOf, categories, esc, fmtDay, modal, relDay, route, toast, ui } from '../core.js';
+import { catName, catsOf, categories, esc, fmtDay, modal, relDay, route, ui } from '../core.js';
 import { t } from '../i18n.js';
-import { eventReadiness, eventTasksOf, plannedWhen, setTaskDone } from '../model.js';
+import { eventReadiness, eventTasksOf, leadOf, plannedWhen, setTaskDone } from '../model.js';
 import { openEvent, openTask } from '../editors.js';
 import { addDays, fmtDur, fmtTime, parseDate, today } from '../plan.js';
 import { trayTasks } from '../planning.js';
@@ -164,8 +164,9 @@ export function placePicked(date, start, min) {
   if (pb) { ui.pickBlock = null; moveBlockTo(pb.id, date, start); return true; } // (v70) a block being moved by hand
   const x = ui.pick && get('tasks', ui.pick);
   if (!x) return false;
-  if ((x.minutes || 30) > min) { toast(t('pnTooLong')); return true; }
+  // (v75) a stretch too short takes it too: the toast warns of the overlap, or of the time it lacks
   const occ = ui.pickOcc; ui.pick = null; ui.pickOcc = null;
-  placeItem(x, date, start, { occ }); // (v69) a routine follows its rhythm (one of N, a turn, instead of, one more)
+  const need = (x.minutes || 30) + leadOf(x);
+  placeItem(x, date, start, { occ, short: need > min ? need - min : 0 }); // (v69) a routine follows its rhythm (one of N, a turn, instead of, one more)
   return true;
 }

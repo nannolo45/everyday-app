@@ -481,7 +481,7 @@ function agRow(it) {
 const gapRow = (date, start, min) => {
   const pick = (ui.pickBlock && get('blocks', ui.pickBlock)) || (ui.pick && get('tasks', ui.pick)); // (v56) something picked: where it fits lights up (v70: or a block being moved)
   const fits = pick && (pick.minutes || 30) <= min;
-  return `<li class="ag-gap${pick ? (fits ? ' fits' : ' nofit') : ''}"><button type="button" data-action="ag-gap" data-date="${date}" data-start="${start}" data-min="${min}"><span class="ag-time">${esc(fmtTime(start))}</span><span>${esc(t('agFree', fmtDur(min)))} · <u>${esc(fits ? t('agHere') : t('agFits'))}</u></span></button></li>`;
+  return `<li class="ag-gap${pick ? (fits ? ' fits' : ' nofit') : ''}"><button type="button" data-action="ag-gap" data-date="${date}" data-start="${start}" data-min="${min}"><span class="ag-time">${esc(fmtTime(start))}</span><span>${esc(t('agFree', fmtDur(min)))} · <u>${esc(fits ? t('agHere') : pick ? t('agHereShort') : t('agFits'))}</u></span></button></li>`;
 };
 export function agendaDay(date) {
   prepareDays([date]);

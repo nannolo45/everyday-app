@@ -9,10 +9,10 @@
 // Every placement can be undone from the bar at the bottom.
 import { esc, planSettings, relDay, toast, ui } from './core.js';
 import { t } from './i18n.js';
-import { busyOn, countedOf, evSkipOf, rsvpAsks, setEvSkip, setRsvpAsks, deleteBlock, ensureSeries, followParent, isEnded, isSeries, itemById, leadOf, outcomeOf, planTask, timesLeft, turnCounts } from './model.js';
+import { busyOn, conflictsOn, conflictText, countedOf, evSkipOf, rsvpAsks, setEvSkip, setRsvpAsks, deleteBlock, ensureSeries, followParent, isEnded, isSeries, itemById, leadOf, outcomeOf, planTask, timesLeft, turnCounts } from './model.js';
 import { isEvent } from './kinds.js';
 import { addDays, fmtDur as fmtDurShort, fmtTime, freeSlot, isOccurrence, nowMinutes, parseDate, ruleAt, today } from './plan.js';
-import { autoHoursFor, warnConflicts } from './planning.js';
+import { autoHoursFor } from './planning.js';
 import { isRoutine } from './routines.js';
 import { changed } from './shell.js';
 import { get, live, remove, upsert } from './store.js';
@@ -42,13 +42,16 @@ const done = (made, undo, extra = {}) => {
   if (made && extra.then) extra.then(made);
   changed();
   if (!made) return;
-  warnConflicts(get('blocks', made.id));
-  toast(t('plannedToast', relDay(made.date), fmtTime(made.start + leadOf(get('tasks', made.taskId)))), 5000, [{ label: t('undo'), run: () => { undo(); if (extra.alsoUndo) extra.alsoUndo(); changed(); toast(t('undone')); } }]);
+  // (v75) one bar: where it went, and what's wrong with it (an overlap, or not enough free time)
+  const b = get('blocks', made.id);
+  const c = conflictsOn(b.date).find((x) => x.ids.includes(b.id) && x.type === 'overlap');
+  const warn = c ? ` · ⚠ ${conflictText(c)}` : extra.short > 0 ? ` · ⚠ ${t('placeShort', fmtDurShort(extra.short))}` : '';
+  toast(`${t('plannedToast', relDay(made.date), fmtTime(made.start + leadOf(get('tasks', made.taskId))))}${warn}`, warn ? 7000 : 5000, [{ label: t('undo'), run: () => { undo(); if (extra.alsoUndo) extra.alsoUndo(); changed(); toast(t('undone')); } }]);
 };
 const undoNew = (b) => () => { if (get('blocks', b.id)) remove('blocks', b.id); };
 // Put task or routine `x` on `date` at `start` (the block's start). `occ`: the turn it was dragged as.
-export function placeItem(x, date, start, { occ = null, then = null, alsoUndo = null } = {}) {
-  const ex = { then, alsoUndo };
+export function placeItem(x, date, start, { occ = null, then = null, alsoUndo = null, short = 0 } = {}) {
+  const ex = { then, alsoUndo, short };
   if (!x) return;
   if (date < today()) { toast(t('pastDay')); return; }
   const kind = rhythmOf(x);
