@@ -3,13 +3,14 @@ import { applyPalestra, publishPlanned } from './palestra.js';
 import { $, modal, PPM, route, TAB_OF, ui, view } from './core.js';
 import { t } from './i18n.js';
 import { ensureAllSeries, migrateBlocksToEvents, normalizeKinds } from './model.js';
-import { isDate, nowMinutes, today } from './plan.js';
+import { isDate, nowMinutes, setClock12, today } from './plan.js';
 import { isDragging } from './sortable.js';
 import { applySharedSettings, get, live, seedSharedSettings, state } from './store.js';
 import { isConfigured, isSyncing, ricetteConfigured, syncNow } from './sync.js';
 import { setUserFoods } from './foods.js';
 import { scheduleTravelRefresh } from './travel-plan.js';
-import { SH } from './views/shop.js';
+import { SH, shopReader } from './views/shop.js';
+import { curView } from './views/impegni.js';
 import { gcalNow } from './connections.js';
 import { hydratePhotos } from './editors.js';
 import { lateBannerHtml, timerBarHtml } from './timer.js';
@@ -66,13 +67,15 @@ export function updateShopCount() {
 }
 
 // (v78) On the Planner tab: how much is still to plan, and (in red) today's blocks left behind.
-export const planBadge = ({ toPlan, behind }) => `${toPlan ? `<i>${toPlan > 99 ? '99+' : toPlan}</i>` : ''}${behind ? `<i class="red">${behind}</i>` : ''}`;
+// (v82) green: to plan · yellow: left behind today · red: conflicts. Each can be turned off (Settings → Planner).
+const badgeOn = (k) => (state.settings.planBadges || {})[k] !== false;
+export const planBadge = ({ toPlan, behind, conflicts = 0 }) => `${toPlan && badgeOn('toPlan') ? `<i>${toPlan > 99 ? '99+' : toPlan}</i>` : ''}${behind && badgeOn('behind') ? `<i class="yel">${behind}</i>` : ''}${conflicts && badgeOn('conflicts') ? `<i class="red">${conflicts}</i>` : ''}`;
 export function updatePlanCount() {
   const el = $('#plan-count'); if (!el) return;
   const c = planCounts();
-  el.hidden = !c.toPlan && !c.behind;
   el.innerHTML = planBadge(c);
-  el.setAttribute('aria-label', [c.toPlan ? t('agToPlan', c.toPlan) : '', c.behind ? t('behindTitle', c.behind) : ''].filter(Boolean).join(', '));
+  el.hidden = !el.innerHTML;
+  el.setAttribute('aria-label', [c.toPlan ? t('agToPlan', c.toPlan) : '', c.behind ? t('behindTitle', c.behind) : '', c.conflicts ? t('nConflicts', c.conflicts) : ''].filter(Boolean).join(', '));
 }
 export function updateSyncBadge(syncing = isSyncing()) {
   const b = $('#sync');
@@ -119,21 +122,28 @@ export function applyUserFoods() {
   setUserFoods(list);
 }
 
+export const classicOn = () => { try { return localStorage.getItem('everyday-classic') === '1'; } catch { return false; } };
 export function render() {
+  setClock12(state.settings.clock12); // (v82)
   applyUserFoods();
   const r = route();
   const active = document.activeElement;
   const focusId = active && active.id;
   const typed = focusId && ['INPUT', 'TEXTAREA'].includes(active.tagName) ? active.value : null;
   let sel = null; try { sel = typed != null ? [active.selectionStart, active.selectionEnd] : null; } catch { /* not a text field */ }
-  for (const a of document.querySelectorAll('nav a')) a.classList.toggle('active', a.dataset.tab === (TAB_OF[r.name] || 'today'));
+  // (v83) no Eventi tab: appointments and Google events are in the Planner (the classic layout keeps it)
+  const noEv = !classicOn();
+  if (noEv && r.name === 'events') { location.replace('#/plan'); return; }
+  for (const a of document.querySelectorAll('nav a')) { a.classList.toggle('active', a.dataset.tab === (TAB_OF[r.name] || 'today')); if (a.dataset.tab === 'events') a.hidden = noEv; }
+  document.querySelector('nav.tabs')?.classList.toggle('three', noEv);
   $('#gear')?.classList.toggle('active', r.name === 'settings');
   document.body.classList.remove('compact'); // (v54) Compact is gone: rows are one line of facts anyway
   document.body.dataset.route = r.name === 'shop' ? 'tasks' : r.name; // (v52) list styles shared by To do, Saved, Shopping
   // The + button: on Oggi, Eventi and Attività (the shopping list and the Planner have their own).
   const fab = $('#fab');
   if (fab) {
-    fab.hidden = !['today', 'events', 'tasks', 'shop', 'plan'].includes(r.name) || (r.name === 'plan' && planStyle() === 'hours'); // (v55) the agenda Planner has the + too
+    fab.hidden = !['today', 'events', 'tasks', 'shop', 'plan'].includes(r.name) || (r.name === 'plan' && planStyle() === 'hours') // (v55) the agenda Planner has the + too
+      || (shopReader() && (r.name === 'shop' || (r.name === 'tasks' && curView()?.shop))); // (v83) Ricette's list is only read here
     fab.setAttribute('aria-label', t('addMenuFab')); fab.title = t('addMenuFab');
   }
   updateShopCount();

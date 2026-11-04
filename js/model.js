@@ -59,7 +59,8 @@ export function travelTasks() { return live('tasks').filter((x) => !x.done && (i
 // `eventOffset` {days, when: 'before' | 'after'}; their due date follows the event (syncEventTasks).
 export function ownEvents() { return live('tasks').filter(isEvent); }
 export function ownAllDayOn(date) {
-  return ownEvents().filter((x) => x.allDay && x.due === date)
+  // (v82) an appointment of several days (`days`) shows on each of them
+  return ownEvents().filter((x) => x.allDay && x.due && date >= x.due && date <= addDays(x.due, Math.max(1, Number(x.days) || 1) - 1))
     .map((x) => ({ id: x.id, title: x.title, date, allDay: true, color: catColor(x.category) || 'var(--accent)', own: true, calendar: t('tabEvents'), location: x.place || '' }));
 }
 // An event by id: one of yours (a task) or an imported one.
@@ -143,6 +144,16 @@ export function saveEvent(d) {
 }
 // Records from before v34 (booleans instead of `kind`, see kinds.js) take the new shape. Dated just
 // after their own timestamp: the change uploads once, and any real edit made elsewhere still wins.
+// (v82) Routines added from the + before v81 lost their rhythm ("ogni gio" became "Quando capita") but kept
+// the day: they are weekly again on that day. Those with no day left get asked once (Impegni → Routine).
+export function repairRhythms() {
+  for (const x of live('tasks')) {
+    if (x.deleted || x.done || x.kind !== 'saved' || x.repeat || !(x.repeatDays || []).length || x.rhythmFixed) continue;
+    const td = today();
+    upsert('tasks', { ...x, repeat: 'weekly', every: 1, whenMode: 'repeat', pickTime: x.seriesTime == null, due: x.due || td, seriesFrom: x.seriesFrom || td, rhythmFixed: true }, { silent: true });
+  }
+}
+export const noRhythm = () => live('tasks').filter((x) => !x.deleted && !x.done && x.kind === 'saved' && !x.repeat && !x.next && !x.archived && !x.palOut && !x.travelRole && !x.rhythmOk && !x.palestraId);
 export function normalizeKinds() {
   let n = 0;
   for (const x of state.tasks) if (!x.deleted && needsKind(x)) { upsert('tasks', withKind(x), { silent: true, at: (x.updatedAt || 0) + 1 }); n++; }
@@ -296,7 +307,7 @@ export function learnHint(b) {
   if (minutes === cur) return null;
   return { task: x, iso, minutes, cur, real, longer: minutes > cur };
 }
-export const seriesBlockId = (taskId, occ) => `s~${taskId}~${occ}`;
+export const seriesBlockId = (taskId, occ, slot = 0) => (slot ? `s~${taskId}~${occ}~${slot}` : `s~${taskId}~${occ}`); // (v82) a second time that day: ~1, ~2…
 export const seriesBlocks = (taskId) => live('blocks').filter((b) => b.seriesId === taskId);
 // ---------- (v69) the end of a routine ----------
 // A routine may end on a date (`repeatUntil`) or after N turns that count (`repeatCount`). A turn counts
@@ -322,29 +333,36 @@ export function ensureSeries(task) {
   // sync), and a turn already on the plan another way (placed by hand, a session from Palestra, a move)
   // got a second one. Series blocks now have an id made of the task and the day, and duplicates go.
   const mine = live('blocks').filter((b) => b.taskId === task.id && b.kind !== 'prep' && !b.stepId && !b.extra);
-  const rank = (b) => (outcomeOf(b) ? 8 : 0) + (b.startedAt ? 4 : 0) + (!b.auto ? 2 : 0) + (b.id === seriesBlockId(task.id, b.occ) ? 1 : 0);
-  const turnOf = (b) => b.occ || (!b.seriesId ? b.date : null);
+  const rank = (b) => (outcomeOf(b) ? 8 : 0) + (b.startedAt ? 4 : 0) + (!b.auto ? 2 : 0) + (b.id === seriesBlockId(task.id, b.occ, b.slot || 0) ? 1 : 0);
+  // (v82) several times a day (`dayTimes`): each time is a turn of its own, `slot` 1, 2… after the first
+  const turnOf = (b) => { const o = b.occ || (!b.seriesId ? b.date : null); return o && b.slot ? `${o}#${b.slot}` : o; };
   const best = new Map();
   for (const b of mine) { const k = turnOf(b); if (!k) continue; const c = best.get(k); if (!c || rank(b) > rank(c) || (rank(b) === rank(c) && b.id < c.id)) best.set(k, b); } // same on every device
   for (const b of mine) { const k = turnOf(b); if (k && best.get(k) !== b && b.auto && !outcomeOf(b) && !b.startedAt) remove('blocks', b.id); }
   const taken = new Set(best.keys());
-  const have = new Map(seriesBlocks(task.id).filter((b) => best.get(b.occ) === b).map((b) => [b.occ, b]));
+  const have = new Map(seriesBlocks(task.id).filter((b) => best.get(turnOf(b)) === b).map((b) => [turnOf(b), b]));
   if (task.repeatCount) { // "per N volte": recorded turns stay; only as many open ones as still count
     const recorded = (d) => have.get(d) && outcomeOf(have.get(d));
     const open = want.filter((d) => !recorded(d)).slice(0, turnsLeftOf(task));
     want = want.filter((d) => recorded(d) || open.includes(d));
   }
+  const extra = (task.dayTimes || []).slice(1);
+  const wantKeys = [];
   for (const d of want) {
-    const start = Math.max(0, seriesTimeOn(task, d) - anchorOffset(null, task));
-    const b = have.get(d);
     const len = minutesOn(task, d);
-    if (!b) { if (!taken.has(d)) planTask(task, d, start, { id: seriesBlockId(task.id, d), seriesId: task.id, occ: d, auto: true, series: true, minutes: len, ...(isMealType(task) ? { kind: 'meal', recipes: [], servings: 2 } : {}) }); /* (v80) a meal type that repeats: meal blocks */ continue; }
-    if (b.auto && !outcomeOf(b) && (b.start !== start || b.minutes !== len || b.title !== task.title || (b.category || null) !== (task.category || null))) {
-      upsert('blocks', { ...b, start, minutes: len, title: task.title, category: task.category || null }, { silent: true });
+    const slots = [[0, seriesTimeOn(task, d)], ...extra.map((tm, i) => [i + 1, tm])];
+    for (const [slot, tm] of slots) {
+      const k = slot ? `${d}#${slot}` : d; wantKeys.push(k);
+      const start = Math.max(0, tm - anchorOffset(null, task));
+      const b = have.get(k);
+      if (!b) { if (!taken.has(k)) planTask(task, d, start, { id: seriesBlockId(task.id, d, slot), seriesId: task.id, occ: d, ...(slot ? { slot } : {}), auto: true, series: true, minutes: len, ...(isMealType(task) ? { kind: 'meal', recipes: [], servings: 2 } : {}) }); /* (v80) a meal type that repeats: meal blocks */ continue; }
+      if (b.auto && !outcomeOf(b) && (b.start !== start || b.minutes !== len || b.title !== task.title || (b.category || null) !== (task.category || null))) {
+        upsert('blocks', { ...b, start, minutes: len, title: task.title, category: task.category || null }, { silent: true });
+      }
     }
   }
-  const wantSet = new Set(want);
-  for (const [d, b] of have) if (d >= td && !wantSet.has(d) && b.auto && !outcomeOf(b)) remove('blocks', b.id);
+  const wantSet = new Set(wantKeys);
+  for (const [k, b] of have) if (k.slice(0, 10) >= td && !wantSet.has(k) && b.auto && !outcomeOf(b)) remove('blocks', b.id);
 }
 export function ensureAllSeries() { for (const x of live('tasks').filter((y) => isSeries(y) && (y.seriesTime != null || y.next?.seriesTime != null) && !y.done)) ensureSeries(x); syncEventTasks(); publishTrips(); }
 // The grocery trips to come, shared with Ricette (prefs record {id: 'trips', value}) so its list can show them:

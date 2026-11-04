@@ -53,7 +53,7 @@ export function syncDateText(input) {
   const el = input.parentElement?.querySelector('.date-text'); if (!el) return;
   el.textContent = dateText(input.value); el.classList.toggle('empty', !input.value);
 }
-export const TIME24 = 'type="text" inputmode="numeric" class="time24" maxlength="5" placeholder="hh:mm" autocomplete="off" pattern="([01]?[0-9]|2[0-3])[:.]?[0-5][0-9]|[0-9]{1,2}"';
+export const TIME24 = 'type="text" inputmode="numeric" class="time24" maxlength="8" placeholder="hh:mm" autocomplete="off" pattern="(([01]?[0-9]|2[0-3])[:.]?[0-5][0-9]|[0-9]{1,2})( ?[aApP]\\.?[mM]?\\.?)?"'; // (v82) "3:30 pm" too
 export function tidyTime(el) {
   const v = el.value.trim();
   if (!v) return;
