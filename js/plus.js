@@ -1,5 +1,5 @@
 // plus.js (v82): the + sheet. The name (☆ keeps it among the Salvate), «È un appuntamento», then three
-// pills that open below: ⏱ Durata (a number and a unit, or «non so»), 🕒 Quando (Primo libero · Scelgo
+// tabs (v85; pills before) that open below: ⏱ Durata (a number and a unit, or «non so»), 🕒 Quando (Primo libero · Scelgo
 // io · Da decidere; Scelgo io holds the day or the rhythm, the time with Inizio and Fine linked to the
 // length, several times a day) and ● Categoria. A pill opened and closed again keeps its default as a
 // choice. Then Altre opzioni (importance, deadline, place, steps, «prima serve», rules, notes) open in
@@ -14,11 +14,12 @@ import { ownMinutes, realSteps, travelOf } from './travel-plan.js';
 import { skipOcc } from './weekpick.js';
 import { openWeekGrid } from './weekgrid.js';
 import { changed } from './shell.js';
-import { addDays, fmtDur, fmtTime, isoDay, parseDate, parseTime, quickAdd, today } from './plan.js';
+import { addDays, fmtDur, fmtTime, isoDay, nowMinutes, parseDate, parseTime, quickAdd, today } from './plan.js';
+import { allPlaces, hasHours, openState, placeAddress, placeById, placeByText, placeEmoji, quickPlace, recentPlaces, searchPlaces } from './places.js';
 import { planSoon, suggestSlot } from './planning.js';
 import { get, live, remove, uid, upsert } from './store.js';
 import { afterAdd, openEventTaskAdd, openTask, rulesForEditor, saveTask } from './editors.js';
-import { dateBox, dayShort, openModal, TIME24 } from './widgets.js';
+import { dateBox, dayShort, openModal, TIME24, windowsText } from './widgets.js';
 
 const DAY = 1440;
 const UNITS = [['min', 1], ['ore', 60], ['giorni', DAY], ['settimane', 7 * DAY], ['mesi', 30 * DAY]];
@@ -64,19 +65,21 @@ function fresh(text = '') {
     len: 30, lenUnit: null, lenSet: false, unknown: false,
     wc: undefined, once: true, date: today(), mode: 'first', start: null, end: null, anchor: 'start',
     n: 1, per: 'settimana', days: [], until: 'always', times: [],
-    cat: null, more: false, open: null, imp: 3, due: '', place: '', travel: true, steps: [], after: [], ok: [], ko: [], notes: '',
+    cat: null, more: false, open: null, imp: 3, due: '', place: '', placeId: null, travel: true, steps: [], after: [], ok: [], ko: [], notes: '',
     // (v84) editing a task: its id, the Quando it had (to know if it changed), its steps, checklist, margin, other rules
-    edit: null, orig: null, stepObjs: null, checklist: [], buffer: '', keepRules: [], ov: null, rk: 'ok', untilKeep: null,
+    edit: null, orig: null, stepObjs: null, checklist: [], buffer: '', keepRules: [], ov: null, rk: 'ok', untilKeep: null, ovt: 'recent',
   };
 }
 let P = fresh();
 
 const len = () => (P.unknown ? 60 : P.len);
+// (v85) the chosen place's opening hours, for the first-free preview (the travel there not counted yet)
+const hoursNow = () => { const p = placeById(P.placeId); return hasHours(p) ? { hours: p.hours, pre: 0, own: Math.min(len(), DAY) } : {}; };
 const lenLabel = () => (P.unknown ? t('lenUnknownL') : fmtLen(P.len));
 const span = (a) => `${fmtTime(a)}–${fmtTime(a + len())}`;
 // the Quando choice in a few words
 function whenWords(long = false) {
-  if (P.wc === 'first') { const s = suggestSlot({ title: P.name, minutes: Math.min(len(), DAY) }); return s ? t('plFirstAt', relDay(s.date), fmtTime(s.start)) : t('plFirst'); }
+  if (P.wc === 'first') { const s = suggestSlot({ title: P.name, minutes: Math.min(len(), DAY), ...hoursNow() }); return s ? t('plFirstAt', relDay(s.date), fmtTime(s.start)) : t('plFirst'); }
   if (P.wc !== 'pick') return t('plLater');
   if (P.once) {
     const tm = P.mode === 'at' && P.start != null ? (long ? span(P.start) : fmtTime(P.start)) : P.mode === 'any' ? t('plAnyShort') : t('plFirst');
@@ -101,7 +104,8 @@ function linkTimes(k) {
 function setLenFrom(a, b) { let d = b - a; if (d <= 0) d += 1440; P.len = d; P.lenUnit = null; P.lenSet = true; P.unknown = false; P.touched.len = true; }
 
 // ---------- the pieces ----------
-const pill = (k, label, on) => `<button class="pl-pill${on ? ' on' : ''}${P.pop === k ? ' open' : ''}" value="pop:${k}" formnovalidate aria-expanded="${P.pop === k}">${label}<span aria-hidden="true">${P.pop === k ? '▴' : '▾'}</span></button>`;
+// (v85) Durata · Quando · Categoria are tabs: each says its value; the open one is filled, one open at a time.
+const tab = (k, cap, label, on) => `<button class="pl-tab${on ? ' set' : ''}${P.pop === k ? ' open' : ''}" value="pop:${k}" formnovalidate role="tab" aria-selected="${P.pop === k}" aria-expanded="${P.pop === k}"><small>${cap}</small><span>${label}</span></button>`;
 const stepSum = () => (P.stepObjs || []).reduce((n, y) => n + (Number(y.minutes) || 10), 0);
 function lenPanel() {
   if (P.stepObjs?.length) return `<p class="pl-hint">${esc(t('durationFromSteps', fmtDur(stepSum())))}</p><button class="pl-chip" value="row:steps" formnovalidate>${esc(t('steps'))} ›</button>`;
@@ -149,6 +153,23 @@ function whenPanel() {
 function catPanel() {
   return `<div class="pl-chips">${categories().map((c) => `<button class="pl-chip${P.cat === c.id ? ' on' : ''}" value="cat:${esc(c.id)}" formnovalidate><i class="cat-dot" style="--c:${esc(c.color || 'var(--line)')}"></i>${esc(catName(c))}</button>`).join('')}<button class="pl-chip${!P.cat ? ' on' : ''}" value="cat:" formnovalidate>${esc(t('noCategory'))}</button></div>`;
 }
+// (v85) Luogo e spostamenti: a saved place (search, or ☰ Tutte), or an address typed for this task only.
+function placeLabel() { const p = placeById(P.placeId); return p ? `${placeEmoji(p)} ${p.name}` : P.place ? `📍 ${P.place}` : ''; }
+function placeBody() {
+  const p = placeById(P.placeId);
+  const travel = `<button class="pl-tog${P.travel ? ' on' : ''}" value="travel" formnovalidate><span>${esc(t('plTravel'))}<small>${esc(t('plTravelSub'))}</small></span><i></i></button>`;
+  if (p) return `<div class="pl-chips"><span class="pl-chip on">${esc(placeEmoji(p))} ${esc(p.name)}<button class="pl-x" value="plc-rm" formnovalidate aria-label="${esc(t('remove'))}">✕</button></span></div>
+    <p class="pl-hint">${esc([p.place && p.place !== p.name ? p.place : '', hasHours(p) ? `🕒 ${windowsText(p.hours)}` : t('plcNoLimits')].filter(Boolean).join(' · '))}</p>${travel}`;
+  if (P.place) return `<div class="pl-chips"><span class="pl-chip on">📍 ${esc(P.place)}<button class="pl-x" value="plc-rm" formnovalidate aria-label="${esc(t('remove'))}">✕</button></span><button class="pl-chip" value="plc-save" formnovalidate>☆ ${esc(t('plcSaveAs'))}</button></div>
+    <p class="pl-hint">${esc(t('plcOnlyHere'))}</p>${travel}`;
+  return `<div class="pl-lirow"><input id="pl-place" class="pl-in" placeholder="${esc(t('plcSearchPh'))}" autocomplete="off"><button class="pl-chip pl-all" value="ov:place" formnovalidate title="${esc(t('plAllTitle'))}">☰ ${esc(t('plAll'))}</button></div><div class="pl-sugg" id="pl-sg-place"></div>
+    <p class="pl-hint">${esc(t('plcPickHint'))}</p>`;
+}
+const openText = (p) => {
+  const o = openState(p, today(), nowMinutes(), addDays);
+  return !o ? (p.shop ? t('alwaysOpen') : '') : o.k === 'open' ? t('plcOpenTo', fmtTime(o.to)) : o.k === 'later' ? t('plcOpensAt', fmtTime(o.from)) : o.k === 'next' ? t('plcOpensOn', relDay(o.date), fmtTime(o.from)) : t('plcClosed');
+};
+const placeOpt = (p, value) => `<button class="pl-sopt" value="${value}" formnovalidate>${esc(placeEmoji(p))} ${esc(p.name)}<small>${esc(openText(p) || p.place || '')}</small></button>`;
 // Altre opzioni: rows that open in place
 const candidates = () => live('tasks').filter((x) => !x.done && !x.deleted && (isTodo(x) || isSaved(x)) && !x.travelRole);
 const listEd = (key, ph) => `<div class="pl-chips">${P[key].map((a, i) => `<span class="pl-chip on">${a.isNew ? '✚ ' : ''}${esc(a.title)}<button class="pl-x" value="li-rm:${key}:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></span>`).join('')}</div>
@@ -159,7 +180,7 @@ function optRows() {
   return [
     row('imp', t('importance'), '★'.repeat(P.imp), `<div class="pl-stars">${[1, 2, 3, 4, 5].map((i) => `<button class="${i <= P.imp ? 'on' : ''}" value="imp:${i}" formnovalidate aria-label="${i}">★</button>`).join('')}</div><p class="pl-hint">${esc(t(`imp_${P.imp}`))}</p>`),
     row('due', t('due'), P.due ? relDay(P.due) : '', `<div class="pl-row"><label class="pl-date">📅 ${dateBox(`<input id="pl-due" type="date" value="${esc(P.due)}">`, P.due)}</label>${P.due ? `<button class="pl-chip" value="due:" formnovalidate>${esc(t('none'))}</button>` : ''}</div>`),
-    row('place', t('plPlace'), P.place, `<input id="pl-place" class="pl-in" value="${esc(P.place)}" placeholder="${esc(t('placePh'))}" autocomplete="off"><button class="pl-tog${P.travel ? ' on' : ''}" value="travel" formnovalidate><span>${esc(t('plTravel'))}<small>${esc(t('plTravelSub'))}</small></span><i></i></button>`),
+    row('place', t('plPlace'), placeLabel(), placeBody()),
     P.stepObjs ? row('steps', t('steps'), P.stepObjs.length ? `${P.stepObjs.length} · ${fmtDur(stepSum())}` : '', `${P.stepObjs.map((y, i) => `<div class="pl-srow"><span>${i + 1}. ${esc(y.title)}</span><input id="pl-sm${i}" class="pl-num sm" data-sm="${i}" inputmode="numeric" value="${Number(y.minutes) || 10}" aria-label="${esc(t('duration'))}"><span class="pl-mid">min</span><button class="pl-x" value="step-rm:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></div>`).join('')}<input id="pl-step" class="pl-in" placeholder="${esc(t('plStepPh'))}" autocomplete="off">${P.stepObjs.length ? `<p class="pl-hint">${esc(t('plStepsLen'))}</p>` : ''}`)
     : row('steps', t('steps'), P.steps.length ? String(P.steps.length) : '', `${P.steps.map((s, i) => `<div class="pl-srow"><span>${i + 1}. ${esc(s)}</span><button class="pl-x" value="step-rm:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></div>`).join('')}<input id="pl-step" class="pl-in" placeholder="${esc(t('plStepPh'))}" autocomplete="off">`),
     row('after', t('needsFirst'), nm(P.after), `${listEd('after', t('plSearchPh'))}<p class="pl-hint">${esc(t('plAfterHint'))}</p>`),
@@ -170,7 +191,7 @@ function optRows() {
     row('notes', t('notes'), P.notes ? '✎' : '', `<textarea id="pl-notes" class="pl-in" rows="3">${esc(P.notes)}</textarea>`),
   ].join('');
 }
-const optSummary = () => [P.imp !== 3 && '★'.repeat(P.imp), P.due && t('dueOn', relDay(P.due)), P.place && `📍 ${P.place}`, P.steps.length && t('plStepsN', P.steps.length), P.after.length && `🔒 ${P.after.length}`, (P.ok.length + P.ko.length) && t('plRulesN', P.ok.length + P.ko.length), P.notes && '✎'].filter(Boolean).join(' · ');
+const optSummary = () => [P.imp !== 3 && '★'.repeat(P.imp), P.due && t('dueOn', relDay(P.due)), P.place && placeLabel(), P.steps.length && t('plStepsN', P.steps.length), P.after.length && `🔒 ${P.after.length}`, (P.ok.length + P.ko.length) && t('plRulesN', P.ok.length + P.ko.length), P.notes && '✎'].filter(Boolean).join(' · ');
 // what the name says by itself ("Cena ogni giorno 20:30", "Dentista ven 10:00"), while Quando is untouched
 function typedWhen() {
   if (P.wc !== undefined) return null;
@@ -205,15 +226,37 @@ function turnsOverlay() {
     ${ups.slice(0, 60).map((b) => `<div class="pl-turn"><span><b>${esc(relDay(b.date))} · ${esc(fmtTime(b.start))}–${esc(fmtTime(b.start + (b.minutes || 0)))}</b></span><button class="pl-chip" value="mv:${esc(b.id)}" formnovalidate>${esc(t('moveBtn'))}</button><button class="pl-chip" value="skip:${esc(b.id)}" formnovalidate>${esc(t(b.seriesId ? 'plSkip' : 'plUnplan'))}</button></div>`).join('')}
     <div class="pl-ovf"><button class="btn primary" value="ov-close" formnovalidate>${esc(t('plOvDone'))}</button></div></div></div>`;
 }
-// The whole list for «Prima serve…» and the rules: already added, a search, recently used, then by category.
-const pickTitle = (k) => t(k === 'after' ? 'needsFirst' : k === 'ok' ? 'plIfDone' : 'plIfFail');
+// The whole list for «Prima serve…» and the rules: already added, a search, then (v85) in tabs: Recenti,
+// one per category, Tutte A–Z. The search looks through all of them. For the place: Recenti, 🛒 Negozi,
+// Con orari, Tutti, one choice.
+const pickTitle = (k) => t(k === 'after' ? 'needsFirst' : k === 'place' ? 'plPlace' : k === 'ok' ? 'plIfDone' : 'plIfFail');
+const ctabs = (tabs, cls = '') => `<div class="pl-ctabs ${cls}${P.ovq ? ' dim' : ''}" role="tablist">${tabs.map(([k, l, n]) => `<button class="${P.ovt === k ? 'on' : ''}" value="ovt:${esc(k)}" formnovalidate role="tab" aria-selected="${P.ovt === k}">${esc(l)}${n != null ? `<small>${n}</small>` : ''}</button>`).join('')}</div>`;
+const grp = (k, label, html, extra = '') => `<div class="pl-pgrp" data-tab="${esc(k)}" ${extra} ${P.ovt === k ? '' : 'hidden'}><div class="pl-lbl">${esc(label)}</div>${html}</div>`;
+function placePickerHtml() {
+  const all = allPlaces();
+  const item = (p) => `<button class="pl-pick${P.placeId === p.id ? ' on' : ''}" value="plc:${esc(p.id)}" formnovalidate data-name="${esc(p.name.toLowerCase())}" data-hay="${esc(`${p.name} ${p.place || ''}`.toLowerCase())}"><span class="pl-ck" aria-hidden="true">${esc(placeEmoji(p))}</span><span>${esc(p.name)}<small>${esc([p.place, openText(p)].filter(Boolean).join(' · '))}</small></span></button>`;
+  const lists = [['recent', t('plcRecent'), recentPlaces(6)], ['shop', `🛒 ${t('plcShopsTab')}`, all.filter((p) => p.shop)], ['hours', t('plcWithHours'), all.filter(hasHours)], ['all', t('plcAllTab'), [...all].sort((a, b) => a.name.localeCompare(b.name))]];
+  return `<div class="pl-ov"><div class="pl-ovc"><div class="pl-ovh"><b>${esc(t('plPlace'))}</b><button class="pl-x" value="ov-close" formnovalidate aria-label="${esc(t('close'))}">✕</button></div>
+    <p class="pl-hint">${esc(t('plcPickHint'))}</p>
+    <input id="pl-ovq" class="pl-in" placeholder="${esc(t('plcSearchPh'))}" autocomplete="off">
+    <button class="pl-sopt new" id="pl-ovnew" value="ov-new:place:" formnovalidate hidden></button>
+    ${ctabs(lists.map(([k, l, ps]) => [k, k === 'recent' ? t('plcRecentTab') : l, k === 'recent' ? null : ps.length]), 'four')}
+    ${lists.map(([k, l, ps]) => grp(k, l, ps.length ? ps.map(item).join('') : `<p class="pl-hint">${esc(t('plcNone'))}</p>`, k === 'all' ? 'data-all="1"' : '')).join('')}
+    <div class="pl-ovf"><button class="btn" value="ov-close" formnovalidate>${esc(t('close'))}</button></div></div></div>`;
+}
 function pickerHtml(key) {
+  if (key === 'place') return placePickerHtml();
   const used = new Set(P[key].map((a) => a.id).filter(Boolean));
   const all = candidates().filter((x) => x.id !== P.edit);
-  const recent = [...all].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)).slice(0, 5);
+  const recent = [...all].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)).slice(0, 6);
   const groups = new Map();
-  for (const x of [...all].sort((a, b) => a.title.localeCompare(b.title))) { const c = x.category || ''; if (!groups.has(c)) groups.set(c, []); groups.get(c).push(x); }
-  const item = (x) => `<button class="pl-pick${used.has(x.id) ? ' on' : ''}" value="ov-tog:${key}:${esc(x.id)}" formnovalidate data-hay="${esc(x.title.toLowerCase())}"><span class="pl-ck" aria-hidden="true">${used.has(x.id) ? '✓' : ''}</span><span>${esc(x.title)}<small>${esc(fmtDur(ownMinutes(x)))}</small></span></button>`;
+  const catOf = (x) => (x.category && get('categories', x.category) && !get('categories', x.category).deleted ? x.category : '');
+  for (const x of [...all].sort((a, b) => a.title.localeCompare(b.title))) { const c = catOf(x); if (!groups.has(c)) groups.set(c, []); groups.get(c).push(x); }
+  const cname = (c) => (c ? catName(get('categories', c)) : t('noCategory'));
+  const item = (x, showCat = false) => `<button class="pl-pick${used.has(x.id) ? ' on' : ''}" value="ov-tog:${key}:${esc(x.id)}" formnovalidate data-hay="${esc(x.title.toLowerCase())}"><span class="pl-ck" aria-hidden="true">${used.has(x.id) ? '✓' : ''}</span><span>${esc(x.title)}<small>${esc([fmtDur(ownMinutes(x)), showCat ? cname(catOf(x)) : ''].filter(Boolean).join(' · '))}</small></span></button>`;
+  const cats = [...groups].sort(([a], [b]) => (!a ? 1 : !b ? -1 : cname(a).localeCompare(cname(b))));
+  if (!['recent', 'all', ...cats.map(([c]) => c || 'none')].includes(P.ovt)) P.ovt = 'recent';
+  const tabs = [['recent', t('plcRecentTab'), null], ...cats.map(([c, l]) => [c || 'none', cname(c), l.length]), ['all', t('plcAllAZ'), all.length]];
   return `<div class="pl-ov"><div class="pl-ovc"><div class="pl-ovh"><b>${esc(pickTitle(key))}</b><button class="pl-x" value="ov-close" formnovalidate aria-label="${esc(t('close'))}">✕</button></div>
     <p class="pl-hint">${esc(t(key === 'after' ? 'plAfterHint' : 'plRulesHint'))}</p>
     ${key !== 'after' ? `<div class="pl-seg"><button class="${key === 'ok' ? 'on' : ''}" value="ovk:ok" formnovalidate>${esc(t('plIfDone'))}</button><button class="${key === 'ko' ? 'on' : ''}" value="ovk:ko" formnovalidate>${esc(t('plIfFail'))}</button></div>` : ''}
@@ -221,8 +264,10 @@ function pickerHtml(key) {
     ${P[key].length ? `<div class="pl-chips">${P[key].map((a, i) => `<span class="pl-chip on">${a.isNew ? '✚ ' : ''}${esc(a.title)}<button class="pl-x" value="li-rm:${key}:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></span>`).join('')}</div>` : `<p class="pl-hint">${esc(t('plNoneYet'))}</p>`}
     <input id="pl-ovq" class="pl-in" placeholder="${esc(t('plSearchPh'))}" autocomplete="off">
     <button class="pl-sopt new" id="pl-ovnew" value="ov-new:${key}:" formnovalidate hidden></button>
-    <div class="pl-pgrp" data-recent="1"><div class="pl-lbl">${esc(t('plRecent'))}</div>${recent.map(item).join('')}</div>
-    ${[...groups].map(([c, l]) => `<div class="pl-pgrp"><div class="pl-lbl">${esc(c ? catName(get('categories', c)) : t('noCategory'))}</div>${l.map(item).join('')}</div>`).join('')}
+    ${ctabs(tabs)}
+    ${grp('recent', t('plRecent'), recent.map((x) => item(x, true)).join('') || `<p class="pl-hint">${esc(t('plNoneYet'))}</p>`, 'data-recent="1"')}
+    ${cats.map(([c, l]) => grp(c || 'none', cname(c), l.map((x) => item(x)).join(''))).join('')}
+    ${grp('all', t('plcAllAZ'), [...all].sort((a, b) => a.title.localeCompare(b.title)).map((x) => item(x, true)).join(''), 'data-all="1"')}
     <div class="pl-ovf"><button class="btn primary" value="ov-close" formnovalidate>${esc(t('plDoneN', P[key].length))}</button></div></div></div>`;
 }
 
@@ -247,8 +292,8 @@ function draw(focus = null) {
     <div class="pl-name"><input id="pl-name" value="${esc(P.name)}" placeholder="${esc(t('addTaskPh'))}" autocomplete="off" enterkeyhint="done" aria-label="${esc(t('title'))}"><button class="pl-star${P.save ? ' on' : ''}" value="save" formnovalidate aria-pressed="${P.save}" aria-label="${esc(t('plSave'))}" title="${esc(t('plSave'))}">${P.save ? '★' : '☆'}</button></div>
     ${P.save ? `<p class="pl-hint">${esc(t('plSaveHint'))}</p>` : ''}
     <button class="pl-tog${P.appt ? ' on' : ''}" value="appt" formnovalidate><span>📅 ${esc(t('plAppt'))}<small>${esc(t(P.appt ? 'plApptOn' : 'plApptOff'))}</small></span><i></i></button>
-    <div class="pl-pills">${pill('len', `⏱ ${esc(lenOn ? lenLabel() : t('duration'))}`, lenOn)}${pill('when', `🕒 ${esc(whenOn ? whenWords() : t('whenChip').replace('…', ''))}`, whenOn)}${pill('cat', c ? `<i class="cat-dot" style="--c:${esc(c.color || 'var(--line)')}"></i>${esc(catName(c))}` : `● ${esc(catOn ? t('noCategory') : t('category'))}`, catOn)}</div>
-    ${P.pop ? `<div class="pl-panel">${P.pop === 'len' ? lenPanel() : P.pop === 'when' ? whenPanel() : catPanel()}</div>` : ''}
+    <div class="pl-tabs${P.pop ? ' open' : ''}" role="tablist">${tab('len', `⏱ ${esc(t('duration'))}`, esc(lenOn ? lenLabel() : t('duration')), lenOn)}${tab('when', `${P.appt ? '📅' : '🕒'} ${esc(t('whenChip').replace('…', ''))}`, esc(whenOn ? whenWords() : t('whenChip').replace('…', '')), whenOn)}${tab('cat', `● ${esc(t('category'))}`, c ? `<i class="cat-dot" style="--c:${esc(c.color || 'var(--line)')}"></i>${esc(catName(c))}` : esc(catOn ? t('noCategory') : t('category')), catOn)}</div>
+    ${P.pop ? `<div class="pl-panel pl-tpanel">${P.pop === 'len' ? lenPanel() : P.pop === 'when' ? whenPanel() : catPanel()}</div>` : ''}
     ${P.edit ? planBox() : ''}
     <div class="pl-more"><button class="pl-ohead top" value="more" formnovalidate><span>${esc(t('plMoreOpts'))}${os && !P.more ? `<small>${esc(os)}</small>` : ''}</span><span class="pl-oval">${P.more ? '▾' : '›'}</span></button>${P.more ? optRows() : ''}</div>
     ${P.edit ? `<div class="pl-foot"><button class="btn primary" value="go" ${!P.name.trim() || needsTime() ? 'disabled' : ''}>${esc(t('save'))}</button><button class="btn" value="cancel" formnovalidate>${esc(t('close'))}</button>
@@ -281,7 +326,16 @@ function onSubmit(form, action, e) {
   else if (a === 'cat') { P.cat = b || null; P.touched.cat = true; P.pop = null; }
   else if (a === 'more') P.more = !P.more;
   else if (a === 'row') { P.open = P.open === b ? null : b; if (P.open) { P.more = true; P.pop = null; } }
-  else if (a === 'ov') { P.ov = b; P.ovq = ''; focus = '#pl-ovq'; }
+  else if (a === 'ov') { P.ov = b; P.ovq = ''; P.ovt = 'recent'; focus = '#pl-ovq'; }
+  else if (a === 'ovt') { P.ovt = b; P.ovq = ''; }
+  else if (a === 'plc') { const p = placeById(b); if (p) { P.placeId = p.id; P.place = placeAddress(p); } P.ov = null; P.ovq = ''; }
+  else if (a === 'plc-txt') { P.placeId = null; P.place = decodeURIComponent(action.slice('plc-txt:'.length)).trim(); }
+  else if (a === 'plc-rm') { P.placeId = null; P.place = ''; focus = '#pl-place'; }
+  else if (a === 'plc-save' || (a === 'ov-new' && b === 'place') || a === 'plc-new') {
+    const v = a === 'plc-save' ? P.place : decodeURIComponent(action.slice(`${a}:${a === 'ov-new' ? 'place:' : ''}`.length)).trim();
+    if (v) { const p = placeByText(v) || quickPlace(v, uid); P.placeId = p.id; P.place = placeAddress(p); toast(t('plcSaved', p.name)); }
+    P.ov = null; P.ovq = '';
+  }
   else if (a === 'ovk') { P.ov = b; P.ovq = ''; }
   else if (a === 'ov-close') { P.ov = null; P.ovq = ''; }
   else if (a === 'turns') P.ov = 'turns';
@@ -304,7 +358,7 @@ function collect(form) {
   const v = (id) => form.querySelector(`#${id}`);
   if (v('pl-name')) P.name = v('pl-name').value;
   if (v('pl-notes')) P.notes = v('pl-notes').value;
-  if (v('pl-place')) P.place = v('pl-place').value.trim();
+  // (v85) the place is chosen from the suggestions (Enter: a saved place by that name, else the text as typed)
 }
 function wire() {
   const form = document.querySelector('dialog[open] form'); if (!form) return;
@@ -344,16 +398,38 @@ function wire() {
     oq.addEventListener('input', () => {
       const q = oq.value.trim().toLowerCase(); P.ovq = oq.value;
       let exact = false;
-      form.querySelectorAll('.pl-pick').forEach((el) => { const hit = !q || el.dataset.hay.includes(q); el.hidden = !hit; if (el.dataset.hay === q) exact = true; });
-      form.querySelectorAll('.pl-pgrp').forEach((g) => { g.hidden = (q && g.dataset.recent) || ![...g.querySelectorAll('.pl-pick')].some((el) => !el.hidden); });
-      nb.hidden = !q || exact; nb.value = `ov-new:${P.ov}:${encodeURIComponent(oq.value.trim())}`; nb.innerHTML = `✚ ${esc(t('plNew', oq.value.trim()))}<small>${esc(t('plNewSub'))}</small>`;
+      // (v85) searching looks through every tab (the «Tutte» list); an empty search shows the open tab again
+      form.querySelectorAll('.pl-pick').forEach((el) => { const hit = !q || el.dataset.hay.includes(q); el.hidden = !hit; if ((el.dataset.name ?? el.dataset.hay) === q) exact = true; });
+      form.querySelectorAll('.pl-pgrp').forEach((g) => { g.hidden = q ? !g.dataset.all || ![...g.querySelectorAll('.pl-pick')].some((el) => !el.hidden) : g.dataset.tab !== P.ovt; });
+      form.querySelector('.pl-ctabs')?.classList.toggle('dim', Boolean(q));
+      nb.hidden = !q || exact; nb.value = `ov-new:${P.ov}:${encodeURIComponent(oq.value.trim())}`;
+      nb.innerHTML = P.ov === 'place' ? `☆ ${esc(t('plcSaveNew', oq.value.trim()))}<small>${esc(t('plcSaveNewSub'))}</small>` : `✚ ${esc(t('plNew', oq.value.trim()))}<small>${esc(t('plNewSub'))}</small>`;
     });
     oq.addEventListener('keydown', (ev) => {
       if (ev.key !== 'Enter' || !oq.value.trim()) return;
       ev.preventDefault();
-      const q = oq.value.trim(); const hit = candidates().find((x) => x.title.toLowerCase() === q.toLowerCase());
+      const q = oq.value.trim();
+      if (P.ov === 'place') { const p = placeByText(q) || quickPlace(q, uid); P.placeId = p.id; P.place = placeAddress(p); P.ov = null; P.ovq = ''; redraw(); return; }
+      const hit = candidates().find((x) => x.title.toLowerCase() === q.toLowerCase());
       if (hit && !P[P.ov].some((a) => a.id === hit.id)) P[P.ov].push({ id: hit.id, title: hit.title }); else if (!hit) P[P.ov].push({ title: q, isNew: true });
       P.ovq = ''; redraw('#pl-ovq');
+    });
+  }
+  const pin = v('pl-place');
+  if (pin) {
+    const box = v('pl-sg-place');
+    pin.addEventListener('input', () => {
+      const q = pin.value.trim(); if (!q) { box.innerHTML = ''; return; }
+      const hits = searchPlaces(q, 5); const exact = hits.some((p) => p.name.toLowerCase() === q.toLowerCase());
+      box.innerHTML = hits.map((p) => placeOpt(p, `plc:${esc(p.id)}`)).join('')
+        + `<button class="pl-sopt new" value="plc-txt:${encodeURIComponent(q)}" formnovalidate>📍 ${esc(t('plcJustHere', q))}<small>${esc(t('plcJustHereSub'))}</small></button>`
+        + (exact ? '' : `<button class="pl-sopt new" value="plc-new:${encodeURIComponent(q)}" formnovalidate>☆ ${esc(t('plcSaveNew', q))}<small>${esc(t('plcSaveNewSub'))}</small></button>`);
+    });
+    pin.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter' || !pin.value.trim()) return;
+      ev.preventDefault();
+      const p = placeByText(pin.value); if (p) { P.placeId = p.id; P.place = placeAddress(p); } else { P.placeId = null; P.place = pin.value.trim(); }
+      redraw();
     });
   }
   form.querySelectorAll('[data-li]').forEach((inp) => {
@@ -386,6 +462,9 @@ function save() {
   if (P.wc === undefined && q.repeat) { P.wc = 'pick'; P.once = false; if (q.repeat === 'times') { P.per = ({ day: 'giorno', week: 'settimana', month: 'mese', year: 'anno' })[q.timesPer] || 'settimana'; P.n = q.timesN || 1; } else { P.per = 'settimana'; P.days = q.repeatDays || []; P.n = P.days.length || 1; } if (q.time != null) { P.mode = 'at'; P.start = q.time; } }
   else if (P.wc === undefined && q.due && q.time != null) { P.wc = 'pick'; P.once = true; P.date = q.due; P.mode = 'at'; P.start = q.time; }
   const L = len(); const s = planSettings();
+  // "@posta" in the name: a saved place by that name, else the text as typed
+  const qp = !P.place && q.place ? placeByText(q.place) : null;
+  const qPlace = P.place ? null : qp ? { id: qp.id, addr: placeAddress(qp) } : q.place ? { id: null, addr: q.place } : null;
   const newIds = (list) => list.map((a) => a.id || upsert('tasks', { id: uid(), createdAt: Date.now(), kind: 'todo', title: a.title, minutes: 30, lenSet: false, importance: 3, category: cat, moreCats: [], due: null, done: false, steps: [], checklist: [], notes: '' }, { silent: true }).id);
   const rules = [...P.ok.map((a) => ({ a, when: 'done' })), ...P.ko.map((a) => ({ a, when: 'failed' }))].map(({ a, when }) => ({ id: uid(), when, then: 'task', taskId: a.id || null, title: a.title, minutes: 30, place: 'pool', stepId: null }));
   let steps = P.steps.map((tt) => ({ id: uid(), title: tt, minutes: Math.max(5, Math.round(L / Math.max(1, P.steps.length))) }));
@@ -398,9 +477,9 @@ function save() {
   const x = {
     id: uid(), createdAt: Date.now(), kind: P.save || P.wc === 'pick' && !P.once ? 'saved' : 'todo', title, minutes: steps.length && !P.steps.length ? steps.reduce((n, y) => n + y.minutes, 0) : L,
     lenSet: P.lenSet || P.unknown ? !P.unknown : Boolean(P.touched.len), lenUnknown: P.unknown || undefined, importance: P.imp !== 3 ? P.imp : q.importance || 3, priority: q.priority || 0,
-    category: cat, moreCats: [], due: P.due || (P.wc === undefined ? q.due : null) || null, place: P.place || q.place || '', notes: P.notes, done: false, checklist: [],
+    category: cat, moreCats: [], due: P.due || (P.wc === undefined ? q.due : null) || null, place: P.place || qPlace?.addr || '', placeId: P.placeId || qPlace?.id || null, notes: P.notes, done: false, checklist: [],
     steps, splitSteps: steps.length > 1 && !P.steps.length, after: newIds(P.after), allRules: rules, windows: [],
-    ...(P.place ? { travel: { there: P.travel, back: P.travel, mode: 'default' } } : {}),
+    ...(P.place || qPlace ? { travel: { there: P.travel, back: P.travel, mode: 'default' } } : {}),
   };
   ui.justAdded ||= new Set();
   // an appointment: fixed, at its day and time (all day, or several days)
@@ -472,7 +551,7 @@ function fromTask(x) {
   const p = fresh(x.title || '');
   Object.assign(p, {
     edit: x.id, save: isSaved(x), appt: isEvent(x), len: ownMinutes(x), lenSet: x.lenSet !== false, unknown: Boolean(x.lenUnknown),
-    cat: x.category || null, imp: x.importance || 3, place: x.place || '', travel: travelOf(x).there !== false, notes: x.notes || '',
+    cat: x.category || null, imp: x.importance || 3, place: x.place || '', placeId: placeById(x.placeId) ? x.placeId : null, travel: travelOf(x).there !== false, notes: x.notes || '',
     stepObjs: realSteps(x).map((y) => ({ ...y })), checklist: [...(x.checklist || [])], buffer: x.buffer == null ? '' : x.buffer,
     after: (x.after || []).map((id) => get('tasks', id)).filter(Boolean).map((y) => ({ id: y.id, title: y.title })),
     touched: { len: true, when: true, cat: true }, more: true,
@@ -548,7 +627,7 @@ function saveEdit({ stay = false } = {}) {
   const rule = (a, when) => (a.rule ? { ...a.rule, when } : { id: uid(), when, then: 'task', taskId: a.id || null, title: a.title, minutes: 30, place: 'pool', stepId: null });
   const x = {
     ...x0, title, minutes: L, lenSet: !P.unknown, lenUnknown: P.unknown || undefined, category: P.cat, importance: P.imp,
-    place: P.place, travel: { ...travelOf(x0), there: P.travel, back: P.travel }, notes: P.notes, checklist: P.checklist, buffer: P.buffer === '' ? null : Number(P.buffer),
+    place: P.place, placeId: P.placeId || null, travel: { ...travelOf(x0), there: P.travel, back: P.travel }, notes: P.notes, checklist: P.checklist, buffer: P.buffer === '' ? null : Number(P.buffer),
     steps: (P.stepObjs || []).filter((y) => y.title), after: newIds(P.after),
     allRules: [...P.keepRules, ...P.ok.map((a) => rule(a, 'done')), ...P.ko.map((a) => rule(a, 'failed'))],
     kind: P.appt ? 'event' : P.save || routine ? 'saved' : isEvent(x0) || isSaved(x0) ? 'todo' : x0.kind,

@@ -6,7 +6,8 @@ import { isPalestra, lastSessionAt, PALESTRA_APP, palestraTooNew } from '../pale
 import { advancedOn, APP_VERSION, categories, catName, esc, fmtDay, relDay, route, ui, weekdayNames } from '../core.js';
 import { getLang, LANGS, t } from '../i18n.js';
 import { kindOf } from '../kinds.js';
-import { addDays, dateStr, fmtDur, fmtTime } from '../plan.js';
+import { addDays, dateStr, fmtDur, fmtTime, nowMinutes, today } from '../plan.js';
+import { allPlaces, hasHours, openState, placeEmoji } from '../places.js';
 import { autoHoursFor, tripMode } from '../planning.js';
 import { changed } from '../shell.js';
 import { contractTooNew, get, live, state } from '../store.js';
@@ -17,7 +18,7 @@ import { glance, GLANCE, planStyle, VIEWS } from './planner.js';
 import { THEMES, themeChoice } from '../theme.js';
 import { shopsList } from './shop.js';
 import { taskGroupsCfg } from './tasks.js';
-import { TIME24, windowsText } from '../widgets.js';
+import { TIME24 } from '../widgets.js';
 import { gcalSection, ghConnected } from '../connections.js';
 import { classic } from './impegni.js';
 
@@ -155,10 +156,26 @@ export function settingsHtml(s, msg) {
     ${categories().map((c) => `<li><button class="task-main" type="button" data-action="cat-edit" data-id="${esc(c.id)}"><span class="item-text"><span class="cat" style="--c:${esc(c.color)}">${esc(catName(c))}</span></span></button></li>`).join('')}
   </ul>
   <button class="btn small" type="button" data-action="cat-new">+ ${esc(t('newCategory'))}</button>`;
+  // (v85) Luoghi salvati: Casa, then every place; 🛒 Negozi is a filter (its order is the shopping preference).
+  const pf = ui.placeFilter || 'all';
+  const nowM = nowMinutes(); const tdy = today();
+  const stateTxt = (p) => {
+    const o = openState(p, tdy, nowM, addDays);
+    if (!o) return p.shop ? `<span class="st-open">${esc(t('alwaysOpen'))}</span>` : '';
+    if (o.k === 'open') return `<span class="${o.to - nowM <= 60 ? 'st-soon' : 'st-open'}">${esc(t('plcOpenTo', fmtTime(o.to)))}</span>`;
+    if (o.k === 'later') return `<span class="st-closed">${esc(t('plcOpensAt', fmtTime(o.from)))}</span>`;
+    if (o.k === 'next') return `<span class="st-closed">${esc(t('plcOpensOn', relDay(o.date), fmtTime(o.from)))}</span>`;
+    return `<span class="st-closed">${esc(t('plcClosed'))}</span>`;
+  };
+  const allP = allPlaces();
+  const shown = pf === 'shop' ? allP.filter((p) => p.shop) : pf === 'hours' ? allP.filter((p) => hasHours(p)) : allP;
   const shops = `
-  ${why('shopsWhy')}
-  ${shopsList().length ? `<ul class="list">${shopsList().map((sh) => `<li><button class="task-main" type="button" data-action="shop-rec" data-id="${esc(sh.id)}"><span class="item-text">${esc(sh.name)}<small>${esc([fmtDur(sh.minutes || 30), sh.hours?.length ? windowsText(sh.hours) : t('alwaysOpen'), sh.place || ''].filter(Boolean).join(' · '))}</small></span></button></li>`).join('')}</ul>` : ''}
-  <button class="btn small" type="button" data-action="shop-new">+ ${esc(t('newShop'))}</button>
+  ${why('placesWhy')}
+  <a class="plc-home" href="#/settings/travel"><span class="plc-em" aria-hidden="true">🏠</span><span class="item-text"><b>${esc(t('homeAddress'))}</b><small>${esc(travelCfg().home || t('noHomeYet'))} · ${esc(t('plcHomeSub'))}</small></span><span class="set-chev" aria-hidden="true">›</span></a>
+  <div class="seg plc-filter" role="tablist">${[['all', t('plcAll', allP.length)], ['shop', t('plcShops', allP.filter((p) => p.shop).length)], ['hours', t('plcWithHours')]].map(([k, l]) => `<button type="button" role="tab" aria-selected="${pf === k}" class="${pf === k ? 'on' : ''}" data-action="place-filter" data-value="${k}">${esc(l)}</button>`).join('')}</div>
+  ${shown.length ? `<ul class="list plc-list">${shown.map((p) => `<li><button class="task-main" type="button" data-action="place-edit" data-id="${esc(p.id)}"><span class="plc-em" aria-hidden="true">${esc(placeEmoji(p))}</span><span class="item-text">${esc(p.name)}<small>${[stateTxt(p), p.shop ? esc(`🛒 ${fmtDur(p.minutes || 30)}`) : '', esc(p.place || '')].filter(Boolean).join(' · ')}</small></span></button></li>`).join('')}</ul>` : `<p class="hint">${esc(t(pf === 'shop' ? 'plcNoShops' : 'plcNone'))}</p>`}
+  ${pf === 'shop' && shown.length > 1 ? `<p class="hint">${esc(t('plcOrderHint'))}</p>` : ''}
+  <button class="btn small" type="button" data-action="${pf === 'shop' ? 'shop-new' : 'place-new'}">+ ${esc(t(pf === 'shop' ? 'newShop' : 'plcNew'))}</button>
   <label class="opt">${esc(t('tripModeLabel'))}<select id="trip-mode">${['perShop', 'oneTrip'].map((m) => `<option value="${m}" ${m === tripMode() ? 'selected' : ''}>${esc(t(`trip_${m}`))}</option>`).join('')}</select>${why('tripModeWhy')}</label>`;
   // Advanced: connections first (set once), then options grouped by the part of the app they change.
   const advanced = `
@@ -242,7 +259,7 @@ export function settingsHtml(s, msg) {
     ...(v2 ? { planner: { icon: '📅', title: t('tabPlan'), sub: `${t(`ps_${planStyle()}`).split(' (')[0]} · ${t(`v_${currentViewDefault()}`)}`, body: plannerPage } } : {}),
     travel: { icon: '🚌', title: t('travelSettings'), sub: [travelCfg().home || t('noHomeYet'), `${MODE_ICON[travelCfg().mode] || ''} ${t(`tm_${travelCfg().mode}`)}`].join(' · '), body: v2 ? travelCard + travelMore : travelCard },
     cats: { icon: '🏷', title: t('categories'), sub: t('nCategories', categories().length), body: cats },
-    shops: { icon: '🏪', title: t('shopsTitle'), sub: `${t('nShops', shopsList().length)} · ${t(`trip_${tripMode()}`)}`, body: shops },
+    shops: { icon: '📍', title: t('placesTitle'), sub: t('nPlaces', allPlaces().length, shopsList().length), body: shops },
     adv: { icon: '⚙', title: t('advanced'), sub: v2 ? t('advancedSub2') : t('advancedSub'), body: advanced },
     lang: { icon: '🌐', title: t('langLook'), sub: `${LANGS[getLang()] || getLang()} · ${t(`theme_${themeChoice()}`)}`, body: langForm },
   };

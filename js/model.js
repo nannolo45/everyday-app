@@ -6,10 +6,11 @@ import { addQuantities, formatQty } from './parse.js';
 import { sameFood } from './foods.js';
 import { addDays, autoTemplatesFor, completeTask, fmtDur, fmtTime, freeSlot, importanceOf, isoDay, nextOccurrence, nowMinutes, occurrences, parseDate, reopenTask, REPEATS, ruleAt, templateBlocks, today } from './plan.js';
 import { prepMinutes } from './recipes.js';
-import { findConflicts, placeGroceries, placePrep, windowOn, WINDOWS } from './smart.js';
+import { findConflicts, placeGroceries, placePrep, spreadTasks, windowOn, WINDOWS } from './smart.js';
 import { contractTooNew, get, has, live, remove, state, uid, upsert } from './store.js';
 import { isConfigured, queueCooked, ricetteConfigured, unqueueCooked } from './sync.js';
-import { hereNow, ownMinutes, realSteps, travelCache, travelCfg, travelOf } from './travel-plan.js';
+import { hereNow, isTravelStep, legMinutes, ownMinutes, realSteps, travelCache, travelCfg, travelOf } from './travel-plan.js';
+import { closedAt, hoursFields, placeHours, placeOfTask } from './places.js';
 import { placeNotFound } from './travel.js';
 import { cleanWindows, openModal } from './widgets.js';
 import { changed } from './shell.js';
@@ -249,6 +250,12 @@ export function planTask(task, date, start = null, extra = {}) {
   const fields = isMealType(task) && !fields0.kind && !fields0.stepId ? { kind: 'meal', recipes: [], servings: 2, ...fields0 } : fields0; // (v80) a meal type's turn is a meal
   const minutes = fields.minutes || (fields.stepId ? task.minutes : !(task.stepsDone || []).length && task.dayMinutes && isSeries(task) ? minutesOn(task, date) : minutesLeft(task)) || 30;
   let at = start;
+  // (v85) its place has opening hours: the first free time that day when it's open
+  if (at == null && !fields.stepId && placeHours(task)) {
+    const p = spreadTasks({ tasks: [{ id: 'x', taskId: task.id, title: task.title, minutes, ...hoursFields(task) }], settings: { ...s, maxLoad: 1440 },
+      days: [{ date, blocks: busyOn(date).filter((b) => !b.allowOverlap), from: (date === today() ? nowMinutes() : s.dayStart) + leadOf(task), to: s.dayEnd }] }).placed[0];
+    if (p) at = p.start;
+  }
   if (at == null) {
     const from = (date === today() ? nowMinutes() : s.dayStart) + leadOf(task);
     at = freeSlot(busyOn(date), minutes, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap });
@@ -959,7 +966,26 @@ export function conflictsOn(date) {
   return findConflicts([...blocksOn(date), ...timedEventsOn(date).filter((e) => e.busy !== false)], {
     getBlock: (id) => get('blocks', id), getTask: (id) => get('tasks', id),
     blocksOfTask: (id) => live('blocks').filter((b) => b.taskId === id && b.kind !== 'prep' && !outcomeOf(b)),
+    closedOf: (b) => (b.taskId && !outcomeOf(b) ? closedIssue(b) : null),
   });
+}
+// (v85) The time a block spends at its task's place: after «Get there», for the task's own length (a
+// step block: the step, unless it's a travel step). Null when the task has no saved place.
+export function onSiteOf(b, x = b?.taskId && get('tasks', b.taskId)) {
+  if (!x?.placeId) return null;
+  if (b.stepId) { const y = (x.steps || []).find((z) => z.id === b.stepId); return !y || isTravelStep(y) ? null : [b.start, b.start + b.minutes]; }
+  const there = Math.min(legMinutes(x, 'there'), b.minutes);
+  return [b.start + there, b.start + there + Math.max(1, Math.min(ownMinutes(x), b.minutes - there))];
+}
+// The block is at its place while the place is closed: what's wrong ({k, at, ranges} from places.js,
+// plus the place), or null. «Va bene così» (okClosed) holds while the block stays where it was.
+export function closedIssue(b, place = null) {
+  const x = b?.taskId && get('tasks', b.taskId);
+  const p = place || placeOfTask(x);
+  if (!p || !p.hours?.length || (b.okClosed && b.okClosed.date === b.date && b.okClosed.start === b.start)) return null;
+  const at = onSiteOf(b, x); if (!at) return null;
+  const c = closedAt(p, b.date, at[0], at[1]);
+  return c && { ...c, place: p, s: at[0], e: at[1] };
 }
 
 export function conflictText(c) {
@@ -967,6 +993,14 @@ export function conflictText(c) {
   if (c.type === 'overlap') return t('cf_overlap', a?.title, b?.title);
   if (c.type === 'order') return t('cf_order', a?.title, b?.title);
   if (c.type === 'after') return t('cf_after', a?.title, b?.title, relDay(b?.date), fmtTime((b?.start || 0) + (b?.minutes || 0)));
+  if (c.type === 'closed') {
+    const i = closedIssue(a); if (!i) return t('cf_out', a?.title, fmtTime(a?.start || 0), '', '');
+    const n = i.place.name;
+    if (i.k === 'day') return t('cf_closedDay', a.title, relDay(a.date), n);
+    if (i.k === 'closes') return t('cf_closes', a.title, fmtTime(i.e), n, fmtTime(i.at));
+    if (i.k === 'opens') return t('cf_opens', a.title, fmtTime(i.s), n, fmtTime(i.at));
+    return t('cf_out', a.title, fmtTime(i.s), n, i.ranges.map(([f, e]) => `${fmtTime(f)}–${fmtTime(e)}`).join(', '));
+  }
   const task = get('tasks', a?.taskId);
   return t('cf_late', a?.title, task?.due ? relDay(task.due) : '');
 }

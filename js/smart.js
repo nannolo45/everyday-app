@@ -215,7 +215,7 @@ const before = (a, b) => a.date < b.date || (a.date === b.date && end(a) <= b.st
 // valid while the block is still where it was when you said so.
 export const okPair = (a, b) => (a.okWith || []).some((o) => o.id === b.id && o.date === a.date && o.start === a.start);
 const pad4 = (n) => String(n).padStart(4, '0');
-export function findConflicts(dayBlocks, { getBlock = () => null, getTask = () => null, blocksOfTask = () => [] } = {}) {
+export function findConflicts(dayBlocks, { getBlock = () => null, getTask = () => null, blocksOfTask = () => [], closedOf = () => null } = {}) {
   const out = [];
   const list = [...dayBlocks].sort((a, b) => a.start - b.start);
   for (let i = 0; i < list.length; i++) {
@@ -244,6 +244,8 @@ export function findConflicts(dayBlocks, { getBlock = () => null, getTask = () =
       const pb = blocksOfTask(pre).filter((x) => !x.done && !x.deleted).sort((x, y) => (x.date + pad4(x.start + x.minutes) < y.date + pad4(y.start + y.minutes) ? 1 : -1))[0];
       if (pb && (pb.date > b.date || (pb.date === b.date && pb.start + pb.minutes > b.start))) out.push({ type: 'after', ids: [b.id, pb.id] });
     }
+    // (v85) at its place while the place is closed
+    if (!b.fixed && closedOf(b)) out.push({ type: 'closed', ids: [b.id] });
   }
   return out;
 }
@@ -271,6 +273,7 @@ export function recipeMinutes(text) {
 //   days: [dates]      only these days (one period of a "3 times a week" task)
 //   group: key         at most one task of the group per day (the occurrences of that task)
 //   windows: [{days: [1-7, Monday = 1] | date: 'YYYY-MM-DD', from, to}]   only inside these times (office hours)
+//   hours, pre, own    (v85) its place's opening hours (same format): the `own` minutes after `pre` must fall inside
 // A day may carry `to` (the latest end for this day: the auto-planner's hours, weekday or weekend).
 //   after: [ids]       other tasks of this run it must come after (prerequisites, earlier steps)
 //   notBefore: {date, minute}   it can't start before then (a prerequisite planned already)
@@ -325,16 +328,33 @@ export function spreadTasks({ tasks, days, settings, leadOf = () => 0, now = Dat
       const dayEnd = d.to ?? s.dayEnd;
       const free = freeIntervals(busy.get(d.date), { from, dayStart: s.dayStart, dayEnd, buffer: s.buffer });
       let at = null;
+      // (v85) its place's opening hours: the time spent there (after `pre`, for `own`) inside them,
+      // as windows for the whole block (lead and the rest of the task around it)
+      let hw = null;
+      if (t.hours?.length) {
+        const rows = t.hours.filter((w) => windowOn(w, d.date));
+        if (!rows.length) { why = 'closed'; return; }
+        const pre = Math.min(t.pre || 0, minutes); const own = Math.max(1, Math.min(t.own || minutes, minutes - pre)); const tail = minutes - pre - own;
+        hw = rows.map((w) => [w.from - pre - lead, w.to + tail]);
+      }
+      const both = (w) => (hw ? hw.map((h) => [Math.max(w[0], h[0]), Math.min(w[1], h[1])]).filter(([a, b]) => b > a) : [w]);
       if (t.windows?.length) {
         const wins = t.windows.filter((w) => windowOn(w, d.date));
         if (!wins.length) { why = 'window'; return; }
         // Inside a window (lead time may start earlier); a window can stretch past the usual day.
         const freeW = freeIntervals(busy.get(d.date), { from: Math.min(from, ...wins.map((w) => w.from - lead)), dayStart: 0, dayEnd: 1440, buffer: s.buffer });
-        for (const w of wins) {
-          const a = fit(freeW, need, { snap: s.snap, window: [w.from - lead, w.to] });
+        for (const w of wins.flatMap((x) => both([x.from - lead, x.to]))) {
+          const a = fit(freeW, need, { snap: s.snap, window: w });
           if (a != null && (at == null || a < at)) at = a;
         }
         if (at == null) { why = 'window'; return; }
+      } else if (hw) {
+        // inside your own hours too (unlike a window you set on the task)
+        for (const h of hw) {
+          const a = fit(free, need, { snap: s.snap, window: h });
+          if (a != null && (at == null || a < at)) at = a;
+        }
+        if (at == null) { why = 'closed'; return; }
       } else {
         const win = WINDOWS[t.when];
         if (win) at = fit(free, need, { snap: s.snap, window: win });
@@ -347,7 +367,7 @@ export function spreadTasks({ tasks, days, settings, leadOf = () => 0, now = Dat
     if (!best) { skipped.push({ taskId: out(t), key: t.id, why: minutes > s.maxLoad ? 'toolong' : why }); continue; }
     // Say so when it landed in its time window or its preferred part of the day.
     const win = WINDOWS[t.when]; const st = best.at + lead;
-    const extra = t.windows?.length ? [{ k: 'r_window' }] : win && st >= win[0] && st < win[1] ? [{ k: `r_${t.when}` }] : [];
+    const extra = t.windows?.length ? [{ k: 'r_window' }] : t.hours?.length ? [{ k: 'r_open' }] : win && st >= win[0] && st < win[1] ? [{ k: `r_${t.when}` }] : [];
     placed.push({ taskId: out(t), key: t.id, stepId: t.stepId || null, date: best.d.date, start: st, minutes, lead, score, reasons: [...reasons, ...extra] });
     busy.get(best.d.date).push({ start: best.at, minutes: need });
     load.set(best.d.date, load.get(best.d.date) + need);

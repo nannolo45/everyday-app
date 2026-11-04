@@ -14,13 +14,14 @@
 import { moveWeek, openRoutine } from './routines.js';
 import { $, findCategory, hideToast, fmtDay, modal, PPM, quickFields, range, relDay, route, seedCategories, TAB_OF, TABS, toast, ui, view } from './core.js';
 import { setupDrag } from './drag.js';
-import { afterStart, openPalestra, doShift, finishTimer, openAddMenu, openPickSheet, openQuickTask, plusKind, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, openMeal, openPlanSaved, openSavedPicker, openShopRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
+import { afterStart, openPalestra, doShift, finishTimer, openAddMenu, openPickSheet, openQuickTask, plusKind, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, openMeal, openPlanSaved, openSavedPicker, openPlaceRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
 import { t } from './i18n.js';
 import { isEvent } from './kinds.js';
 import { noRhythm, repairRhythms, anchorOffset, autoChecks, leadOf, checklistLeft, checkMissed, conflictsOn, eventOf, followParent, migrateBlocksToEvents, normalizeKinds, planTask, saveEvent, seedMeals, setOutcome, setStepOutcome, setTaskDone, syncEventTasks, travelTasks, trySetBlockDone, tryStep } from './model.js';
 import { fmtTime, isDate, parseTime, quickAdd, today } from './plan.js';
 import { addGhosts, assignDrop, autoHoursFor, fixConflict, placeGhosts, planEventTasks, planGroceryTrips, spreadDays, trayTasks, undoReflow, warnConflicts } from './planning.js';
 import { changed, currentDate, positionNow, released, render, renderIfSafe, renderShell, runSync, scheduleSync, scrollToGhost, syncScheduled, typing, updateSyncBadge } from './shell.js';
+import { placeById } from './places.js';
 import { applySharedSettings, COLLECTIONS, get, live, load, onChange, remove, RICETTE, saveSettings, seedSharedSettings, state, uid, upsert } from './store.js';
 import { isConfigured, isSyncing, removeCalendarData } from './sync.js';
 import { applyTravel, ensureLegTasks, LEGS, legTemplate, pruneCache, scheduleTravelRefresh, setLegTask, travelBusy, travelCache, travelCfg, travelTimer } from './travel-plan.js';
@@ -37,7 +38,7 @@ import { goToBlock, goToProposal, openChooser, openPropsList, resumeRoutine, she
 import { setLowPref } from './lowstock.js';
 import { countToast, firstFreeStart, moveBlockTo, openConflictChoice, openDropOn, placeItem, unplanToPane } from './placing.js';
 import { agendaAdd, agendaPlan, keepFix, keepGhost, openGapFits, planStyle, showSteps } from './views/planner.js';
-import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName, SHOPS } from './views/shop.js';
+import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName } from './views/shop.js';
 import { openTaskTools, taskFilter } from './views/tasks.js';
 import { clearSearch, syncDateText, tidyTime } from './widgets.js';
 import { applyLang, exportData, gcalNow, handleShortcut, saveGithub, saveRicette, savePalestra, showUpdateBar, wipeLocalData } from './connections.js';
@@ -390,6 +391,8 @@ view.addEventListener('click', (e) => {
     case 'fix': fixConflict(conflictsOn(btn.dataset.date || currentDate())[Number(btn.dataset.i)]); break;
     case 'allow': {
       const c = conflictsOn(btn.dataset.date || currentDate())[Number(btn.dataset.i)];
+      // (v85) open or not, it stays: no more warning while it's where it is
+      if (c.type === 'closed') { const b = get('blocks', c.ids[0]); upsert('blocks', { ...b, okClosed: { date: b.date, start: b.start } }, { silent: true }); changed(); break; }
       // (v72) only this pair: the other conflicts of the same block stay (calendar events can't be changed here)
       const b = get('blocks', c.ids[1]) || get('blocks', c.ids[0]);
       const other = b.id === c.ids[1] ? c.ids[0] : c.ids[1];
@@ -410,8 +413,11 @@ view.addEventListener('click', (e) => {
     case 'travel-refresh': saveSettings({ travelCache: { ...travelCache(), routes: {} } }); scheduleTravelRefresh(); toast(t('travelRefreshing')); break;
     case 'list-mode': setListMode(id); changed(); break;
     case 'plan-trips': planTripsNow(); break;
-    case 'shop-new': openShopRec(null); break;
-    case 'shop-rec': openShopRec(get(SHOPS(), id)); break;
+    case 'shop-new': openPlaceRec(null, { shop: true }); break;
+    case 'shop-rec': openPlaceRec(placeById(id)); break;
+    case 'place-new': openPlaceRec(null); break;
+    case 'place-edit': openPlaceRec(placeById(id)); break;
+    case 'place-filter': ui.placeFilter = btn.dataset.value; render(); break;
     case 'toggle-done': ui.showDone = !ui.showDone; render(); break;
     case 'toggle-helpers': ui.showHelpers = !ui.showHelpers; render(); break;
     case 'toggle-saved': ui.showSaved = !ui.showSaved; render(); break;

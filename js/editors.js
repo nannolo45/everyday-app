@@ -10,7 +10,7 @@ import { countToast, rejoinEvent, setCounts, skipEvent, unskipEvent } from './pl
 import { GROCERY_MINUTES, advancedOn, catChips, catChipsMulti, catColor, catName, catsOf, categories, readCats, esc, findCategory, fmtDay, hint, kitchen, modal, PALETTE, planSettings, quickFields, range, reasonText, relDay, route, small, toast, ui, weekdayNames } from './core.js';
 import { getLang, t } from './i18n.js';
 import { isEvent, isMealType, isSaved, isStep, withKind } from './kinds.js';
-import { alreadyPlanned, hasDayLen, learnHint, minutesOn, setDayMinutes, evSkipOf, isInvite, setEvSkip, countedOf, turnCounts, anchorIndex, anchorOffset, anchorTitle, applyTemplate, blocksOn, busyOn, checklistLeft, checklistOf, checkMealNow, deleteBlock, endSeries, ensureSeries, eventBlockOf, eventDate, eventOf, eventTasksOf, followParent, isCheckStep, isSeries, leadOf, mealRecipes, mealTitle, mealTypes, newBlock, nextBlockOf, nextPlanned, offsetDue, offsetText, openTasks, outcomeOf, plannedTaskIds, plannedWhen, planTask, PREP_PLACES, qtyText, readinessText, recipeOf, recipes, RULE_PLACES, RULE_WHEN, rulesOf, savedGroups, savedInfo, savedStart, saveEvent, savedTasks, seriesBlocks, setBlockDone, setOutcome, setStepOutcome, setTaskDone, shoppingItems, splitSeries, stepLen, stepsDoneOf, stepsOf, stepTimes, syncEventTasks, taskIssues, taskSpan, templates, travelTasks, trySetBlockDone, tryStep } from './model.js';
+import { alreadyPlanned, hasDayLen, learnHint, minutesOn, setDayMinutes, evSkipOf, isInvite, setEvSkip, countedOf, turnCounts, anchorIndex, anchorOffset, anchorTitle, applyTemplate, blocksOn, busyOn, checklistLeft, closedIssue, checklistOf, checkMealNow, deleteBlock, endSeries, ensureSeries, eventBlockOf, eventDate, eventOf, eventTasksOf, followParent, isCheckStep, isSeries, leadOf, mealRecipes, mealTitle, mealTypes, newBlock, nextBlockOf, nextPlanned, offsetDue, offsetText, openTasks, outcomeOf, plannedTaskIds, plannedWhen, planTask, PREP_PLACES, qtyText, readinessText, recipeOf, recipes, RULE_PLACES, RULE_WHEN, rulesOf, savedGroups, savedInfo, savedStart, saveEvent, savedTasks, seriesBlocks, setBlockDone, setOutcome, setStepOutcome, setTaskDone, shoppingItems, splitSeries, stepLen, stepsDoneOf, stepsOf, stepTimes, syncEventTasks, taskIssues, taskSpan, templates, travelTasks, trySetBlockDone, tryStep } from './model.js';
 import { addDays, fmtDur, fmtTime, isoDay, ruleAt, formatTemplateLines, parseDuration, freeSlot, groupTasks, IMPORTANCE, importanceOf, isDate, nowMinutes, parseDate, parseTemplateLines, parseTime, quickAdd, REPEATS, sortTasks, today } from './plan.js';
 import { AUTO_SPANS, partOfDay, placeGhosts, planEventTasks, planGroceryTrips, planSoon, suggestSlot, trayTasks, tripItems, tripTitle, warnConflicts } from './planning.js';
 import { pantryCoverage } from './recipe-tools.js';
@@ -25,9 +25,10 @@ import { applyTravel, hereNow, isTravelStep, ownMinutes, realSteps, scheduleTrav
 import { MODE_ICON, MODES as TRAVEL_MODES } from './travel.js';
 import { impBadge, invTag } from './views/planner.js';
 import { remindDefault, remindLabel, REMINDS } from './views/settings.js';
-import { K, readerList, readerTrips, RICETTE_SHOP, SH, SHOPS, shopAdd, shopName, shopReader, shopsList, tripRowsHtml } from './views/shop.js';
+import { K, readerList, readerTrips, RICETTE_SHOP, SH, shopAdd, shopName, shopReader, tripRowsHtml } from './views/shop.js';
 import { cardRowsIn, fixOcc, skipOcc, slotOptions, toFix } from './weekpick.js';
 import { openPlus, openPlusEdit } from './plus.js';
+import { deletePlace, placeEmoji, placeUsers, savePlace } from './places.js';
 import { pullCandidate, pullUp, runningBlock, shiftAfter, startBlock, startTask, stopTimer, timeHistory, undoShift } from './timer.js';
 import { cleanWindows, dateBox, dayShort, durField, lines, openModal, placeLink, plannedIso, readDur, readWindows, repeatText, searchBox, TIME24, windowsEditor, windowsText } from './widgets.js';
 
@@ -1007,34 +1008,57 @@ export function openPicker({ people = 2, selected = [], onDone, onBack }) {
   }
   draw();
 }
-export function openShopRec(shop = null) {
-  const x = shop ? { ...shop, hours: (shop.hours || []).map((w) => ({ ...w })) } : { name: '', minutes: 30, hours: [], place: '', link: '' };
-  const draw = () => openModal(`
-    <h2>🏪 ${esc(shop ? x.name : t('newShop'))}</h2>
-    <label>${esc(t('name'))}<input name="name" required value="${esc(x.name)}" autocomplete="off"></label>
-    <label>${esc(t('shopVisit'))}${durField('minutes', x.minutes || 30)}</label>
+// (v85) A saved place: name and emoji, address and link, «🛒 Ci faccio la spesa» (a shop: a visit length,
+// and the shopping list uses it), opening hours, and what uses it. `opts.shop` starts a new one as a shop.
+const PLACE_EMOJI = ['📍', '🛒', '🥖', '💊', '📮', '🏛️', '🏦', '💼', '🏋️', '🩺', '🏥', '👵', '☕', '🍽️', '🏫', '📚', '🌳', '⛽', '✂️', '⛪'];
+export function openPlaceRec(place = null, opts = {}) {
+  const x = place ? { ...place, hours: (place.hours || []).map((w) => ({ ...w })) } : { name: '', minutes: 30, hours: [], place: '', link: '', em: opts.shop ? '🛒' : '📍', shop: Boolean(opts.shop) };
+  const users = () => placeUsers(place?.id, live(SH()).filter((i) => !i.checked));
+  // what's on the plan from today that would fall outside these hours
+  const outside = () => {
+    if (!place) return [];
+    const ids = new Set(users().tasks.map((y) => y.id)); const td = today();
+    return live('blocks').filter((b) => ids.has(b.taskId) && b.date >= td && !outcomeOf(b) && closedIssue(b, { ...x, hours: cleanWindows(x.hours) }));
+  };
+  const draw = () => {
+    const u = users(); const out = outside();
+    const lostItems = place?.shop && !x.shop ? u.items : [];
+    openModal(`
+    <h2>${esc(x.em || placeEmoji(x))} ${esc(place ? x.name : t(x.shop ? 'newShop' : 'plcNew'))}</h2>
+    <div class="plc-emojis" role="radiogroup" aria-label="${esc(t('plcIcon'))}">${PLACE_EMOJI.map((e) => `<label><input type="radio" name="em" value="${e}" ${(x.em || placeEmoji(x)) === e ? 'checked' : ''}><span>${e}</span></label>`).join('')}</div>
+    <label>${esc(t('name'))}<input name="name" required value="${esc(x.name)}" autocomplete="off" placeholder="${esc(t('plcNamePh'))}"></label>
+    <label>${esc(t('plcAddress'))}<input name="place" value="${esc(x.place || '')}" autocomplete="off" placeholder="${esc(t('homePh'))}"></label>
+    <label>${esc(t('placeLink'))}<input name="link" type="url" value="${esc(x.link || '')}" autocomplete="off"></label>
+    <button class="pl-tog${x.shop ? ' on' : ''}" type="submit" value="shop-tog" formnovalidate><span>🛒 ${esc(t('plcShop'))}<small>${esc(t(x.shop ? 'plcShopOn' : 'plcShopOff'))}</small></span><i></i></button>
+    ${lostItems.length ? `<p class="notice-inline">${esc(t('plcShopLost', lostItems.map((i) => i.name).join(', ')))}</p>` : ''}
+    ${x.shop ? `<label>${esc(t('shopVisit'))}${durField('minutes', x.minutes || 30)}</label>` : ''}
     <div class="field-label">🕒 ${esc(t('openingHours'))}</div>
     ${windowsEditor('w_', x.hours)}
-    ${hint('openingHoursHint')}
-    <label>${esc(t('place'))}<input name="place" value="${esc(x.place || '')}" autocomplete="off"></label>
-    <label>${esc(t('placeLink'))}<input name="link" type="url" value="${esc(x.link || '')}" autocomplete="off"></label>
+    <p class="hint">${esc(t(cleanWindows(x.hours).length ? 'plcHoursHint' : x.shop ? 'openingHoursHint' : 'plcNoHoursHint'))}</p>
+    ${out.length ? `<p class="notice-inline">⚠ ${esc(t('plcOutside', out.length))}</p>` : ''}
+    ${u.tasks.length || u.items.length ? `<div class="field-label">${esc(t('plcUsedBy'))}</div><ul class="plc-used">${u.tasks.map((y) => `<li><span>${esc(y.title)}</span></li>`).join('')}${u.items.length ? `<li><span>🛒 ${esc(u.items.map((i) => i.name).join(', '))}</span><small>${esc(t('tasksTab_shop'))}</small></li>` : ''}</ul>` : ''}
     <div class="button-row">
       <button class="btn primary" value="ok">${esc(t('save'))}</button>
       <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
-      ${shop ? `<button class="btn danger" value="delete" formnovalidate>${esc(t('delete'))}</button>` : ''}
+      ${place ? `<button class="btn danger" value="delete" formnovalidate>${esc(t('delete'))}</button>` : ''}
     </div>`, (form, action, e) => {
-    x.name = form.elements.namedItem('name').value.trim();
-    x.minutes = readDur(form, 'minutes', 30);
-    x.hours = readWindows(form, 'w_', x.hours.length);
-    x.place = form.place.value.trim(); x.link = form.link.value.trim();
-    const wm = action.match(/^w_(add|rm:(\d+))$/);
-    if (wm) { e.preventDefault(); if (wm[1] === 'add') x.hours.push({ days: x.hours.length ? [6] : [1, 2, 3, 4, 5], from: 480, to: 1200 }); else x.hours.splice(Number(wm[2]), 1); draw(); return; }
-    if (action === 'delete') { if (confirm(t('confirmDeleteShop'))) remove(SHOPS(), shop.id); render(); return; }
-    if (!x.name) { e.preventDefault(); return; }
-    upsert(SHOPS(), { ...(shop || {}), id: shop?.id || uid(), name: x.name, minutes: x.minutes, hours: cleanWindows(x.hours), place: x.place, link: x.link, order: shop?.order ?? shopsList().length }, { silent: true });
-    changed();
-    render();
-  });
+      x.name = form.elements.namedItem('name').value.trim();
+      x.em = form.querySelector('input[name=em]:checked')?.value || x.em;
+      if (x.shop) x.minutes = readDur(form, 'minutes', x.minutes || 30);
+      x.hours = readWindows(form, 'w_', x.hours.length);
+      x.place = form.elements.namedItem('place').value.trim(); x.link = form.elements.namedItem('link').value.trim();
+      const wm = action.match(/^w_(add|rm:(\d+))$/);
+      if (wm) { e.preventDefault(); if (wm[1] === 'add') x.hours.push({ days: x.hours.length ? [6] : [1, 2, 3, 4, 5], from: 480, to: 1200 }); else x.hours.splice(Number(wm[2]), 1); draw(); return; }
+      if (action === 'shop-tog') { e.preventDefault(); x.shop = !x.shop; if (x.shop && !x.minutes) x.minutes = 30; draw(); return; }
+      if (action === 'delete') { if (confirm(t(u.tasks.length ? 'plcDeleteUsed' : 'plcDeleteConfirm', x.name))) { deletePlace(place.id); changed(); } render(); return; }
+      if (!x.name) { e.preventDefault(); return; }
+      const { shop, ...fields } = x;
+      const saved = savePlace({ ...fields, id: place?.id || uid(), hours: cleanWindows(x.hours) }, shop);
+      for (const y of live('tasks').filter((z) => z.placeId === saved.id)) applyTravel(y);
+      changed();
+      render();
+    });
+  };
   draw();
 }
 

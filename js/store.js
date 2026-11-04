@@ -7,9 +7,9 @@
 // so each sync only moves a few small files.
 
 // `shopping` is Everyday's own shopping list, used only while Ricette isn't connected.
-// `shops` likewise (Ricette's data/shops.json once connected); `config` = settings every device and the
+// `shops` likewise (Ricette's data/shops.json once connected); `places` (v85) = the saved places that aren't shops; `config` = settings every device and the
 // Google Calendar sync share (e.g. reminders), one record per setting: {id, value}.
-export const COLLECTIONS = ['tasks', 'blocks', 'templates', 'categories', 'events', 'gcal', 'shopping', 'shops', 'config'];
+export const COLLECTIONS = ['tasks', 'blocks', 'templates', 'categories', 'events', 'gcal', 'shopping', 'shops', 'places', 'config'];
 export const SHARDED = { blocks: 'date', events: 'date' }; // collection -> field holding a YYYY-MM-DD date
 // Local copies of Ricette's data (its private repo), kept in sync the same way.
 // Recipes are only read; the pantry and the shopping list are shared both ways.

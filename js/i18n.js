@@ -6,6 +6,23 @@ const plural = (n, one, many) => (n === 1 ? one : many);
 
 const dict = {
   en: {
+    // (v85) saved places
+    placesTitle: 'Saved places', nPlaces: (n, s) => (n ? `${n} ${n === 1 ? 'place' : 'places'}${s ? ` · ${s} ${s === 1 ? 'shop' : 'shops'}` : ''}` : 'No places yet'),
+    placesWhy: 'The places you go to, with opening hours if they have them. The planner only sends you to a place when it is open; a place without hours has no limits. 🛒 marks the shops: the shopping list uses those.',
+    plcHomeSub: 'trips start here', plcAll: (n) => `All · ${n}`, plcShops: (n) => `🛒 Shops · ${n}`, plcWithHours: 'With hours', plcNoShops: 'No shops yet.', plcNone: 'No places yet.',
+    plcOrderHint: 'Drag the groups in the shopping list (By shop) to change the order: shops higher up are preferred.', plcNew: 'New place',
+    plcOpenTo: (tm) => `Open until ${tm}`, plcOpensAt: (tm) => `Closed · opens at ${tm}`, plcOpensOn: (d, tm) => `Closed · opens ${d} at ${tm}`, plcClosed: 'Closed',
+    plcIcon: 'Icon', plcNamePh: 'Post office, gym, Mum’s…', plcAddress: 'Address', plcShop: 'I shop here', plcShopOn: 'A shop: the shopping list uses it (and Ricette sees it)', plcShopOff: 'Turn on if things on the list are bought here',
+    plcShopLost: (l) => `${l}: marked for this shop. Turned off, they count as “any shop” (or stay with their other shops).`,
+    plcHoursHint: 'The planner only plans things here when it is open. If you pick a time when it is closed yourself, it shows as a conflict.', plcNoHoursHint: 'No hours = no limits: go whenever you like.',
+    plcOutside: (n) => `With these hours ${n === 1 ? '1 time on the plan falls' : `${n} times on the plan fall`} when it is closed: ${n === 1 ? 'it shows' : 'they show'} as a conflict.`,
+    plcUsedBy: 'Used by', plcDeleteConfirm: (n) => `Delete “${n}”?`, plcDeleteUsed: (n) => `Delete “${n}”? Its tasks keep the address, without the hours.`,
+    plcNoLimits: 'no hours: any time', plcSaveAs: 'Save as a place', plcOnlyHere: 'Only for this task, without hours.', plcSearchPh: 'Search your places or type an address…', plcPickHint: 'A saved place keeps its address and hours for every task that uses it.',
+    plcRecent: 'Recently used', plcRecentTab: 'Recent', plcShopsTab: 'Shops', plcAllTab: 'All', plcAllAZ: 'All A–Z', plcSaved: (n) => `Saved in Places: ${n}. Add its hours in Settings → Saved places.`,
+    plcJustHere: (q) => `“${q}” only for this task`, plcJustHereSub: 'not saved, no hours', plcSaveNew: (q) => `Save “${q}” as a place`, plcSaveNewSub: 'in Saved places, for next time',
+    cf_closedDay: (a, d, n) => `“${a}” is ${d}: ${n} doesn't open that day`, cf_closes: (a, e, n, at) => `“${a}” ends at ${e}, but ${n} closes at ${at}`,
+    cf_opens: (a, st, n, at) => `“${a}” starts at ${st}, but ${n} opens at ${at}`, cf_out: (a, st, n, r) => `“${a}” at ${st} is outside the hours of ${n} (${r})`,
+    whyClosed: (a) => `${a}: its place isn't open at a free time`, noOpenSlot: (n) => `No free time when ${n} is open in the next two weeks.`, r_open: 'when the place is open',
     // (v70) swapping a slot, choosing in a conflict, routines in "what fits?"
     swapHint: '…or a dashed block to put it in its place', swapHere: '⇄ in its place', swapTitle: (a, tm) => `${a} → ${tm}`, swapWhere: (b) => `Instead of “${b}”. Where does ${b} go?`,
     invPending: '✉ Invite · not answered', invMaybe: '✉ Maybe', invYes: '✓ You’re going', invNotGoing: 'Not going', invFrom: (n) => `Invite from ${n}`, invYourAnswer: 'Your answer:', invSaidYes: 'You said yes: whoever invited you may be expecting you.', invSkipPut: (x) => `Not going · put ${x} here`, invSkipPutSub: 'The invite stays in the day, greyed out, and stops counting as busy', invAlsoGoogle: 'Answer No on Google too', invAlsoGoogleSub: (n) => `${n} will see your answer at the next sync`, invSkip: 'Not going', invSkipped: 'Marked as not going', invRejoin: 'I’m going after all', invRejoinSub: (x) => `${x} moves to the first free time`, invHide: 'Remove from the day', invHideSub: 'It stays in Google Calendar', invHidden: 'Removed from the day', invTookBy: (x) => `· ${x} in its place`, invGoogleNo: 'No sent to Google', invRejoined: 'You’re going again', invRejoinedG: 'You’re going again · on Google your answer is still No: change it there', invOwnLocked: '🔒 yours on Google: move it there',
@@ -366,6 +383,23 @@ const dict = {
     r_morning: 'your morning slot', r_afternoon: 'your afternoon slot', r_evening: 'your evening slot',
   },
   it: {
+    // (v85) luoghi salvati
+    placesTitle: 'Luoghi salvati', nPlaces: (n, s) => (n ? `${n} ${n === 1 ? 'luogo' : 'luoghi'}${s ? ` · ${s} ${s === 1 ? 'negozio' : 'negozi'}` : ''}` : 'Ancora nessun luogo'),
+    placesWhy: 'I posti dove vai, con gli orari se ne hanno. Il planner ti ci manda solo quando sono aperti; un luogo senza orari non ha limiti. 🛒 segna i negozi: la lista della spesa usa quelli.',
+    plcHomeSub: 'da qui partono i viaggi', plcAll: (n) => `Tutti · ${n}`, plcShops: (n) => `🛒 Negozi · ${n}`, plcWithHours: 'Con orari', plcNoShops: 'Ancora nessun negozio.', plcNone: 'Ancora nessun luogo.',
+    plcOrderHint: 'Per cambiare l’ordine trascina i gruppi nella lista della spesa (vista Negozi): i negozi più in alto sono i preferiti.', plcNew: 'Nuovo luogo',
+    plcOpenTo: (tm) => `Aperto fino alle ${tm}`, plcOpensAt: (tm) => `Chiuso · apre alle ${tm}`, plcOpensOn: (d, tm) => `Chiuso · apre ${d} alle ${tm}`, plcClosed: 'Chiuso',
+    plcIcon: 'Icona', plcNamePh: 'Posta, palestra, da mamma…', plcAddress: 'Indirizzo', plcShop: 'Ci faccio la spesa', plcShopOn: 'È un negozio: la Spesa lo usa, e lo vede anche Ricette', plcShopOff: 'Accendi se le cose della lista si comprano qui',
+    plcShopLost: (l) => `${l}: segnati su questo negozio. Spento, contano come «qualsiasi negozio» (o restano sugli altri negozi che hanno).`,
+    plcHoursHint: 'Il planner ci mette le cose solo quando è aperto. Se scegli tu un’ora in cui è chiuso, è un conflitto.', plcNoHoursHint: 'Nessun orario = nessun limite: ci vai quando vuoi.',
+    plcOutside: (n) => `Con questi orari ${n === 1 ? '1 volta nel piano cade' : `${n} volte nel piano cadono`} quando è chiuso: ${n === 1 ? 'diventa un conflitto' : 'diventano conflitti'}.`,
+    plcUsedBy: 'Lo usano', plcDeleteConfirm: (n) => `Eliminare «${n}»?`, plcDeleteUsed: (n) => `Eliminare «${n}»? Le attività tengono l’indirizzo, senza orari.`,
+    plcNoLimits: 'nessun orario: qualsiasi ora', plcSaveAs: 'Salva come luogo', plcOnlyHere: 'Solo per questa attività, senza orari.', plcSearchPh: 'Cerca tra i tuoi luoghi o scrivi un indirizzo…', plcPickHint: 'Un luogo salvato tiene indirizzo e orari per tutte le attività che lo usano.',
+    plcRecent: 'Usati di recente', plcRecentTab: 'Recenti', plcShopsTab: 'Negozi', plcAllTab: 'Tutti', plcAllAZ: 'Tutte A–Z', plcSaved: (n) => `Salvato nei Luoghi: ${n}. Gli orari li aggiungi in Impostazioni → Luoghi salvati.`,
+    plcJustHere: (q) => `«${q}» solo per questa attività`, plcJustHereSub: 'non salvato, senza orari', plcSaveNew: (q) => `Salva «${q}» come luogo`, plcSaveNewSub: 'nei Luoghi salvati, per la prossima volta',
+    cf_closedDay: (a, d, n) => `«${a}» è ${d}: ${n} quel giorno non apre`, cf_closes: (a, e, n, at) => `«${a}» finisce alle ${e}, ma ${n} chiude alle ${at}`,
+    cf_opens: (a, st, n, at) => `«${a}» inizia alle ${st}, ma ${n} apre alle ${at}`, cf_out: (a, st, n, r) => `«${a}» alle ${st} è fuori orario per ${n} (${r})`,
+    whyClosed: (a) => `${a}: il suo luogo non è aperto in un momento libero`, noOpenSlot: (n) => `Nessun momento libero con ${n} aperto nelle prossime due settimane.`, r_open: 'quando il luogo è aperto',
     // (v70) scambiare un posto, scegliere in una sovrapposizione, le routine in «cosa ci sta?»
     swapHint: '…o un blocco tratteggiato per metterla al suo posto', swapHere: '⇄ al posto di questo', swapTitle: (a, tm) => `${a} → ${tm}`, swapWhere: (b) => `Al posto di «${b}». Dove va ${b}?`,
     invPending: '✉ Invito · da rispondere', invMaybe: '✉ Forse', invYes: '✓ Ci vai', invNotGoing: 'Non ci vai', invFrom: (n) => `Invito di ${n}`, invYourAnswer: 'La tua risposta:', invSaidYes: 'Avevi detto sì: chi ti ha invitato potrebbe aspettarti.', invSkipPut: (x) => `Non ci vado · metti qui ${x}`, invSkipPutSub: 'L’invito resta nel giorno, in grigio, e non conta più come occupato', invAlsoGoogle: 'Rispondi No anche su Google', invAlsoGoogleSub: (n) => `${n} vedrà la risposta alla prossima sincronizzazione`, invSkip: 'Non ci vado', invSkipped: 'Segnato: non ci vai', invRejoin: 'Ci vado di nuovo', invRejoinSub: (x) => `${x} si sposta al primo orario libero`, invHide: 'Togli dal giorno', invHideSub: 'Resta su Google Calendar', invHidden: 'Tolto dal giorno', invTookBy: (x) => `· al suo posto ${x}`, invGoogleNo: 'No inviato a Google', invRejoined: 'Ci vai di nuovo', invRejoinedG: 'Ci vai di nuovo · su Google la risposta resta No: cambiala lì', invOwnLocked: '🔒 tuo su Google: spostalo lì',
@@ -721,6 +755,23 @@ const dict = {
     r_morning: 'la tua fascia del mattino', r_afternoon: 'la tua fascia del pomeriggio', r_evening: 'la tua fascia serale',
   },
   de: {
+    // (v85) gespeicherte Orte
+    placesTitle: 'Gespeicherte Orte', nPlaces: (n, s) => (n ? `${n} ${n === 1 ? 'Ort' : 'Orte'}${s ? ` · ${s} ${s === 1 ? 'Geschäft' : 'Geschäfte'}` : ''}` : 'Noch keine Orte'),
+    placesWhy: 'Die Orte, an die du gehst, mit Öffnungszeiten, falls sie welche haben. Der Planer schickt dich nur hin, wenn geöffnet ist; ein Ort ohne Zeiten hat keine Grenzen. 🛒 markiert die Geschäfte: die Einkaufsliste nutzt diese.',
+    plcHomeSub: 'hier beginnen die Wege', plcAll: (n) => `Alle · ${n}`, plcShops: (n) => `🛒 Geschäfte · ${n}`, plcWithHours: 'Mit Zeiten', plcNoShops: 'Noch keine Geschäfte.', plcNone: 'Noch keine Orte.',
+    plcOrderHint: 'Zum Ändern der Reihenfolge die Gruppen in der Einkaufsliste (Ansicht Geschäfte) ziehen: weiter oben = bevorzugt.', plcNew: 'Neuer Ort',
+    plcOpenTo: (tm) => `Geöffnet bis ${tm}`, plcOpensAt: (tm) => `Geschlossen · öffnet um ${tm}`, plcOpensOn: (d, tm) => `Geschlossen · öffnet ${d} um ${tm}`, plcClosed: 'Geschlossen',
+    plcIcon: 'Symbol', plcNamePh: 'Post, Fitnessstudio, bei Mama…', plcAddress: 'Adresse', plcShop: 'Hier kaufe ich ein', plcShopOn: 'Ein Geschäft: die Einkaufsliste nutzt es (und Ricette sieht es)', plcShopOff: 'Einschalten, wenn Dinge von der Liste hier gekauft werden',
+    plcShopLost: (l) => `${l}: diesem Geschäft zugeordnet. Ausgeschaltet zählen sie als „beliebiges Geschäft“ (oder bleiben bei ihren anderen Geschäften).`,
+    plcHoursHint: 'Der Planer plant hier nur, wenn geöffnet ist. Wählst du selbst eine Zeit, zu der geschlossen ist, ist das ein Konflikt.', plcNoHoursHint: 'Keine Zeiten = keine Grenzen: geh hin, wann du willst.',
+    plcOutside: (n) => `Mit diesen Zeiten ${n === 1 ? 'fällt 1 Termin im Plan' : `fallen ${n} Termine im Plan`} in die Schließzeit: ${n === 1 ? 'das wird ein Konflikt' : 'das werden Konflikte'}.`,
+    plcUsedBy: 'Genutzt von', plcDeleteConfirm: (n) => `„${n}“ löschen?`, plcDeleteUsed: (n) => `„${n}“ löschen? Die Aufgaben behalten die Adresse, ohne Zeiten.`,
+    plcNoLimits: 'keine Zeiten: jederzeit', plcSaveAs: 'Als Ort speichern', plcOnlyHere: 'Nur für diese Aufgabe, ohne Zeiten.', plcSearchPh: 'Orte durchsuchen oder Adresse eingeben…', plcPickHint: 'Ein gespeicherter Ort behält Adresse und Zeiten für alle Aufgaben, die ihn nutzen.',
+    plcRecent: 'Zuletzt genutzt', plcRecentTab: 'Zuletzt', plcShopsTab: 'Geschäfte', plcAllTab: 'Alle', plcAllAZ: 'Alle A–Z', plcSaved: (n) => `In Orten gespeichert: ${n}. Zeiten in Einstellungen → Gespeicherte Orte ergänzen.`,
+    plcJustHere: (q) => `„${q}“ nur für diese Aufgabe`, plcJustHereSub: 'nicht gespeichert, ohne Zeiten', plcSaveNew: (q) => `„${q}“ als Ort speichern`, plcSaveNewSub: 'in Gespeicherte Orte, fürs nächste Mal',
+    cf_closedDay: (a, d, n) => `„${a}“ ist ${d}: ${n} öffnet an dem Tag nicht`, cf_closes: (a, e, n, at) => `„${a}“ endet um ${e}, aber ${n} schließt um ${at}`,
+    cf_opens: (a, st, n, at) => `„${a}“ beginnt um ${st}, aber ${n} öffnet um ${at}`, cf_out: (a, st, n, r) => `„${a}“ um ${st} liegt außerhalb der Zeiten von ${n} (${r})`,
+    whyClosed: (a) => `${a}: der Ort ist zu keiner freien Zeit geöffnet`, noOpenSlot: (n) => `In den nächsten zwei Wochen keine freie Zeit, zu der ${n} geöffnet ist.`, r_open: 'wenn der Ort geöffnet ist',
     // (v70) einen Platz tauschen, bei Überschneidungen wählen, Routinen in „Was passt?“
     swapHint: '…oder einen gestrichelten Block, um es an seine Stelle zu setzen', swapHere: '⇄ an seiner Stelle', swapTitle: (a, tm) => `${a} → ${tm}`, swapWhere: (b) => `Statt „${b}“. Wohin kommt ${b}?`,
     invPending: '✉ Einladung · unbeantwortet', invMaybe: '✉ Vielleicht', invYes: '✓ Du gehst hin', invNotGoing: 'Gehst nicht hin', invFrom: (n) => `Einladung von ${n}`, invYourAnswer: 'Deine Antwort:', invSaidYes: 'Du hattest zugesagt: wer dich eingeladen hat, erwartet dich vielleicht.', invSkipPut: (x) => `Ich gehe nicht · ${x} hierhin`, invSkipPutSub: 'Die Einladung bleibt grau im Tag und zählt nicht mehr als belegt', invAlsoGoogle: 'Auch bei Google absagen', invAlsoGoogleSub: (n) => `${n} sieht die Antwort bei der nächsten Synchronisierung`, invSkip: 'Ich gehe nicht', invSkipped: 'Markiert: du gehst nicht', invRejoin: 'Ich gehe doch', invRejoinSub: (x) => `${x} rückt in die erste freie Zeit`, invHide: 'Aus dem Tag entfernen', invHideSub: 'Bleibt im Google Kalender', invHidden: 'Aus dem Tag entfernt', invTookBy: (x) => `· stattdessen ${x}`, invGoogleNo: 'Absage an Google gesendet', invRejoined: 'Du gehst wieder hin', invRejoinedG: 'Du gehst wieder hin · bei Google bleibt die Absage: dort ändern', invOwnLocked: '🔒 dein Google-Termin: dort verschieben',

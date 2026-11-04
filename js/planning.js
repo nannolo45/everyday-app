@@ -4,6 +4,8 @@ import { t } from './i18n.js';
 import { isTodo } from './kinds.js';
 import { busyOn, conflictsOn, conflictText, eventTasksOf, followParent, itemById, leadOf, leaveTrace, maySplit, minutesLeft, newBlock, openTasks, outcomeOf, partsLeft, periodKey, plannedTaskIds, planTask, prereqsOf, splitsSteps, stepLen, timesLeft } from './model.js';
 import { addDays, fmtTime, freeSlot, importanceOf, nowMinutes, parseDate, today } from './plan.js';
+import { hoursFields, placeHours, placeOfTask } from './places.js';
+import { isTravelStep } from './travel-plan.js';
 import { assignItems, planTrips, shopsFor } from './shops.js';
 import { nearestSlot, placeGroceries, placePrep, scoreTask, spreadTasks, WINDOWS } from './smart.js';
 import { get, live, remove, saveSettings, state, upsert } from './store.js';
@@ -41,6 +43,21 @@ export function warnConflicts(block) {
   toast(`⚠ ${conflictText(c)}`);
 }
 
+// (v85) Where a block of a task with a place could go instead: the first free time, inside your hours
+// and the place's opening hours, over the two weeks from its day (or today); else from today.
+export function openSlotFor(task, b) {
+  return openSlotFrom(task, b, b.date > today() ? b.date : today()) || (b.date > today() ? openSlotFrom(task, b, today()) : null);
+}
+function openSlotFrom(task, b, from) {
+  const s = planSettings(); const td = today(); const now = nowMinutes();
+  const dates = Array.from({ length: 14 }, (_, i) => addDays(from, i));
+  const dayInfo = (d) => ({ date: d, blocks: busyOn(d).filter((x) => x.id !== b.id && !x.allowOverlap), from: Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((now + 5) / 5) * 5 : 0), to: autoHoursFor(d)[1] });
+  const step = b.stepId && (task.steps || []).find((y) => y.id === b.stepId);
+  const hf = step ? (placeHours(task) ? { hours: placeHours(task), pre: 0, own: b.minutes } : {}) : hoursFields(task);
+  const item = { id: 'fix', taskId: task.id, title: task.title, minutes: b.minutes, importance: importanceOf(task), createdAt: task.createdAt, ...hf };
+  const p = spreadTasks({ tasks: [item], days: dates.map(dayInfo), settings: { ...s, maxLoad: 1440 } }).placed[0];
+  return p ? { date: p.date, start: p.start } : null;
+}
 export function fixConflict(c) {
   const s = planSettings();
   if (c.type === 'overlap') {
@@ -75,6 +92,14 @@ export function fixConflict(c) {
       if (at != null) { followParent(upsert('blocks', { ...b, date: d, start: at, auto: false }, { silent: true })); toast(t('movedTo', b.title, `${relDay(d)} ${fmtTime(at)}`)); done = true; }
     }
     if (!done) { toast(t('noRoom')); return; }
+  } else if (c.type === 'closed') {
+    // (v85) The first free time when its place is open, from that day (or today) on.
+    const b = get('blocks', c.ids[0]); const task = b && get('tasks', b.taskId);
+    if (!task) return;
+    const at = openSlotFor(task, b);
+    if (!at) { toast(t('noOpenSlot', placeOfTask(task)?.name || '')); return; }
+    followParent(upsert('blocks', { ...b, date: at.date, start: at.start, auto: false, okClosed: null }, { silent: true }));
+    toast(t('movedTo', b.title, `${relDay(at.date)} ${fmtTime(at.start)}`));
   } else if (c.type === 'late') {
     const b = get('blocks', c.ids[0]);
     const due = get('tasks', b.taskId)?.due;
@@ -141,7 +166,7 @@ export function suggestSlot(x) {
   const s = planSettings(); const td = today(); const now = nowMinutes();
   const dates = Array.from({ length: 7 }, (_, i) => addDays(td, i));
   const dayInfo = (d) => ({ date: d, blocks: busyOn(d).filter((b) => !b.allowOverlap), from: Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((now + 5) / 5) * 5 : 0), to: autoHoursFor(d)[1] });
-  const item = { id: 'new', taskId: 'new', title: x.title || '', minutes: x.minutes || 30, due: x.due || null, importance: x.importance || 3, priority: x.priority || 0, createdAt: Date.now() };
+  const item = { id: 'new', taskId: 'new', title: x.title || '', minutes: x.minutes || 30, due: x.due || null, importance: x.importance || 3, priority: x.priority || 0, createdAt: Date.now(), ...(x.hours ? { hours: x.hours, pre: x.pre || 0, own: x.own || x.minutes || 30 } : {}) };
   return spreadTasks({ tasks: [item], days: dates.map(dayInfo), settings: s }).placed[0] || null;
 }
 // Plan a stored task as soon as possible (the planner's rules, the next 7 days); the first block or null.
@@ -156,7 +181,7 @@ function stepItems(x, base) {
   const out = []; let prev = null;
   for (const y of partsLeft(x)) {
     const id = `${x.id}~${y.id}`;
-    out.push({ ...base, id, stepId: y.id, title: `${x.title} · ${y.title}`, minutes: stepLen({}, y), prep: prev ? [] : x.prep, after: prev ? [prev] : [], afterTasks: prev ? [] : base.afterTasks, notBefore: prev ? null : base.notBefore });
+    out.push({ ...base, id, stepId: y.id, title: `${x.title} · ${y.title}`, minutes: stepLen({}, y), ...(isTravelStep(y) ? { hours: null } : { pre: 0, own: stepLen({}, y) }), prep: prev ? [] : x.prep, after: prev ? [prev] : [], afterTasks: prev ? [] : base.afterTasks, notBefore: prev ? null : base.notBefore });
     prev = id;
   }
   return out;
@@ -273,7 +298,7 @@ export function planningItems(tasks, dates) {
   const inRun = new Set(tasks.map((x) => x.id));
   const lastItem = new Map();
   for (const x of tasks) {
-    const base = { taskId: x.id, boost: boostOf.get(x.id) || 0, title: x.title, minutes: minutesLeft(x), due: x.repeat === 'times' ? null : x.due || null, importance: importanceOf(x), priority: x.priority, when: x.when, createdAt: x.createdAt, windows: x.windows?.length ? x.windows : null, prep: x.prep };
+    const base = { taskId: x.id, boost: boostOf.get(x.id) || 0, title: x.title, minutes: minutesLeft(x), due: x.repeat === 'times' ? null : x.due || null, importance: importanceOf(x), priority: x.priority, when: x.when, createdAt: x.createdAt, windows: x.windows?.length ? x.windows : null, prep: x.prep , ...hoursFields(x) };
     let notBefore = null; const afterTasks = [];
     let waiting = null;
     for (const { task: p, block } of prereqsOf(x)) {
@@ -385,11 +410,11 @@ export function skipNote(skipped) {
     const title = get('tasks', x.taskId)?.title || '';
     if (seen.has(x.taskId)) continue; seen.add(x.taskId);
     if (x.why === 'needs') { parts.push(t('whyNeeds', title, x.name)); continue; }
-    const k = ['window', 'toolong', 'waiting'].includes(x.why) ? x.why : 'full';
+    const k = ['window', 'toolong', 'waiting', 'closed'].includes(x.why) ? x.why : 'full';
     if (!byWhy.has(k)) byWhy.set(k, []);
     byWhy.get(k).push(title);
   }
-  const KEY = { window: 'whyWindow', toolong: 'whyLong', waiting: 'whyWaiting', full: 'whyFull' };
+  const KEY = { window: 'whyWindow', toolong: 'whyLong', waiting: 'whyWaiting', full: 'whyFull', closed: 'whyClosed' };
   for (const [k, titles] of byWhy) {
     const names = titles.length > 3 ? t('andMore', titles.slice(0, 2).join(', '), titles.length - 2) : titles.join(', ');
     parts.push(t(KEY[k], names));

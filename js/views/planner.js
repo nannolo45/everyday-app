@@ -120,8 +120,9 @@ export function conflictBanner(date) {
   return `<div class="notice warn">
     <button class="notice-head" type="button" data-action="toggle-conflicts">⚠ ${esc(t('nConflicts', conflicts.length))} <span>${ui.showConflicts ? '▴' : '▾'}</span></button>
     ${ui.showConflicts ? `<ul>${conflicts.map((c, i) => `<li><span>${esc(conflictText(c))}</span>
-      ${c.type !== 'late' || (get('tasks', get('blocks', c.ids[0])?.taskId)?.due || '') >= td ? `<button class="btn small" type="button" data-action="fix" data-date="${date}" data-i="${i}">${esc(t('fix'))}</button>` : ''}
-      ${c.type === 'overlap' ? `<button class="btn small primary" type="button" data-action="conflict-choose" data-date="${date}" data-i="${i}">${esc(t('chooseBtn'))}</button><button class="btn small ghost" type="button" data-action="allow" data-date="${date}" data-i="${i}">${esc(t('fine'))}</button>` : ''}</li>`).join('')}</ul>` : ''}
+      ${(c.type !== 'late' || (get('tasks', get('blocks', c.ids[0])?.taskId)?.due || '') >= td) && !(c.type === 'closed' && isEvent(get('tasks', get('blocks', c.ids[0])?.taskId))) ? `<button class="btn small" type="button" data-action="fix" data-date="${date}" data-i="${i}">${esc(t('fix'))}</button>` : ''}
+      ${c.type === 'overlap' ? `<button class="btn small primary" type="button" data-action="conflict-choose" data-date="${date}" data-i="${i}">${esc(t('chooseBtn'))}</button><button class="btn small ghost" type="button" data-action="allow" data-date="${date}" data-i="${i}">${esc(t('fine'))}</button>` : ''}
+      ${c.type === 'closed' ? `<button class="btn small ghost" type="button" data-action="allow" data-date="${date}" data-i="${i}">${esc(t('fine'))}</button>` : ''}</li>`).join('')}</ul>` : ''}
   </div>`;
 }
 
