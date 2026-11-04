@@ -27,7 +27,7 @@ import { impBadge, invTag } from './views/planner.js';
 import { remindDefault, remindLabel, REMINDS } from './views/settings.js';
 import { K, readerList, readerTrips, RICETTE_SHOP, SH, SHOPS, shopAdd, shopName, shopReader, shopsList, tripRowsHtml } from './views/shop.js';
 import { cardRowsIn, fixOcc, skipOcc, slotOptions, toFix } from './weekpick.js';
-import { openPlus } from './plus.js';
+import { openPlus, openPlusEdit } from './plus.js';
 import { pullCandidate, pullUp, runningBlock, shiftAfter, startBlock, startTask, stopTimer, timeHistory, undoShift } from './timer.js';
 import { cleanWindows, dateBox, dayShort, durField, lines, openModal, placeLink, plannedIso, readDur, readWindows, repeatText, searchBox, TIME24, windowsEditor, windowsText } from './widgets.js';
 
@@ -1286,7 +1286,10 @@ export function finishTimer() {
 }
 // (v66) The short task sheet: which top chip is open (category · length · importance), kept while it redraws.
 let edPop = null;
+// (v84) a task you have opens in the + sheet (its pills and Altre opzioni); the full editor stays behind ⋯
+const inPlusSheet = (x) => x && !x.deleted && !classic() && !isMealType(x) && !isStep(x) && !x.travelRole && !isPalestra(x) && x.id !== 'meal_check' && ['todo', 'saved', 'event'].includes(x.kind);
 export function openTask(task, draft = null, opts = {}) {
+  if (task && !draft && !opts.full && !opts.old && !opts.draft && !opts.openSec && inPlusSheet(get('tasks', task.id) || task)) { openPlusEdit(get('tasks', task.id) || task); return; }
   if (!draft) edPop = null;
   const isNew = !task;
   const evMode = Boolean(isEvent(task) || isEvent(draft) || opts.event || isEvent(opts.draft));
@@ -1924,6 +1927,7 @@ export function openBlock(block, defaults = {}) {
   const items = checklistOf(b);
   const isShop = b.kind === 'groceries';
   const status = outcomeOf(b);
+  const turnUi = !classic() && !isNew && task && !isShop && !['meal', 'prep'].includes(b.kind); // (v84) a turn: this time, short
   // With steps, the time shown is when the anchor step starts (e.g. "Workout at 19:00"; getting there starts earlier).
   const off = !isNew && task ? anchorOffset(b, task) : 0;
   const anchorName = off ? anchorTitle(task) : null;
@@ -1948,14 +1952,18 @@ export function openBlock(block, defaults = {}) {
     ${parent ? `<p class="hint">↳ ${esc(t('prepForBlock', parent.title, fmtTime(parent.start)))}</p>` : ''}
     ${status === 'failed' ? `<p class="conn bad">✕ ${esc(t('markedCouldnt'))}${b.missing?.length ? ` ${esc(t('missingWere', b.missing.join(', ')))}` : ''}</p>` : ''}
     ${isCheckStep(b) && !status ? `${hint('checkStepHint')}` : ''}
-    ${isShop ? '' : `
+    ${turnUi ? `<input type="hidden" name="taskId" value="${esc(b.taskId || '')}"><input type="hidden" name="title" value="${esc(b.title)}"><input type="hidden" name="category" value="${esc(b.category || '')}">
+      <div class="tb-ttl">${esc(b.title)}</div><div class="tb-kick">${esc([isSeries(task) ? `↻ ${repeatText(task)}` : isEvent(task) ? `📌 ${t('apptOpt')}` : t('wm_once'), task.category ? catName(get('categories', task.category)) : ''].filter(Boolean).join(' · '))}</div>` : ''}
+    ${isShop || turnUi ? '' : `
       ${b.kind === 'prep' || isEvent(task) ? `<input type="hidden" name="taskId" value="${esc(b.taskId || '')}">` : `<input type="hidden" name="taskId" value="${esc(b.taskId || '')}">
       <details class="task-pick" ${isNew && !b.taskId ? 'open' : ''}><summary><span class="field-label">${esc(t('linkTask'))}</span> <span class="tp-cur">${esc(task ? task.title : t('noTaskLinked'))}</span></summary>
         ${taskPickList(b.taskId)}
         <button type="button" class="tp-item none" data-tp="" data-q="">${esc(t('noTaskLinked'))}</button></details>`}
       <label>${esc(t('title'))}<input name="title" value="${esc(b.title)}" autocomplete="off"></label>`}
-      ${isEvent(task) ? `<p class="hint">📅 ${esc(t('blockOfEvent'))}</p>` : ''}
-    ${esNew && !isShop ? `<label>${esc(t('date'))}${dateBox(`<input name="date" type="date" required value="${esc(b.date)}">`, b.date)}</label>
+      ${isEvent(task) && !turnUi ? `<p class="hint">📅 ${esc(t('blockOfEvent'))}</p>` : ''}
+    ${turnUi ? `<details class="tb-time"${ui.tbOpen ? ' open' : ''}><summary class="pl-pill on">🕒 ${esc(`${relDay(b.date)} · ${fmtTime(b.start + off)}–${fmtTime(b.start + b.minutes)} · ${fmtDur(b.minutes)}`)}<span aria-hidden="true">▾</span></summary><div class="pl-panel">
+      <label>${esc(t('date'))}${dateBox(`<input name="date" type="date" required value="${esc(b.date)}">`, b.date)}</label>
+      ${timePairHtml(b, off, anchorName ? t('anchorAt', anchorName) : '')}${b.seriesId ? `<p class="pl-hint">${esc(t('tbSeriesHint'))}</p>` : ''}</div></details>` : esNew && !isShop ? `<label>${esc(t('date'))}${dateBox(`<input name="date" type="date" required value="${esc(b.date)}">`, b.date)}</label>
     ${timePairHtml(b, off, anchorName ? t('anchorAt', anchorName) : '')}` : `<div class="three">
       <label>${esc(t('date'))}${dateBox(`<input name="date" type="date" required value="${esc(b.date)}">`, b.date)}</label>
       <label>${esc(anchorName ? t('anchorAt', anchorName) : t('start'))}<input name="start" ${TIME24} required value="${fmtTime(b.start + off)}"></label>
@@ -1967,12 +1975,13 @@ export function openBlock(block, defaults = {}) {
     ${items.length && !isNew ? `<div class="field-label">${esc(t('checklist'))}</div>
       <ul class="list checklist">${items.map((it, i) => `<li><label><input type="checkbox" data-ci="${i}" ${(b.checked || [])[i] ? 'checked' : ''}><span class="item-text">${esc(it)}</span></label></li>`).join('')}</ul>` : ''}
     ${stepsSection(b)}
-    ${isShop ? '' : `<div class="field-label">${esc(t('category'))}</div>${catChips(b.category)}`}
-    <label>${esc(t('notes'))}<textarea name="notes" rows="2">${esc(b.notes || '')}</textarea></label>
-    <label class="check"><input type="checkbox" name="allowOverlap" ${b.allowOverlap ? 'checked' : ''}> ${esc(t('allowOverlap'))}</label>
+    ${isShop || turnUi ? '' : `<div class="field-label">${esc(t('category'))}</div>${catChips(b.category)}`}
+    ${turnUi ? `<textarea name="notes" hidden>${esc(b.notes || '')}</textarea><input type="checkbox" name="allowOverlap" hidden ${b.allowOverlap ? 'checked' : ''}>` : `<label>${esc(t('notes'))}<textarea name="notes" rows="2">${esc(b.notes || '')}</textarea></label>
+    <label class="check"><input type="checkbox" name="allowOverlap" ${b.allowOverlap ? 'checked' : ''}> ${esc(t('allowOverlap'))}</label>`}
     ${!esNew && !isNew && !status && !b.startedAt && b.date >= today() && !isShop ? `<button class="btn primary start-now" value="block-start" formnovalidate>▶ ${esc(t(isPalestra(task) ? 'palStart' : 'startNow'))}</button>` : ''}
     ${esNew ? '' : b.startedAt && !b.endedAt ? `<p class="hint">⏱ ${esc(t('timerRunning'))}</p>` : b.endedAt ? `<p class="hint">⏱ ${esc(t('realOf', fmtDur(b.minutes), fmtDur(b.plannedMinutes || b.minutes)))}</p>` : ''}
-    ${isShop || isNew ? '' : task ? `<button class="btn small edit-task" value="edit-task" formnovalidate>${isEvent(task) ? '📅' : '▤'} ${esc(t(isEvent(task) ? 'editEventBtn' : 'editTaskSteps', task.title))}</button>`
+    ${turnUi ? `<button class="tb-belongs" value="edit-task" formnovalidate><span>${esc(isSeries(task) ? t('tbRoutine', task.title) : isEvent(task) ? t('tbAppt') : t('tbTask', task.title))}<small>${esc(isSeries(task) ? t('tbRoutineSub') : t('tbTaskSub'))}</small></span><span aria-hidden="true">›</span></button>`
+    : isShop || isNew ? '' : task ? `<button class="btn small edit-task" value="edit-task" formnovalidate>${isEvent(task) ? '📅' : '▤'} ${esc(t(isEvent(task) ? 'editEventBtn' : 'editTaskSteps', task.title))}</button>`
     : `<button class="btn small edit-task" value="to-task" formnovalidate>▤ ${esc(t('makeTask'))}</button>`}
     ${esNew ? `<div class="bk-foot">${esito}<div class="button-row bk-row">
       <button class="btn primary" value="ok">${esc(t('save'))}</button>

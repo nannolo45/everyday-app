@@ -1926,3 +1926,46 @@ body.is-wide #view > :last-child { margin-bottom: 0; }
 .sr-opts { display: grid; gap: 8px; margin: 10px 0; }
 .sr-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .sr-opt small { color: var(--muted); font-size: .86rem; }
+/* (v84) the + sheet for a task you have: what's on the plan, the foot, the whole list (overlay; beside it on a computer) */
+.pl-wrap { display: block; }
+.pl-lirow { display: flex; gap: 6px; align-items: stretch; }
+.pl-lirow .pl-in { flex: 1; min-width: 0; }
+.pl-all { flex: none; white-space: nowrap; }
+.pl-plan { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
+.pl-ph { display: flex; justify-content: space-between; padding: 9px 12px; background: var(--bg); color: var(--muted); font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+.pl-turn { display: flex; align-items: center; gap: 6px; padding: 9px 12px; border-top: 1px solid var(--line); font-size: .95rem; }
+.pl-turn > span { flex: 1; min-width: 0; } .pl-turn b { font-weight: 600; } .pl-turn small { display: block; color: var(--muted); font-size: .8rem; }
+.pl-pf { display: flex; justify-content: space-between; gap: 8px; padding: 2px 12px 4px; border-top: 1px solid var(--line); }
+.pl-pad { padding: 9px 12px; }
+.pl-foot { display: grid; grid-template-columns: 1.3fr 1fr auto; gap: 8px; position: sticky; bottom: 0; padding: 10px 0 14px; background: linear-gradient(transparent, var(--bg) 22%); z-index: 2; }
+.pl-foot .btn { font-size: .95rem; }
+.pl-dots { position: relative; } .pl-dots .bk-menu { bottom: 100%; right: 0; top: auto; }
+.pl-srow .pl-num.sm { width: 64px; flex: none; padding: 6px 8px; font-size: .95rem; }
+.pl-ov { position: fixed; inset: 0; z-index: 30; background: rgba(0, 0, 0, .45); display: flex; align-items: flex-end; }
+.pl-ovc { position: relative; width: 100%; max-height: calc(100% - 48px); overflow: auto; background: var(--bg); border-radius: 20px 20px 0 0; padding: 14px 16px 0; display: flex; flex-direction: column; gap: 8px; }
+.pl-ovh { display: flex; justify-content: space-between; align-items: center; } .pl-ovh b { font-family: var(--serif, Georgia, serif); font-size: 1.15rem; font-weight: 600; }
+.pl-ovf { position: sticky; bottom: 0; padding: 10px 0 14px; background: linear-gradient(transparent, var(--bg) 26%); margin-top: auto; }
+.pl-ovf .btn { width: 100%; }
+.pl-pgrp { display: flex; flex-direction: column; }
+.pl-pick { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border: 0; border-bottom: 1px dashed var(--line); background: none; color: var(--ink); font: inherit; font-size: .95rem; text-align: left; cursor: pointer; }
+.pl-pick small { display: block; color: var(--muted); font-size: .8rem; }
+.pl-pick.on { color: var(--muted); }
+.pl-pick[hidden], .pl-pgrp[hidden] { display: none; }
+.pl-ck { width: 22px; height: 22px; flex: none; border: 1.5px solid var(--line); border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: .8rem; }
+.pl-pick.on .pl-ck { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+@media (min-width: 900px) {
+  .pl-wrap.side { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+  .pl-wrap.side .pl-ov { position: sticky; top: 0; inset: auto; background: none; display: block; z-index: 1; }
+  .pl-wrap.side .pl-ovc { max-height: calc(min(94vh, 980px) - 24px); border-radius: 16px; border: 1.5px solid var(--accent); margin-top: 8px; padding-top: 12px; }
+}
+/* (v84) a turn tapped in the Planner: this time, short; the routine one tap away */
+.tb-ttl { font-family: var(--serif, Georgia, serif); font-size: 1.35rem; font-weight: 600; margin: 14px 0 0; }
+.tb-kick { color: var(--muted); font-size: .9rem; margin-bottom: 8px; }
+.tb-time { margin: 4px 0 6px; }
+.tb-time > summary { list-style: none; display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.tb-time > summary::-webkit-details-marker { display: none; }
+.tb-time[open] > summary span { transform: rotate(180deg); }
+.tb-time .pl-panel { margin-top: 8px; }
+.tb-belongs { width: 100%; display: flex; align-items: center; gap: 10px; margin: 12px 0 6px; padding: 11px 12px; border: 1.5px dashed var(--accent); border-radius: 14px; background: none; color: var(--ink); font: inherit; font-size: .95rem; text-align: left; cursor: pointer; }
+.tb-belongs span:first-child { flex: 1; } .tb-belongs small { display: block; color: var(--muted); font-size: .8rem; margin-top: 2px; }
+.pl-ovc > * { flex: none; }
