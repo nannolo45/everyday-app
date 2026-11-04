@@ -2009,3 +2009,46 @@ body.is-wide #view > :last-child { margin-bottom: 0; }
 .plc-used li { display: flex; justify-content: space-between; gap: 8px; padding: 7px 2px; border-bottom: 1px dashed var(--line); font-size: .92rem; }
 .plc-used small { color: var(--muted); }
 .notice-inline { margin: 8px 0; padding: 9px 11px; border: 1px solid var(--warn, #b5780c); border-radius: 12px; font-size: .88rem; line-height: 1.4; }
+
+/* (v87) a meal's turn: what we eat */
+.tb-meal { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); display: flex; flex-direction: column; gap: 6px; }
+.tb-mh { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: .76rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+.ml-ppl { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; text-transform: none; }
+.ml-ppl button { width: 34px; height: 32px; border: 0; background: var(--surface); color: var(--ink); font: inherit; font-size: 1.1rem; cursor: pointer; }
+.ml-ppl b { min-width: 28px; text-align: center; color: var(--ink); font-size: .95rem; }
+.tb-meal .meal-recipes { margin: 0; }
+.tb-meal .add-recipe { border-style: dashed; color: var(--accent); }
+.blk-addrec { display: inline-flex; align-items: center; margin-left: 4px; padding: 1px 8px; border: 1px dashed var(--accent); border-radius: 999px; background: var(--surface); color: var(--accent); font: inherit; font-size: .74rem; font-weight: 600; cursor: pointer; vertical-align: 1px; }
+.ag-row { position: relative; }
+.ag-addrec { position: absolute; right: 10px; bottom: 8px; padding: 3px 10px; border: 1px dashed var(--accent); border-radius: 999px; background: var(--surface); color: var(--accent); font: inherit; font-size: .78rem; font-weight: 600; cursor: pointer; }
+
+/* (v88) the recipe list: picks on top, tabs, compact rows */
+.pk .pk-chosen { margin: 2px 0 8px; }
+.pk .pk-tabs { margin: 0 0 8px; }
+.pk .pk-tabs.dim { opacity: .45; }
+.pk .pk-folders { margin: 0 0 8px; }
+.pk-bar { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: .82rem; margin: 2px 2px 4px; }
+.pk-bar .linkish { padding: 4px 0; }
+.pk .pk-tagpills { flex-wrap: wrap; overflow: visible; margin-bottom: 6px; }
+.pk-list { display: flex; flex-direction: column; padding-bottom: 8px; }
+.pk-row { display: flex; align-items: center; gap: 4px; border-bottom: 1px dashed var(--line); }
+.pk-row .pk-pick { flex: 1; min-width: 0; display: flex; flex-direction: row; align-items: center; gap: 10px; height: auto; padding: 8px 2px; border: 0; border-radius: 0; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; box-shadow: none; }
+.pk-row .pk-pick:active { transform: none; background: var(--accent-soft); }
+.pk-th { position: relative; width: 48px; height: 48px; flex: none; border-radius: 10px; overflow: hidden; display: grid; place-items: center; background: linear-gradient(135deg, var(--accent-soft), color-mix(in srgb, var(--accent) 20%, var(--surface))); }
+.pk-th img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
+.pk-th .pk-letter { font-size: 1.3rem; }
+.pk-tx { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pk-tx b { font-size: .95rem; font-weight: 600; line-height: 1.25; }
+.pk-tx small { color: var(--muted); font-size: .78rem; }
+.pk-ok { color: var(--green, #3f8f5a); font-weight: 600; } .pk-miss { color: var(--warn, #b5780c); font-weight: 600; }
+.pk-i { width: 34px; height: 34px; flex: none; border: 0; background: none; color: var(--muted); font: italic 700 1rem var(--serif, Georgia, serif); cursor: pointer; }
+.pk-ck { width: 26px; height: 26px; flex: none; margin-right: 2px; border: 1.5px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--accent-ink); font: inherit; font-size: .8rem; font-weight: 700; cursor: pointer; }
+.pk-row.on .pk-ck { background: var(--accent); border-color: var(--accent); }
+.pk-foot .btn:disabled { opacity: .55; }
+/* (v88) on a computer the list opens beside the meal's sheet */
+@media (min-width: 900px) {
+  dialog:has(.tb-wrap.side) { width: min(1000px, calc(100vw - 32px)); }
+  .tb-wrap.side { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 18px; align-items: start; }
+  .tb-wrap.side .pk-pane { position: sticky; top: 8px; margin-top: 8px; max-height: calc(100vh - 80px); overflow: auto; padding: 0 14px; border: 1.5px solid var(--accent); border-radius: 16px; background: var(--bg); }
+  .tb-wrap.side .pk-pane .pk-head { padding-top: 12px; }
+}

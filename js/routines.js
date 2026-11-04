@@ -5,8 +5,8 @@
 // ("until 30 June"), pauses (the school holidays), skipping a day of this week.
 import { catName, esc, fmtDay, relDay, toast, ui } from './core.js';
 import { getLang, t } from './i18n.js';
-import { isMealType, isSaved, isTodo } from './kinds.js';
-import { countedOf, ensureSeries, isEnded, turnCounts } from './model.js';
+import { isSaved, isTodo } from './kinds.js';
+import { countedOf, ensureSeries, isEnded, isMealTask, turnCounts } from './model.js';
 import { setCounts } from './placing.js';
 import { addDays, fmtDur, fmtTime, inPause, isOccurrence, parseDate, REPEATS, ruleAt, today } from './plan.js';
 import { changed } from './shell.js';
@@ -104,9 +104,9 @@ export function routineRow(x, ws = ui.routineWeek || weekStart(today())) {
     const n = live('blocks').filter((b) => b.taskId === x.id && (b.outcome === 'done' || b.done)).length;
     return `<li class="rt-row archived"><button class="task-main" type="button" data-action="routine-open" data-id="${esc(x.id)}"><span class="item-text">${esc(x.title)}<small>${esc(t('rtArchivedMeta', n))}</small></span></button></li>`;
   }
-  const rhythm = hasRhythm(x) || isMealType(x);
+  const rhythm = hasRhythm(x) || isMealTask(x);
   const paused = pausedUntil(x) !== null;
-  return `<li class="rt-row${paused ? ' paused' : ''}"><button class="task-main" type="button" data-action="routine-open" data-id="${esc(x.id)}"><span class="item-text">${isMealType(x) ? '🍽 ' : ''}${esc(x.title)}<small>${esc(metaOf(x, ws))}</small></span>${rhythm ? strip(x, ws, blocksByDate(x.id)) : ''}</button>${!hasRhythm(x) ? planBtn(x) : ''}</li>`;
+  return `<li class="rt-row${paused ? ' paused' : ''}"><button class="task-main" type="button" data-action="routine-open" data-id="${esc(x.id)}"><span class="item-text">${isMealTask(x) ? '🍽 ' : ''}${esc(x.title)}<small>${esc(metaOf(x, ws))}</small></span>${rhythm ? strip(x, ws, blocksByDate(x.id)) : ''}</button>${!hasRhythm(x) ? planBtn(x) : ''}</li>`;
 }
 
 // The groups: areas (the first category) for routines with a rhythm, then meals, then the ones without.
@@ -115,7 +115,7 @@ export function routineGroups(list) {
   for (const x of list) {
     if (x.archived) arch.push(x);
     else if (isPalestra(x)) gym.push(x);
-    else if (isMealType(x)) meals.push(x);
+    else if (isMealTask(x)) meals.push(x);
     else if (!hasRhythm(x)) loose.push(x);
     else { const c = get('categories', x.category) ? x.category : ''; if (!areas.has(c)) areas.set(c, []); areas.get(c).push(x); }
   }
@@ -181,7 +181,7 @@ export function openRoutine(id) {
   const row = (value, label, val) => `<button class="rt-set" value="${value}" formnovalidate><span>${esc(label)}</span><small>${esc(val)} ›</small></button>`;
   const cat = get('categories', x.category);
   openModal(`
-    <h2>${isMealType(x) ? '🍽 ' : ''}${esc(x.title)}${isPalestra(x) ? ` <small class="rt-area">${esc(t('rtFromPalestra'))}</small>` : cat ? ` <small class="rt-area">${esc(catName(cat))}</small>` : ''}</h2>
+    <h2>${isMealTask(x) ? '🍽 ' : ''}${esc(x.title)}${isPalestra(x) ? ` <small class="rt-area">${esc(t('rtFromPalestra'))}</small>` : cat ? ` <small class="rt-area">${esc(catName(cat))}</small>` : ''}</h2>
     <div class="rt-hist">
       <div class="rt-hist-h"><b>${esc(t('rtLastWeeks'))}</b>${due ? `<small>${esc(t('rtDoneOf', done, due))}</small>` : ''}</div>
       <div class="rt-days" aria-hidden="true"><span></span><span class="rt-strip">${[1, 2, 3, 4, 5, 6, 7].map((i) => `<span>${esc(dayShort(i).slice(0, 1).toUpperCase())}</span>`).join('')}</span></div>
@@ -198,7 +198,7 @@ export function openRoutine(id) {
     <div class="occ-chips">${left.map((d) => `<button class="occ-chip" value="skip:${d}" formnovalidate>${esc(relDay(d))}</button>`).join('')}</div>` : ''}
     <div class="button-row">
       <button class="btn primary" value="cancel" formnovalidate>${esc(t('close'))}</button>
-      ${(!rhythm || isMealType(x)) && !x.archived ? `<button class="btn" value="plan" formnovalidate>▶ ${esc(t('planIt'))}</button>` : ''}
+      ${(!rhythm || isMealTask(x)) && !x.archived ? `<button class="btn" value="plan" formnovalidate>▶ ${esc(t('planIt'))}</button>` : ''}
       <button class="btn" value="more" formnovalidate>${esc(t('moreDetails'))}</button>
     </div>`, (form, action, e) => {
     const cur = get('tasks', x.id);

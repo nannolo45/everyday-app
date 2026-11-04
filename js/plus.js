@@ -8,7 +8,7 @@ import { catName, categories, esc, planSettings, relDay, toast, ui } from './cor
 import { state } from './store.js';
 import { t } from './i18n.js';
 import { isEvent, isSaved, isTodo } from './kinds.js';
-import { anchorOffset, deleteBlock, ensureSeries, eventTasksOf, isSeries, outcomeOf, planTask, saveEvent, seriesBlocks } from './model.js';
+import { catFlag, anchorOffset, deleteBlock, ensureSeries, eventTasksOf, isSeries, outcomeOf, planTask, saveEvent, seriesBlocks } from './model.js';
 import { upcomingOf } from './finder.js';
 import { ownMinutes, realSteps, travelOf } from './travel-plan.js';
 import { skipOcc } from './weekpick.js';
@@ -65,7 +65,7 @@ function fresh(text = '') {
     len: 30, lenUnit: null, lenSet: false, unknown: false,
     wc: undefined, once: true, date: today(), mode: 'first', start: null, end: null, anchor: 'start',
     n: 1, per: 'settimana', days: [], until: 'always', times: [],
-    cat: null, more: false, open: null, imp: 3, due: '', place: '', placeId: null, travel: true, steps: [], after: [], ok: [], ko: [], notes: '',
+    cat: null, more: false, open: null, imp: 3, due: '', place: '', placeId: null, people: 2, travel: true, steps: [], after: [], ok: [], ko: [], notes: '',
     // (v84) editing a task: its id, the Quando it had (to know if it changed), its steps, checklist, margin, other rules
     edit: null, orig: null, stepObjs: null, checklist: [], buffer: '', keepRules: [], ov: null, rk: 'ok', untilKeep: null, ovt: 'recent',
   };
@@ -188,6 +188,7 @@ function optRows() {
     P.edit ? row('check', t('checklist'), P.checklist.length ? String(P.checklist.length) : '', `${P.checklist.map((c, i) => `<div class="pl-srow"><span>☐ ${esc(c)}</span><button class="pl-x" value="cl-rm:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></div>`).join('')}<input id="pl-cl" class="pl-in" placeholder="${esc(t('plCheckPh'))}" autocomplete="off">`) : '',
     P.edit ? row('buffer', t('bufferAfter'), P.buffer === '' ? t('bufferDefault', Number(state.settings.taskBuffer) || 0) : Number(P.buffer) ? fmtDur(Number(P.buffer)) : t('none'), `<div class="pl-chips">${['', 0, 5, 10, 15, 30, 60].map((m) => `<button class="pl-chip${String(P.buffer) === String(m) ? ' on' : ''}" value="buf:${m}" formnovalidate>${esc(m === '' ? t('bufferDefault', Number(state.settings.taskBuffer) || 0) : m ? fmtDur(m) : t('none'))}</button>`).join('')}</div>`) : '',
     P.edit && P.appt ? row('evt', t('secEventTasks'), eventTasksOf(P.edit).length ? String(eventTasksOf(P.edit).length) : '', `${eventTasksOf(P.edit).map((y) => `<button class="pl-sopt" value="evt:${esc(y.id)}" formnovalidate>${y.done ? '✓ ' : ''}${esc(y.title)}<small>${esc(y.due ? relDay(y.due) : '')}</small></button>`).join('')}<button class="pl-chip" value="evt-add" formnovalidate>+ ${esc(t('addEventTask'))}</button>`) : '',
+    catFlag(P.cat, 'meal') ? row('ppl', t('mealPeople'), String(P.people), `<div class="pl-chips">${[1, 2, 3, 4, 5, 6].map((n) => `<button class="pl-chip${P.people === n ? ' on' : ''}" value="ppl:${n}" formnovalidate>${n}</button>`).join('')}</div><p class="pl-hint">${esc(t('mealPeopleHint'))}</p>`) : '', // (v87) a meal: for how many, by default
     row('notes', t('notes'), P.notes ? '✎' : '', `<textarea id="pl-notes" class="pl-in" rows="3">${esc(P.notes)}</textarea>`),
   ].join('');
 }
@@ -344,6 +345,7 @@ function onSubmit(form, action, e) {
   else if (a === 'cl-rm') P.checklist.splice(Number(b), 1);
   else if (a === 'buf') P.buffer = b === '' ? '' : Number(b);
   else if (a === 'imp') P.imp = Number(b);
+  else if (a === 'ppl') P.people = Number(b);
   else if (a === 'due') P.due = '';
   else if (a === 'travel') P.travel = !P.travel;
   else if (a === 'step-rm') { if (P.stepObjs) { P.stepObjs.splice(Number(b), 1); if (P.stepObjs.length) P.len = stepSum(); } else P.steps.splice(Number(b), 1); }
@@ -360,10 +362,25 @@ function collect(form) {
   if (v('pl-notes')) P.notes = v('pl-notes').value;
   // (v85) the place is chosen from the suggestions (Enter: a saved place by that name, else the text as typed)
 }
+// (v86) A field's late "change" (it fires when you tap a button) redraws the sheet afterwards. That redraw
+// must never reopen a sheet that was saved or closed meanwhile (it made a second routine), and must not swap
+// the buttons while a finger is still on one (the tap got lost): it waits for the finger to lift.
+let pressing = false; let pending;
+function laterDraw(focus) {
+  if (pressing) { pending = focus ?? null; return; }
+  const p0 = P;
+  setTimeout(() => { if (P === p0 && !P.closed && document.querySelector('dialog[open] .pl')) draw(focus); }, 0);
+}
+if (typeof document !== 'undefined') {
+  document.addEventListener('pointerdown', (ev) => { if (ev.target?.closest?.('dialog[open] .pl button, dialog[open] .pl-ov button')) pressing = true; }, true);
+  const lift = () => { if (!pressing) return; pressing = false; if (pending !== undefined) { const f = pending; pending = undefined; laterDraw(f); } };
+  document.addEventListener('pointerup', lift, true);
+  document.addEventListener('pointercancel', lift, true);
+}
 function wire() {
   const form = document.querySelector('dialog[open] form'); if (!form) return;
   const v = (id) => form.querySelector(`#${id}`);
-  const redraw = (focus) => setTimeout(() => draw(focus), 0);
+  const redraw = (focus) => laterDraw(focus);
   v('pl-name')?.addEventListener('input', (ev) => { P.name = ev.target.value; const go = form.querySelector('.pl-go'); if (go) { const off = !P.name.trim() || needsTime(); go.disabled = off; const [g1, g2] = goLabel(); go.querySelector('b').textContent = g1; go.querySelector('small').textContent = !P.name.trim() ? t('plNeedName') : needsTime() ? t('plNeedTime') : g2; } });
   v('pl-name')?.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); if (P.name.trim() && !needsTime()) { if (P.edit) saveEdit(); else save(); } } });
   // the length: a number and a unit; "2h30", "3 giorni" move the unit
@@ -477,7 +494,7 @@ function save() {
   const x = {
     id: uid(), createdAt: Date.now(), kind: P.save || P.wc === 'pick' && !P.once ? 'saved' : 'todo', title, minutes: steps.length && !P.steps.length ? steps.reduce((n, y) => n + y.minutes, 0) : L,
     lenSet: P.lenSet || P.unknown ? !P.unknown : Boolean(P.touched.len), lenUnknown: P.unknown || undefined, importance: P.imp !== 3 ? P.imp : q.importance || 3, priority: q.priority || 0,
-    category: cat, moreCats: [], due: P.due || (P.wc === undefined ? q.due : null) || null, place: P.place || qPlace?.addr || '', placeId: P.placeId || qPlace?.id || null, notes: P.notes, done: false, checklist: [],
+    category: cat, moreCats: [], due: P.due || (P.wc === undefined ? q.due : null) || null, place: P.place || qPlace?.addr || '', placeId: P.placeId || qPlace?.id || null, ...(catFlag(cat, 'meal') ? { people: P.people } : {}), notes: P.notes, done: false, checklist: [],
     steps, splitSteps: steps.length > 1 && !P.steps.length, after: newIds(P.after), allRules: rules, windows: [],
     ...(P.place || qPlace ? { travel: { there: P.travel, back: P.travel, mode: 'default' } } : {}),
   };
@@ -538,6 +555,7 @@ function rhythm() {
   return { fields, at: fields.repeat === 'times' ? null : at, first };
 }
 function finish(rec, block, msg = null, tried = false) {
+  P.closed = true;
   (ui.justAdded ||= new Set()).add(rec.id);
   document.querySelector('dialog[open]')?.close();
   if (msg) { afterAdd(rec, block); toast(msg); return; }
@@ -551,7 +569,7 @@ function fromTask(x) {
   const p = fresh(x.title || '');
   Object.assign(p, {
     edit: x.id, save: isSaved(x), appt: isEvent(x), len: ownMinutes(x), lenSet: x.lenSet !== false, unknown: Boolean(x.lenUnknown),
-    cat: x.category || null, imp: x.importance || 3, place: x.place || '', placeId: placeById(x.placeId) ? x.placeId : null, travel: travelOf(x).there !== false, notes: x.notes || '',
+    cat: x.category || null, imp: x.importance || 3, people: x.people || 2, place: x.place || '', placeId: placeById(x.placeId) ? x.placeId : null, travel: travelOf(x).there !== false, notes: x.notes || '',
     stepObjs: realSteps(x).map((y) => ({ ...y })), checklist: [...(x.checklist || [])], buffer: x.buffer == null ? '' : x.buffer,
     after: (x.after || []).map((id) => get('tasks', id)).filter(Boolean).map((y) => ({ id: y.id, title: y.title })),
     touched: { len: true, when: true, cat: true }, more: true,
@@ -627,7 +645,7 @@ function saveEdit({ stay = false } = {}) {
   const rule = (a, when) => (a.rule ? { ...a.rule, when } : { id: uid(), when, then: 'task', taskId: a.id || null, title: a.title, minutes: 30, place: 'pool', stepId: null });
   const x = {
     ...x0, title, minutes: L, lenSet: !P.unknown, lenUnknown: P.unknown || undefined, category: P.cat, importance: P.imp,
-    place: P.place, placeId: P.placeId || null, travel: { ...travelOf(x0), there: P.travel, back: P.travel }, notes: P.notes, checklist: P.checklist, buffer: P.buffer === '' ? null : Number(P.buffer),
+    place: P.place, placeId: P.placeId || null, ...(catFlag(P.cat, 'meal') ? { people: P.people } : {}), travel: { ...travelOf(x0), there: P.travel, back: P.travel }, notes: P.notes, checklist: P.checklist, buffer: P.buffer === '' ? null : Number(P.buffer),
     steps: (P.stepObjs || []).filter((y) => y.title), after: newIds(P.after),
     allRules: [...P.keepRules, ...P.ok.map((a) => rule(a, 'done')), ...P.ko.map((a) => rule(a, 'failed'))],
     kind: P.appt ? 'event' : P.save || routine ? 'saved' : isEvent(x0) || isSaved(x0) ? 'todo' : x0.kind,
@@ -669,6 +687,7 @@ function saveEdit({ stay = false } = {}) {
   }
   changed();
   if (stay) { P.orig = whenKey(); return get('tasks', rec.id); }
+  P.closed = true;
   document.querySelector('dialog[open]')?.close();
   toast(t('savedTitle', title));
   return get('tasks', rec.id);

@@ -2,7 +2,7 @@
 import { applyPalestra, publishPlanned } from './palestra.js';
 import { $, modal, PPM, route, TAB_OF, ui, view } from './core.js';
 import { t } from './i18n.js';
-import { ensureAllSeries, migrateBlocksToEvents, normalizeKinds } from './model.js';
+import { ensureAllSeries, migrateBlocksToEvents } from './model.js';
 import { isDate, nowMinutes, setClock12, today } from './plan.js';
 import { isDragging } from './sortable.js';
 import { applySharedSettings, get, live, seedSharedSettings, state } from './store.js';
@@ -44,7 +44,7 @@ export async function runSync() {
   const planChanged = Object.keys(state.meta.dirtyShards || {}).some((k) => k.startsWith('blocks/'));
   await syncNow();
   // Settings: what other devices changed comes in; settings from before they were shared go up once.
-  if (!state.meta.lastError) { seedSharedSettings(); await applySharedSettings(); normalizeKinds(); }
+  if (!state.meta.lastError) { seedSharedSettings(); await applySharedSettings(); }
   // Plan changed and Google Calendar is set up: push it there soon (at most every 10 minutes).
   if (planChanged && !state.meta.lastError && get('gcal', 'status') && Date.now() - (ui.lastDispatch || 0) > 600_000) gcalNow(true);
   migrateBlocksToEvents();

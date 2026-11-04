@@ -1,8 +1,8 @@
 // views/tasks.js: moved from app.js (v36). See app.js for how the modules fit together.
 import { categories, catName, catsOf, esc, hint, modal, relDay, ui } from '../core.js';
 import { t } from '../i18n.js';
-import { isMealType, isSaved, isStep, isTodo } from '../kinds.js';
-import { alreadyPlanned, eventOf, nextPlanned, offsetText, openTasks, prepOf, prereqsOf, taskIssues, templates, timesDone } from '../model.js';
+import { isSaved, isStep, isTodo } from '../kinds.js';
+import { alreadyPlanned, isMealTask, taskIcon, eventOf, nextPlanned, offsetText, openTasks, prepOf, prereqsOf, taskIssues, templates, timesDone } from '../model.js';
 import { addDays, fmtDur, fmtTime, groupTasks, importanceOf, sortTasks, today } from '../plan.js';
 import { isRoutine, legend, routineGroups, routineRow, routines, weekHeader } from '../routines.js';
 import { fold, matchesQ } from '../shoplist.js';
@@ -237,7 +237,7 @@ export function prepRow(x) {
   return `<li class="prep-row">
     <button class="task-main" type="button" data-action="task-edit" data-id="${esc(x.id)}"><span class="item-text">↳ ${esc(x.title)}<small>${esc(bits.join(' · '))}</small></span></button>
     <div class="prep-owners">${own.length ? own.map((o) => `<button class="owner" type="button" data-action="task-edit" data-id="${esc(o.task.id)}" title="${esc(t('openTask', o.task.title))}">
-      <span class="owner-t">${isMealType(o.task) ? '🍽 ' : isSaved(o.task) ? '★ ' : ''}${esc(o.task.title)} ↗</span><small>${esc(o.how)}</small></button>`).join('')
+      <span class="owner-t">${isMealTask(o.task) ? '🍽 ' : isSaved(o.task) ? '★ ' : ''}${esc(o.task.title)} ↗</span><small>${esc(o.how)}</small></button>`).join('')
     : `<span class="hint">${esc(t('prepUnused'))}</span><button class="btn small ghost" type="button" data-action="prep-del" data-id="${esc(x.id)}">${esc(t('delete'))}</button>`}</div>
   </li>`;
 }
@@ -272,7 +272,7 @@ export function taskRow(x, { drag = false } = {}) {
     ${drag ? grip(`th-${x.id}`, x.title) : ''}
     ${isStep(x) ? '<span class="helper-dot">↳</span>' : `<input type="checkbox" data-action="task-done" data-id="${esc(x.id)}" ${x.done || (x.repeat === 'times' && timesDone(x, td) >= (x.timesN || 1)) ? 'checked' : ''} aria-label="${esc(t('markDone'))}">`}
     <button class="task-main" type="button" data-action="task-edit" data-id="${esc(x.id)}">
-      <span class="item-text">${esc(x.title)}<small>${bits.join(' · ')}</small></span>${impBadge(x) ? `<span class="imp-r">${impBadge(x)}</span>` : ''}
+      <span class="item-text">${taskIcon(x)}${esc(x.title)}<small>${bits.join(' · ')}</small></span>${impBadge(x) ? `<span class="imp-r">${impBadge(x)}</span>` : ''}
     </button>
     ${issueBadge(x)}
   </li>`;

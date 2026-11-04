@@ -1,7 +1,7 @@
 // model.js: moved from app.js (v36). See app.js for how the modules fit together.
 import { catColor, categories, esc, GROCERY_MINUTES, hint, kitchen, planSettings, range, relDay, toast, ui } from './core.js';
 import { t } from './i18n.js';
-import { isEvent, isMealType, isSaved, isStep, isTodo, needsKind, withKind } from './kinds.js';
+import { isEvent, isMealType, isSaved, isStep, isTodo, withKind } from './kinds.js';
 import { addQuantities, formatQty } from './parse.js';
 import { sameFood } from './foods.js';
 import { addDays, autoTemplatesFor, completeTask, fmtDur, fmtTime, freeSlot, importanceOf, isoDay, nextOccurrence, nowMinutes, occurrences, parseDate, reopenTask, REPEATS, ruleAt, templateBlocks, today } from './plan.js';
@@ -143,8 +143,6 @@ export function saveEvent(d) {
   if (planTime != null) planTask(rec, planDate, Math.max(0, planTime - anchorOffset(null, rec)));
   return get('tasks', rec.id);
 }
-// Records from before v34 (booleans instead of `kind`, see kinds.js) take the new shape. Dated just
-// after their own timestamp: the change uploads once, and any real edit made elsewhere still wins.
 // (v82) Routines added from the + before v81 lost their rhythm ("ogni gio" became "Quando capita") but kept
 // the day: they are weekly again on that day. Those with no day left get asked once (Impegni → Routine).
 export function repairRhythms() {
@@ -155,11 +153,6 @@ export function repairRhythms() {
   }
 }
 export const noRhythm = () => live('tasks').filter((x) => !x.deleted && !x.done && x.kind === 'saved' && !x.repeat && !x.next && !x.archived && !x.palOut && !x.travelRole && !x.rhythmOk && !x.palestraId);
-export function normalizeKinds() {
-  let n = 0;
-  for (const x of state.tasks) if (!x.deleted && needsKind(x)) { upsert('tasks', withKind(x), { silent: true, at: (x.updatedAt || 0) + 1 }); n++; }
-  return n;
-}
 // Older plain blocks (no task) become events, so everything you put on the plan has a home.
 export function migrateBlocksToEvents() {
   // (Blocks laid down by a day template stay plain: they are the template's, not events.)
@@ -247,7 +240,7 @@ export function newBlock(fields) {
 export function planTask(task, date, start = null, extra = {}) {
   const s = planSettings();
   const { series, ...fields0 } = extra;
-  const fields = isMealType(task) && !fields0.kind && !fields0.stepId ? { kind: 'meal', recipes: [], servings: 2, ...fields0 } : fields0; // (v80) a meal type's turn is a meal
+  const fields = isMealTask(task) && !fields0.kind && !fields0.stepId ? { kind: 'meal', recipes: [], servings: task.people || 2, ...fields0 } : fields0; // (v80) a meal's turn is a meal (v87: by its category)
   const minutes = fields.minutes || (fields.stepId ? task.minutes : !(task.stepsDone || []).length && task.dayMinutes && isSeries(task) ? minutesOn(task, date) : minutesLeft(task)) || 30;
   let at = start;
   // (v85) its place has opening hours: the first free time that day when it's open
@@ -362,9 +355,10 @@ export function ensureSeries(task) {
       const k = slot ? `${d}#${slot}` : d; wantKeys.push(k);
       const start = Math.max(0, tm - anchorOffset(null, task));
       const b = have.get(k);
-      if (!b) { if (!taken.has(k)) planTask(task, d, start, { id: seriesBlockId(task.id, d, slot), seriesId: task.id, occ: d, ...(slot ? { slot } : {}), auto: true, series: true, minutes: len, ...(isMealType(task) ? { kind: 'meal', recipes: [], servings: 2 } : {}) }); /* (v80) a meal type that repeats: meal blocks */ continue; }
-      if (b.auto && !outcomeOf(b) && (b.start !== start || b.minutes !== len || b.title !== task.title || (b.category || null) !== (task.category || null))) {
-        upsert('blocks', { ...b, start, minutes: len, title: task.title, category: task.category || null }, { silent: true });
+      if (!b) { if (!taken.has(k)) planTask(task, d, start, { id: seriesBlockId(task.id, d, slot), seriesId: task.id, occ: d, ...(slot ? { slot } : {}), auto: true, series: true, minutes: len, ...(isMealTask(task) ? { kind: 'meal', recipes: [], servings: task.people || 2 } : {}) }); /* (v80) a meal that repeats: meal blocks */ continue; }
+      const ttl = b && b.kind === 'meal' && mealRecipes(b).length ? mealTitle(task.title, mealRecipes(b)) : task.title; // (v87) a meal keeps its recipes in the name
+      if (b.auto && !outcomeOf(b) && (b.start !== start || b.minutes !== len || b.title !== ttl || (b.category || null) !== (task.category || null))) {
+        upsert('blocks', { ...b, start, minutes: len, title: ttl, category: task.category || null }, { silent: true });
       }
     }
   }
@@ -811,7 +805,7 @@ export function seedMeals() {
     const id = `meal_${m.key}`;
     if (has('tasks', id)) continue;
     upsert('tasks', {
-      id, kind: 'meal', title: t(`mt_${m.key}`), minutes: m.minutes, defaultStart: m.start, category: 'meals',
+      id, kind: 'saved', title: t(`mt_${m.key}`), minutes: m.minutes, defaultStart: m.start, category: 'meals', // (v87) a meal by its category
       prep: m.check ? [{ taskId: 'meal_check', when: m.check }] : [], rules: [], checklist: [], notes: '', createdAt: 1,
     }, { silent: true, at: 1 });
   }
@@ -849,8 +843,42 @@ export function savedStart(x, date) {
     ?? Math.min(Math.ceil(from / s.snap) * s.snap, 1440 - (x.minutes || 30));
 }
 
-export function mealTypes() { return live('tasks').filter(isMealType).sort((a, b) => (a.defaultStart ?? 0) - (b.defaultStart ?? 0)); }
-export function mealRecipes(b) { return b?.recipes || (b?.recipeId ? [{ recipeId: b.recipeId, servings: b.servings }] : []); }
+// (v87) What a task is for, from its category: Settings → Categorie can say «its tasks are meals» (on by
+// default for Pasti) and «its tasks are appointments» (they show 📅 like the ones made with «È un
+// appuntamento»). A task of the old kind 'meal' (a meal type) still counts until it's converted.
+export function catFlag(id, key) {
+  const c = id && get('categories', id);
+  if (!c || c.deleted) return false;
+  return Boolean(c[key] ?? (key === 'meal' && c.id === 'meals'));
+}
+export const isMealTask = (x) => Boolean(x) && (isMealType(x) || catFlag(x.category, 'meal'));
+export const isApptLike = (x) => Boolean(x) && (isEvent(x) || catFlag(x.category, 'event'));
+// The little icon before a task's name: 📅 an appointment, 🍽 a meal.
+export const taskIcon = (x) => (isApptLike(x) ? '📅 ' : isMealTask(x) ? '🍽 ' : '');
+export function mealTasks() { return live('tasks').filter((x) => isMealTask(x) && !x.done && !x.archived && !isStep(x)).sort((a, b) => (a.seriesTime ?? a.defaultStart ?? 9999) - (b.seriesTime ?? b.defaultStart ?? 9999) || a.title.localeCompare(b.title)); }
+export function mealRecipes(b) { return b?.recipes || []; }
+// (v87) The turns of a meal from today on are meal blocks (recipes, servings); a task that stops being a
+// meal gives its empty ones back. Run at start, after saving a task and after changing a category.
+export function syncMealBlocks() {
+  const td = today();
+  for (const b of live('blocks').filter((y) => y.taskId && y.date >= td && !outcomeOf(y) && !y.stepId && (!y.kind || y.kind === 'meal'))) {
+    const x = get('tasks', b.taskId); if (!x) continue;
+    const meal = isMealTask(x);
+    if (meal && !b.kind) upsert('blocks', { ...b, kind: 'meal', recipes: b.recipes || [], servings: b.servings || x.people || 2 }, { silent: true });
+    else if (!meal && b.kind === 'meal' && !(b.recipes || []).length) { const { kind, recipes, servings, ...rest } = b; void kind; void recipes; void servings; upsert('blocks', rest, { silent: true }); }
+  }
+}
+// (v87) Once: the old meal types (kind 'meal') become saved tasks in a meal category; meals that carried one
+// recipe (`recipeId`) get the list.
+export function migrateMeals() {
+  for (const x of live('tasks').filter(isMealType)) {
+    upsert('tasks', withKind({ ...x, category: catFlag(x.category, 'meal') ? x.category : 'meals' }, 'saved'), { silent: true, at: (x.updatedAt || 0) + 1 });
+  }
+  for (const b of live('blocks').filter((y) => y.recipeId && !y.recipes)) {
+    const { recipeId, ...rest } = b;
+    upsert('blocks', { ...rest, recipes: [{ recipeId, servings: b.servings || 2 }] }, { silent: true, at: (b.updatedAt || 0) + 1 });
+  }
+}
 export function mealTitle(type, list) {
   const names = list.map((x) => recipeOf(x.recipeId)?.title).filter(Boolean);
   return `${type}${names.length ? ` · ${names.join(', ')}` : ''}`;
@@ -1033,7 +1061,7 @@ export function timesDone(x, date) {
 // task is kept together) when the whole is longer than a day's limit or than "split tasks over".
 export function splitsSteps(x) {
   const steps = (x.steps || []).filter((y) => y.title);
-  if (steps.length < 2 || isMealType(x)) return false;
+  if (steps.length < 2 || isMealTask(x)) return false;
   if (x.splitSteps || live('blocks').some((b) => b.taskId === x.id && b.stepId)) return true;
   if (x.keepTogether) return false;
   const total = steps.reduce((n, y) => n + stepLen({}, y), 0); const s = planSettings();
@@ -1041,7 +1069,7 @@ export function splitsSteps(x) {
 }
 // The planner may still split it by its steps when no single gap fits the whole (see placeWithSplit).
 export function maySplit(x) {
-  return !splitsSteps(x) && !x.keepTogether && !isMealType(x) && x.repeat !== 'times' && stepsLeftOf(x).length > 1;
+  return !splitsSteps(x) && !x.keepTogether && !isMealTask(x) && x.repeat !== 'times' && stepsLeftOf(x).length > 1;
 }
 // Steps that don't have a block (or a preview) yet.
 export function partsLeft(x) {

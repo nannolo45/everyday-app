@@ -4,7 +4,7 @@ import { isPalestra } from '../palestra.js';
 import { catColor, esc, fmtDay, planSettings, relDay, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { isEvent } from '../kinds.js';
-import { blocksOn, eventsOn, ISSUE_SEC, issueText, legTimes, openTasks, outcomeOf, plannedTaskIds, readinessText, taskIssues, timedEventsOn } from '../model.js';
+import { blocksOn, isApptLike, eventsOn, ISSUE_SEC, issueText, legTimes, openTasks, outcomeOf, plannedTaskIds, readinessText, taskIssues, timedEventsOn } from '../model.js';
 import { addDays, dayTotals, fmtDur, fmtTime, importanceOf, nowMinutes, today } from '../plan.js';
 import { morningReflow } from '../planning.js';
 import { get } from '../store.js';
@@ -63,7 +63,7 @@ export function viewToday() {
       <div class="now-head"><span>${esc(started ? t('inProgress') : t('nextMove'))}</span><b class="${inMin <= 15 && !started ? 'soon' : ''}">${esc(status)}</b></div>
       <div class="now-main">
         ${lg && lg.trip > 0 ? `<div class="now-time"><b class="leave">${fmtTime(lg.leave)}</b><small>${esc(t('leaveWord'))}</small></div><span class="now-arrow" aria-hidden="true">→</span><div class="now-time"><b>${fmtTime(lg.start)}</b><small>${esc(t('startWord'))}</small></div>` : `<div class="now-time"><b>${fmtTime(card.start)}</b><small>${esc(t('startWord'))}</small></div>`}
-        <div class="now-text"><div class="now-title">${isEvent(task) ? '📅 ' : ''}${esc(card.title)}</div><small>${esc([place, lg && lg.trip > 0 ? `${MODE_ICON[lg.step.mode] || '🚌'} ${fmtDur(lg.trip)}` : '', t('untilTime', fmtTime(card.start + card.minutes)), isEvent(task) ? readinessText(task.id) : ''].filter(Boolean).join(' · '))}</small></div>
+        <div class="now-text"><div class="now-title">${isApptLike(task) ? '📅 ' : ''}${esc(card.title)}</div><small>${esc([place, lg && lg.trip > 0 ? `${MODE_ICON[lg.step.mode] || '🚌'} ${fmtDur(lg.trip)}` : '', t('untilTime', fmtTime(card.start + card.minutes)), isEvent(task) ? readinessText(task.id) : ''].filter(Boolean).join(' · '))}</small></div>
       </div>
       ${main}
     </section>`;
@@ -71,7 +71,7 @@ export function viewToday() {
   const row = (b) => {
     const st = outcomeOf(b); const lgb = b.isEvent ? null : legTimes(b);
     const cls = b === card ? ' current' : st ? ` ${st}` : b.start + b.minutes <= now ? ' past' : '';
-    const evb = !b.isEvent && b.taskId && isEvent(get('tasks', b.taskId));
+    const evb = !b.isEvent && b.taskId && isApptLike(get('tasks', b.taskId));
     const inner = `<span class="td-time${lgb && lgb.trip > 0 ? ' leave' : ''}">${fmtTime(b.start)}</span><span class="td-title">${evb ? '📅 ' : ''}${esc(b.title)}${lgb && lgb.trip > 0 ? ` <small>· ${esc(t('startWord'))} ${fmtTime(lgb.start)}</small>` : ''}${b.seriesId ? ' <span class="series-ico">↻</span>' : ''}</span><small class="td-meta">${esc(b.isEvent ? b.calendar || t('calendar') : st === 'done' ? t('doneLabel') : st === 'failed' ? t('couldnt') : fmtDur(b.minutes))}</small>`;
     return b.isEvent ? `<button class="td-row event${cls}${b.skipped ? ' skipped' : ''}" type="button" data-action="event" data-id="${esc(b.id)}" style="--c:${esc(b.color || '#6b7280')}">${inner}</button>`
       : `<button class="td-row${cls}" type="button" data-action="open-block" data-id="${esc(b.id)}" style="--c:${esc(catColor(b.category) || 'var(--accent)')}">${inner}</button>`;

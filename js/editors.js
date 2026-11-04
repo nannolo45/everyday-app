@@ -8,14 +8,14 @@ import { timePairHtml, wireTimePair } from './timepair.js';
 import { afterPantryChange, pantrySnap } from './lowstock.js';
 import { countToast, rejoinEvent, setCounts, skipEvent, unskipEvent } from './placing.js';
 import { GROCERY_MINUTES, advancedOn, catChips, catChipsMulti, catColor, catName, catsOf, categories, readCats, esc, findCategory, fmtDay, hint, kitchen, modal, PALETTE, planSettings, quickFields, range, reasonText, relDay, route, small, toast, ui, weekdayNames } from './core.js';
-import { getLang, t } from './i18n.js';
-import { isEvent, isMealType, isSaved, isStep, withKind } from './kinds.js';
-import { alreadyPlanned, hasDayLen, learnHint, minutesOn, setDayMinutes, evSkipOf, isInvite, setEvSkip, countedOf, turnCounts, anchorIndex, anchorOffset, anchorTitle, applyTemplate, blocksOn, busyOn, checklistLeft, closedIssue, checklistOf, checkMealNow, deleteBlock, endSeries, ensureSeries, eventBlockOf, eventDate, eventOf, eventTasksOf, followParent, isCheckStep, isSeries, leadOf, mealRecipes, mealTitle, mealTypes, newBlock, nextBlockOf, nextPlanned, offsetDue, offsetText, openTasks, outcomeOf, plannedTaskIds, plannedWhen, planTask, PREP_PLACES, qtyText, readinessText, recipeOf, recipes, RULE_PLACES, RULE_WHEN, rulesOf, savedGroups, savedInfo, savedStart, saveEvent, savedTasks, seriesBlocks, setBlockDone, setOutcome, setStepOutcome, setTaskDone, shoppingItems, splitSeries, stepLen, stepsDoneOf, stepsOf, stepTimes, syncEventTasks, taskIssues, taskSpan, templates, travelTasks, trySetBlockDone, tryStep } from './model.js';
-import { addDays, fmtDur, fmtTime, isoDay, ruleAt, formatTemplateLines, parseDuration, freeSlot, groupTasks, IMPORTANCE, importanceOf, isDate, nowMinutes, parseDate, parseTemplateLines, parseTime, quickAdd, REPEATS, sortTasks, today } from './plan.js';
+import { _dict, getLang, t } from './i18n.js';
+import { isEvent, isSaved, isStep, withKind } from './kinds.js';
+import { alreadyPlanned, hasDayLen, learnHint, minutesOn, setDayMinutes, evSkipOf, isInvite, setEvSkip, countedOf, turnCounts, anchorIndex, anchorOffset, anchorTitle, applyTemplate, blocksOn, busyOn, checklistLeft, closedIssue, checklistOf, checkMealNow, deleteBlock, endSeries, ensureSeries, eventBlockOf, eventDate, eventOf, eventTasksOf, followParent, isCheckStep, isSeries, leadOf, catFlag, isApptLike, isMealTask, mealRecipes, mealTasks, mealTitle, missingForMeal, newBlock, syncMealBlocks, nextBlockOf, nextPlanned, offsetDue, offsetText, openTasks, outcomeOf, plannedTaskIds, plannedWhen, planTask, PREP_PLACES, qtyText, readinessText, recipeOf, recipes, RULE_PLACES, RULE_WHEN, rulesOf, savedGroups, savedInfo, savedStart, saveEvent, savedTasks, seriesBlocks, setBlockDone, setOutcome, setStepOutcome, setTaskDone, shoppingItems, splitSeries, stepLen, stepsDoneOf, stepsOf, stepTimes, syncEventTasks, taskIssues, taskSpan, templates, travelTasks, trySetBlockDone, tryStep } from './model.js';
+import { addDays, dateStr, fmtDur, fmtTime, isoDay, ruleAt, formatTemplateLines, parseDuration, freeSlot, groupTasks, IMPORTANCE, importanceOf, isDate, nowMinutes, parseDate, parseTemplateLines, parseTime, quickAdd, REPEATS, sortTasks, today } from './plan.js';
 import { AUTO_SPANS, partOfDay, placeGhosts, planEventTasks, planGroceryTrips, planSoon, suggestSlot, trayTasks, tripItems, tripTitle, warnConflicts } from './planning.js';
 import { pantryCoverage } from './recipe-tools.js';
 import { ingredientsOf } from './kitchen.js';
-import { filterRecipes, folderOfRecipe, folderTree, minutesOf, originLabel, STAGES, stageOf, tagCounts, tagLabel, tagsOf, timeParts } from './recipes.js';
+import { filterRecipes, folderOfRecipe, folderTree, minutesOf, originLabel, stageOf, tagCounts, tagLabel, tagsOf, timeParts } from './recipes.js';
 import { changed, currentDate, render } from './shell.js';
 import { fold, matchesQ } from './shoplist.js';
 import { candidates, spareTime } from './smart.js';
@@ -294,7 +294,7 @@ export function taskPickList(selected = null) {
       <span class="tp-dot"></span><span class="tp-text"><span>${impBadge(x) ? `${impBadge(x)} ` : ''}${esc(x.title)}</span><small>${esc([fmtDur(x.minutes || 30), x.due ? (x.due < td ? t('late') : relDay(x.due)) : '', isStep(x) ? t('stepLabel') : '', isSaved(x) ? t('savedLabel') : '', done.has(x.id) ? `📅 ${plannedWhen(x)}` : ''].filter(Boolean).join(' · '))}</small></span></button>`;
   const groups = [
     ...['overdue', 'today', 'upcoming', 'anytime'].map((k) => [t(`grp_${k}`), sortTasks(g[k], td)]),
-    [t('savedTasks'), savedTasks().filter((x) => !isMealType(x))],
+    [t('savedTasks'), savedTasks().filter((x) => !isMealTask(x))],
     [t('preparations'), live('tasks').filter((x) => isStep(x) && !x.check)],
     [t('grp_planned'), sortTasks(alreadyPlanned(), td), true],
   ].filter(([, l]) => l.length);
@@ -387,13 +387,13 @@ export function openQuickTask({ saved = false, kind = saved ? 'saved' : 'todo', 
     <div class="quick-go">${go}</div>
     <div class="button-row"><button class="btn ghost" value="cancel" formnovalidate>${esc(t('close'))}</button></div>`, (form, action, e) => {
     if (action === 'app-plan') {
-      if (vw.app === 'ricette') { setTimeout(() => { ui.mealDate = today(); openMeal(null); }, 0); return; }
+      if (vw.app === 'ricette') { setTimeout(() => openMealPick(today()), 0); return; }
       e.preventDefault(); openWorkoutPicker(); return;
     }
     if (action.startsWith('kind:')) {
       e.preventDefault();
       const k = action.slice(5); const txt = form.q.value;
-      if (k === 'meal') { setTimeout(() => { ui.mealDate = today(); openMeal(null); }, 0); return; }
+      if (k === 'meal') { setTimeout(() => openMealPick(today()), 0); return; }
       openQuickTask({ kind: k, text: txt }); return;
     }
     if (kind === 'shop') { e.preventDefault(); addShopLine(); return; }
@@ -578,7 +578,7 @@ export function openAddMenu({ fab = false } = {}) {
       if (action === 'task') { if (fab) openQuickTask(); else openTaskAdd(date); }
       if (action === 'import') openImport();
       if (action === 'saved-quick') openQuickTask({ saved: true });
-      if (action === 'meal') { ui.mealDate = date; openMeal(null); }
+      if (action === 'meal') openMealPick(date);
       if (action === 'templates') openTemplatesMenu();
       if (action === 'event' && !classic()) { openPlus({ appt: true, date }); return; } // (v83) no Eventi tab: an appointment of yours
       if (action === 'event') {
@@ -596,13 +596,12 @@ export function openSavedPicker(date) {
     <h2>${esc(t('pickSaved'))}</h2>
     <p class="hint">${esc(fmtDay(date))}</p>
     ${groups.length ? groups.map(([cat, list]) => `<div class="sub">${esc(cat ? catName(cat) : t('noCategory'))}</div>
-      <ul class="list saved-pick">${list.map((x) => `<li><button class="task-main" value="pick:${esc(x.id)}" formnovalidate><span class="item-text">${isMealType(x) ? '🍽 ' : ''}${esc(x.title)}<small>${esc(savedInfo(x))}</small></span></button></li>`).join('')}</ul>`).join('')
+      <ul class="list saved-pick">${list.map((x) => `<li><button class="task-main" value="pick:${esc(x.id)}" formnovalidate><span class="item-text">${isMealTask(x) ? '🍽 ' : ''}${esc(x.title)}<small>${esc(savedInfo(x))}</small></span></button></li>`).join('')}</ul>`).join('')
     : `${hint('noSaved')}`}
     <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('cancel'))}</button></div>`, (form, action, e) => {
     if (!action.startsWith('pick:')) return;
     e.preventDefault();
     const x = get('tasks', action.slice(5));
-    if (isMealType(x)) { ui.mealDate = date; openMeal(null, { kind: 'meal', date, typeId: x.id, start: savedStart(x, date), minutes: x.minutes || 45, recipes: [], people: 2, notes: '' }); return; }
     openPlanSaved(x, date);
   });
 }
@@ -714,153 +713,78 @@ export function hydratePhotos(root) {
   }
 }
 
-// A meal: its type (Breakfast, Lunch…), when, for how many people, and the recipes in it.
-export function openMeal(block, draft = null) {
-  const types = mealTypes();
-  if (!types.length) { toast(t('noMealTypes')); return; }
-  const isNew = !block;
-  const x = draft || (block
-    ? { ...block, typeId: block.taskId || types.find((tp) => block.title?.startsWith(tp.title))?.id || types[0].id, recipes: mealRecipes(block).map((r) => ({ ...r })), people: block.servings || mealRecipes(block)[0]?.servings || 2, stepMinutes: { ...(block.stepMinutes || {}) } }
-    : (() => {
-      const now = nowMinutes(); const date = ui.mealDate || currentDate();
-      // The next meal of the day by default.
-      const tp = (date === today() && types.find((y) => (y.defaultStart ?? 0) > now)) || types.find((y) => y.id === 'meal_dinner') || types[0];
-      return { kind: 'meal', date, typeId: tp.id, start: tp.defaultStart ?? 1170, minutes: tp.minutes || 45, recipes: [], people: 2, notes: '' };
-    })());
-  const type = get('tasks', x.typeId) || types[0];
-  // A meal type split into steps: you set when you eat (or whichever step its usual time refers
-  // to); the steps before it, prep from the recipes among them, are laid out backwards from there.
-  const steps = (type.steps || []).filter((y) => y.title);
-  x.stepMinutes = x.stepMinutes || {};
-  if (steps.length && x.anchorAt == null) {
-    const ai = anchorIndex(steps, type.anchorStepId);
-    if (block && block.taskId === type.id) {
-      const st = stepTimes(block);
-      x.anchorAt = ai < st.length ? st[ai].start : block.start + block.minutes;
-    } else x.anchorAt = type.defaultStart ?? x.start ?? 1170;
+// (v87) A meal is a turn of a task in a meal category (Settings → Categorie). Its recipes are chosen on the
+// turn itself (the turn sheet, or «＋ Ricetta» on the block): this sets them, with the servings, and fits the
+// block around them: with steps, they're laid out again so the step its time refers to stays put; without,
+// the meal takes at least as long as its longest recipe. Different recipes: the ingredient check starts over.
+export function setMealRecipes(block, ids, people = block.servings || 2) {
+  const b = get('blocks', block.id) || block;
+  const task = get('tasks', b.taskId);
+  const recs = ids.map((id) => ({ recipeId: id, servings: people }));
+  const before = JSON.stringify(mealRecipes(b).map((r) => r.recipeId));
+  const out = { ...b, kind: 'meal', recipes: recs, servings: people, recipeId: undefined };
+  const steps = (task?.steps || []).filter((y) => y.title);
+  if (steps.length) {
+    const ai = anchorIndex(steps, task.anchorStepId);
+    const st = stepTimes(b);
+    const anchorAt = ai < st.length ? st[ai].start : b.start + b.minutes;
+    const p = mealPlan({ recipes: recs, stepMinutes: b.stepMinutes || {}, anchorAt }, task);
+    Object.assign(out, { start: Math.max(0, anchorAt - p.before), minutes: p.total });
+  } else {
+    const longest = Math.max(0, ...ids.map((id) => minutesOf(recipeOf(id)) || 0));
+    if (longest > out.minutes) out.minutes = Math.ceil(longest / 5) * 5;
   }
-  const plan = steps.length ? mealPlan(x, type) : null;
-  // A step's own length for this meal: empty means automatic (from the recipes, or its usual length).
-  const readStepOwn = (f) => {
-    for (const el of f.querySelectorAll('[data-sm]')) {
-      const m = readDur(f, `sm_${el.dataset.sm}`, null);
-      if (m) x.stepMinutes[el.dataset.sm] = m; else delete x.stepMinutes[el.dataset.sm];
-    }
-  };
-  const rows = x.recipes.map((r, i) => {
-    const rec = recipeOf(r.recipeId);
-    const m = rec && minutesOf(rec);
-    return `<li>${rec && coverOf(rec) ? photoTag(coverOf(rec), 'mr-photo') : `<span class="mr-photo ph">${esc((rec?.title || '?').charAt(0))}</span>`}
-      <span class="mr-text">${esc(rec?.title || t('unknownRecipe'))}<small>${[m ? fmtDur(m) : '', t('nPeople', x.people)].filter(Boolean).map(esc).join(' · ')}</small></span>
-      <button class="icon" value="rm-rec:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></li>`;
-  }).join('');
-  openModal(`
-    <h2>🍽 ${esc(isNew ? t('newMeal') : t('meal'))}</h2>
-    <div class="days meal-types">${types.map((tp) => `<label class="day-pill"><input type="radio" name="type" value="${esc(tp.id)}" ${tp.id === type.id ? 'checked' : ''}><span>${esc(tp.title)}</span></label>`).join('')}</div>
-    ${plan ? `
-    <div class="two">
-      <label>${esc(t('date'))}${dateBox(`<input name="date" type="date" required value="${esc(x.date)}">`, x.date)}</label>
-      <label>${esc(plan.anchorTitle ? t('anchorAt', plan.anchorTitle) : t('endsAt'))}<input name="start" ${TIME24} required value="${fmtTime(x.anchorAt)}"></label>
-    </div>` : `
-    <div class="three">
-      <label>${esc(t('date'))}${dateBox(`<input name="date" type="date" required value="${esc(x.date)}">`, x.date)}</label>
-      <label>${esc(t('start'))}<input name="start" ${TIME24} required value="${fmtTime(x.start)}"></label>
-      <label>${esc(t('duration'))}${durField('minutes', x.minutes)}</label>
-    </div>`}
-    <label>${esc(t('servings'))}<input name="people" type="number" min="1" max="30" step="1" value="${esc(x.people)}"></label>
-    <div class="field-label">${esc(t('recipesInMeal'))}</div>
-    ${rows ? `<ul class="meal-recipes">${rows}</ul>` : `<p class="hint">${esc(ricetteConfigured() ? t('noRecipeYet') : t('ricetteNeeded'))}</p>`}
-    ${ricetteConfigured() ? `<button class="btn add-recipe" value="pick" formnovalidate>＋ ${esc(t('addRecipe'))}</button>` : ''}
-    ${plan ? mealStepsHtml(plan, block) : stepsSection(block)}
-    <button class="btn small edit-task" value="edit-type" formnovalidate>▤ ${esc(t('editTaskSteps', type.title))}</button>
-    <label>${esc(t('notes'))}<textarea name="notes" rows="2">${esc(x.notes || '')}</textarea></label>
-    <div class="button-row">
-      <button class="btn primary" value="ok">${esc(t('save'))}</button>
-      ${!isNew && x.recipes.length && ricetteConfigured() ? `<button class="btn" value="check">🛒 ${esc(t('checkIngredients'))}</button>` : ''}
-      <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
-      ${isNew ? '' : `<button class="btn danger" value="delete" formnovalidate>${esc(t('delete'))}</button>`}
-    </div>`, (form, action, e) => {
-    const collect = () => {
-      x.typeId = form.querySelector('input[name=type]:checked')?.value || x.typeId;
-      x.date = form.date.value || x.date;
-      if (plan) {
-        x.anchorAt = parseTime(form.start.value) ?? x.anchorAt;
-        readStepOwn(form);
-      } else {
-        x.start = parseTime(form.start.value) ?? x.start;
-        x.minutes = readDur(form, 'minutes', x.minutes);
-      }
-      x.people = Math.max(1, Number(form.people.value) || 2);
-      x.notes = form.notes.value.trim();
-      x.recipes = x.recipes.map((r) => ({ ...r, servings: x.people }));
-    };
-    collect();
-    if (block && stepAction(block, action, e, (nb) => openMeal(nb))) return;
-    if (action === 'edit-type') { setTimeout(() => openTask(get('tasks', x.typeId)), 0); return; }
-    if (action === 'delete') { deleteBlock(block); changed(); return; }
-    if (action === 'pick') {
-      e.preventDefault();
-      openPicker({
-        people: x.people, selected: x.recipes.map((r) => r.recipeId),
-        onDone: (ids) => {
-          x.recipes = ids.map((id) => ({ recipeId: id, servings: x.people }));
-          // A meal takes at least as long as its longest recipe (with steps, the prep step follows the recipes).
-          const longest = Math.max(0, ...ids.map((id) => minutesOf(recipeOf(id)) || 0));
-          if (!plan && longest > x.minutes) x.minutes = Math.ceil(longest / 5) * 5;
-          openMeal(block, x);
-        },
-        onBack: () => openMeal(block, x),
-      });
-      return;
-    }
-    if (action.startsWith('rm-rec:')) { e.preventDefault(); x.recipes.splice(Number(action.slice(7)), 1); openMeal(block, x); return; }
-    const tp = get('tasks', x.typeId);
-    const before = JSON.stringify(mealRecipes(block || {}));
-    if ((tp.steps || []).some((y) => y.title)) {
-      const p = mealPlan(x, tp);
-      x.start = Math.max(0, x.anchorAt - p.before);
-      x.minutes = p.total;
-    }
-    const { typeId, people, anchorAt, ...rest } = x;
-    void typeId; void anchorAt;
-    const saved = upsert('blocks', {
-      ...rest, id: x.id || uid(), kind: 'meal', taskId: tp.id, servings: people, recipes: x.recipes, recipeId: undefined,
-      title: mealTitle(tp.title, x.recipes), category: 'meals', auto: block && (block.date !== x.date || block.start !== x.start) ? false : rest.auto,
-      done: block?.done || false,
-    }, { silent: true });
-    // Different recipes: the ingredient check starts over.
-    if (block && before !== JSON.stringify(x.recipes)) {
-      for (const st of live('blocks').filter((b) => b.parentId === saved.id && isCheckStep(b) && outcomeOf(b))) setOutcome(st, null);
-    }
-    followParent(saved);
-    if (saved.date !== currentDate()) location.hash = `#/plan/${saved.date}`;
+  if (task) out.title = mealTitle(task.title, recs);
+  if (out.start !== b.start || out.minutes !== b.minutes) out.auto = false; // fitted to its recipes: a routine's change of time leaves it be
+  const saved = upsert('blocks', out, { silent: true });
+  if (before !== JSON.stringify(ids)) for (const st of live('blocks').filter((y) => y.parentId === saved.id && isCheckStep(y) && outcomeOf(y))) setOutcome(st, null);
+  followParent(saved);
+  return get('blocks', saved.id);
+}
+// The recipe picker for a meal block; back to `after` (the turn sheet) or just closed.
+export function pickMealRecipes(block, after = null) {
+  const b = get('blocks', block.id) || block;
+  openPicker({
+    people: b.servings || 2, selected: mealRecipes(b).map((r) => r.recipeId), title: get('tasks', b.taskId)?.title || '',
+    onDone: (ids) => { const nb = setMealRecipes(b, ids); changed(); if (after) after(nb); else modal.close(); },
+    onBack: () => { if (after) after(get('blocks', b.id)); else modal.close(); },
+  });
+}
+// «🍽 Pasto» in the add menu: one of your meals on that day, at its usual time; then its sheet.
+export function openMealPick(date = currentDate()) {
+  const list = mealTasks();
+  if (!list.length) { toast(t('noMealTasks'), 6000); return; }
+  if (!ricetteConfigured() && list.length === 1) { openPlanSaved(list[0], date); return; }
+  openModal(`<h2>🍽 ${esc(t('meal'))}</h2><p class="hint">${esc(fmtDay(date))}</p>
+    <ul class="list saved-pick">${list.map((x) => `<li><button class="task-main" value="pick:${esc(x.id)}" formnovalidate><span class="item-text">🍽 ${esc(x.title)}<small>${esc(savedInfo(x))}</small></span></button></li>`).join('')}</ul>
+    <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('cancel'))}</button></div>`, (form, action, e) => {
+    if (!action.startsWith('pick:')) return;
+    e.preventDefault();
+    const x = get('tasks', action.slice(5));
+    // already on that day (a routine's turn): that one; else one more, at its usual time
+    const have = live('blocks').find((y) => y.taskId === x.id && y.date === date && !y.stepId && y.kind !== 'prep' && !outcomeOf(y));
+    const start = x.seriesTime != null ? Math.max(0, x.seriesTime - anchorOffset(null, x)) : savedStart(x, date);
+    const nb = have || planTask(x, date, start, isSeries(x) ? { series: true, auto: false, extra: true } : {});
     changed();
-    warnConflicts(get('blocks', saved.id));
-    if (action === 'check') checkMealNow(get('blocks', saved.id));
+    if (date !== currentDate()) location.hash = `#/plan/${date}`;
+    openBlock(get('blocks', nb.id));
   });
-  hydratePhotos(modal);
-  if (block) wireSteps(block, (nb) => openMeal(nb));
-  // Picking a type moves a new meal to that type's usual time (and its steps); changing a step's
-  // length or the time updates the steps' times.
-  modal.querySelector('form').addEventListener('change', (ev) => {
-    const f = ev.target.form;
-    if (ev.target.name === 'type') {
-      x.typeId = ev.target.value;
-      const tp = get('tasks', x.typeId);
-      x.stepMinutes = {};
-      if (isNew) { x.anchorAt = null; x.start = tp?.defaultStart ?? x.start; x.minutes = Math.max(tp?.minutes || 30, ...x.recipes.map((r) => minutesOf(recipeOf(r.recipeId)) || 0)); }
-      else if (x.anchorAt == null && f.start) x.anchorAt = parseTime(f.start.value);
-      x.date = f.date.value || x.date; x.people = Math.max(1, Number(f.people.value) || 2); x.notes = f.notes.value.trim();
-      openMeal(block, x);
-      return;
-    }
-    if (plan && (ev.target.closest('[data-sm]') || ev.target.name === 'start')) {
-      x.anchorAt = parseTime(f.start.value) ?? x.anchorAt;
-      readStepOwn(f);
-      x.date = f.date.value || x.date; x.people = Math.max(1, Number(f.people.value) || 2); x.notes = f.notes.value.trim();
-      openMeal(block, x);
-    }
-  });
+}
+// (v87) «🍲 Cosa si mangia» in a meal's turn sheet: the recipes, for how many, and what's missing.
+function mealSection(b) {
+  const recs = mealRecipes(b);
+  const ppl = b.servings || 2;
+  const missing = recs.length && ricetteConfigured() && !outcomeOf(b) ? missingForMeal(b) : [];
+  const rows = recs.map((r, i) => {
+    const rec = recipeOf(r.recipeId); const m = rec && minutesOf(rec);
+    return `<li>${rec && coverOf(rec) ? photoTag(coverOf(rec), 'mr-photo') : `<span class="mr-photo ph">${esc((rec?.title || '?').charAt(0))}</span>`}
+      <span class="mr-text">${esc(rec?.title || t('unknownRecipe'))}<small>${[m ? fmtDur(m) : '', t('nPeople', ppl)].filter(Boolean).map(esc).join(' · ')}</small></span>
+      <button class="icon" value="ml-rm:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></li>`;
+  }).join('');
+  return `<div class="tb-meal"><div class="tb-mh"><span>🍲 ${esc(t('mealWhat'))}</span><span class="ml-ppl" role="group" aria-label="${esc(t('servings'))}"><button value="ml-ppl:-1" formnovalidate aria-label="−">−</button><b>${ppl}</b><button value="ml-ppl:1" formnovalidate aria-label="+">+</button></span></div>
+    ${rows ? `<ul class="meal-recipes">${rows}</ul>` : `<p class="hint">${esc(ricetteConfigured() ? t('mealNothingYet') : t('ricetteNeeded'))}</p>`}
+    ${ricetteConfigured() ? `<button class="btn add-recipe" value="ml-pick" formnovalidate>＋ ${esc(t('addRecipe'))}</button>` : ''}
+    ${missing.length ? `<p class="hint">🛒 ${esc(t('mealMissing', missing.length))}</p><button class="btn small" value="ml-check" formnovalidate>🛒 ${esc(t('checkIngredients'))}</button>` : recs.length && ricetteConfigured() && !outcomeOf(b) ? `<p class="hint">✓ ${esc(t('mealAllThere'))}</p>` : ''}</div>`;
 }
 
 // A meal's steps laid out around the time its usual time refers to: what each takes and why.
@@ -883,129 +807,146 @@ export function mealPlan(x, type) {
     waiting,
   };
 }
-export function mealStepsHtml(plan, block) {
-  const st = block ? Object.fromEntries(stepTimes(block).map((y) => [y.id, y.state])) : {};
-  const whole = block && outcomeOf(block) === 'done';
-  return `<div class="field-label">▤ ${esc(t('steps'))} <small>${esc(range(plan.start, plan.total))}</small></div>
-    <ul class="meal-steps">${plan.steps.map((y) => `<li class="${st[y.id] || (whole ? 'done' : '')}">
-      ${block ? `<input type="checkbox" data-sstep="${esc(y.id)}" ${st[y.id] === 'done' || whole ? 'checked' : ''} aria-label="${esc(y.title)}">` : ''}
-      <span class="ms-time">${fmtTime(y.start)}</span>
-      <span class="ms-title">${esc(y.title)}${y.from === 'recipes' ? `<small>${esc(y.own ? t('ownLength') : plan.source)}</small>` : ''}${st[y.id] === 'failed' ? `<small class="late">${esc(t('couldnt'))}</small>` : ''}</span>
-      <span data-sm="${esc(y.id)}">${durField(`sm_${y.id}`, y.own ? y.len : 0, { placeholder: `${y.auto}${y.from === 'recipes' ? ' ⟲' : ''}` })}</span>
-    </li>`).join('')}</ul>
-    ${plan.waiting ? `<p class="hint">⏳ ${esc(t('waitingNotCounted', fmtDur(plan.waiting)))}</p>` : ''}`;
+// (v88) The recipe list: your picks on top (chips with ✕), a search over everything, and tabs like ☰ Tutte
+// (v85): Recenti · ✓ Si può fare · ★ Preferite · 📁 Cartelle · ⏱ Veloci · Tutte A–Z. Tags sit behind «Tag ▾»,
+// one per name (your «vegetarian» and Ricette's «Vegetariano» are one). Compact rows: a small photo, the time,
+// whether the pantry has everything, when it was last cooked; «i» shows the ingredients. One core (state, markup,
+// actions «pk-…») for the sheet on a phone and the window beside the meal on a computer.
+const wideNow = () => window.matchMedia?.('(min-width: 900px)').matches;
+// The turn sheet with the recipe list beside it (a computer), or just the sheet.
+const pickWrap = (pick, html) => (pick ? `<div class="tb-wrap side"><div class="tb-main">${html}</div><div class="pk-pane pk">${pickerHtml(pick.st, { side: true })}</div></div>` : html);
+export function pickerState({ people = 2, selected = [], title = '' } = {}) {
+  return { q: '', tab: 'recent', folder: '', tags: new Set(), tagsOpen: false, sel: [...selected], preview: null, people, title };
 }
-
-// The recipe picker: a full sheet with photos, search, folders, tags and quick filters.
-// Tap cards to select one or more recipes; ⓘ shows the recipe with what's in the pantry.
-export function openPicker({ people = 2, selected = [], onDone, onBack }) {
-  const st = { q: '', folder: '', tags: new Set(), canCook: false, quick: false, sort: 'cooked', sel: [...selected], preview: null };
-  const folders = live('r_folders');
-  const defs = tagDefs();
-  // Archived recipes never come up (unless already chosen for this meal).
-  const all = recipes().filter((r) => stageOf(r) !== 'archived' || selected.includes(r.id));
+const PK_TABS = ['recent', 'cook', 'fav', 'folders', 'quick', 'all'];
+function pickerData(st) {
+  const folders = live('r_folders'); const defs = tagDefs();
+  const all = recipes().filter((r) => stageOf(r) !== 'archived' || st.sel.includes(r.id));
   const tree = folderTree(folders);
   const fname = (id) => tree.find((f) => f.id === id)?.name || '';
-  const tags = tagCounts(all, defs, pinnedTags());
+  const cov = new Map(); const missing = (r) => { if (!cov.has(r.id)) cov.set(r.id, coverage(r, st.people).missing.length); return cov.get(r.id); };
+  // when each recipe was last eaten: Ricette's lastCooked, or a meal on the plan up to today
+  const td = today(); const lastDay = new Map();
+  for (const b of live('blocks').filter((x) => x.kind === 'meal' && x.date <= td)) for (const r of mealRecipes(b)) if (!lastDay.has(r.recipeId) || lastDay.get(r.recipeId) < b.date) lastDay.set(r.recipeId, b.date);
+  for (const r of all) if (r.lastCooked) { const d = dateStr(new Date(r.lastCooked)); if (!lastDay.has(r.id) || lastDay.get(r.id) < d) lastDay.set(r.id, d); }
+  // one tag per name: an own tag that is an automatic tag's name in any language («vegetarian», «Vegetarian»,
+  // «Vegetariano») counts as that tag
+  const autoOf = new Map();
+  for (const lang of Object.keys(_dict)) for (const [k, v] of Object.entries(_dict[lang])) if (k.startsWith('tag_') && typeof v === 'string') autoOf.set(fold(v), `auto:${k.slice(4)}`);
+  const nameKey = (tg) => fold(tagName(String(tg).startsWith('auto:') ? tg : autoOf.get(fold(tg)) || tg));
+  const tagList = []; const seen = new Set();
+  for (const x of tagCounts(all, defs, pinnedTags())) { const k = nameKey(x.tag); if (seen.has(k)) continue; seen.add(k); tagList.push({ key: k, label: tagName(String(x.tag).startsWith('auto:') ? x.tag : autoOf.get(fold(x.tag)) || x.tag), pinned: x.pinned }); }
+  const hasTags = (r) => { const mine = new Set(tagsOf(r, defs).map(nameKey)); return [...st.tags].every((k) => mine.has(k)); };
   const unfiled = all.some((r) => !folderOfRecipe(r, folders));
-  const canCook = (r) => coverage(r, people).missing.length === 0;
-
-  const list = () => filterRecipes(all, { q: st.q, folder: st.folder, tags: st.tags, canCook: st.canCook ? canCook : null, maxMinutes: st.quick ? 30 : null, sort: st.sort },
-    { folders, defs, label: tagName });
-  const card = (r) => {
-    const on = st.sel.includes(r.id);
-    const miss = coverage(r, people).missing.length;
-    const m = minutesOf(r);
-    const folder = fname(folderOfRecipe(r, folders));
-    return `<div class="pk-card${on ? ' on' : ''}">
-      <button class="pk-pick" value="tog:${esc(r.id)}" formnovalidate aria-pressed="${on}">
-        <span class="pk-photo">${coverOf(r) ? photoTag(coverOf(r)) : ''}<span class="pk-letter">${esc((r.title || '?').charAt(0))}</span>
-          <span class="stock ${miss ? 'miss' : 'ok'}">${miss ? esc(t('nMissing', miss)) : `✓ ${esc(t('inPantryShort'))}`}</span>
-          <span class="pk-tick">${on ? st.sel.indexOf(r.id) + 1 : ''}</span></span>
-        <span class="pk-body"><b>${esc(r.title)}</b>
-          <small>${[m ? `⏱ ${fmtDur(m)}` : '', folder ? `📁 ${folder}` : ''].filter(Boolean).map(esc).join(' · ')}</small>
-          ${tagsOf(r, defs).length ? `<span class="card-tags">${tagsOf(r, defs).slice(0, 3).map((x) => `<span>${esc(tagName(x))}</span>`).join('')}</span>` : ''}</span>
-      </button>
-      <button class="pk-info" value="info:${esc(r.id)}" formnovalidate aria-label="${esc(t('details'))}">i</button>
+  return { folders, defs, all, tree, fname, missing, lastDay, tagList, hasTags, unfiled };
+}
+function pickerList(st, D) {
+  const ctx = { folders: D.folders, defs: D.defs, label: tagName };
+  let l;
+  if (st.q.trim()) l = filterRecipes(D.all, { q: st.q, sort: 'cooked' }, ctx);
+  else if (st.tab === 'recent') l = D.all.filter((r) => D.lastDay.has(r.id)).sort((a, b) => (D.lastDay.get(a.id) < D.lastDay.get(b.id) ? 1 : -1)).slice(0, 15);
+  else if (st.tab === 'cook') l = filterRecipes(D.all, { canCook: (r) => D.missing(r) === 0, sort: 'cooked' }, ctx);
+  else if (st.tab === 'fav') l = filterRecipes(D.all.filter((r) => stageOf(r) === 'fav'), { sort: 'cooked' }, ctx);
+  else if (st.tab === 'folders') l = filterRecipes(D.all, { folder: st.folder, sort: 'cooked' }, ctx);
+  else if (st.tab === 'quick') l = filterRecipes(D.all, { maxMinutes: 30, sort: 'quick' }, ctx);
+  else l = filterRecipes(D.all, { sort: 'name' }, ctx);
+  return st.tags.size ? l.filter(D.hasTags) : l;
+}
+export function pickerHtml(st, { side = false } = {}) {
+  const D = pickerData(st);
+  if (st.preview && recipeOf(st.preview)) return pickerPreview(st, D, recipeOf(st.preview), side);
+  const q = st.q.trim();
+  const l = pickerList(st, D);
+  const ctx = { folders: D.folders, defs: D.defs, label: tagName };
+  const counts = { cook: filterRecipes(D.all, { canCook: (r) => D.missing(r) === 0 }, ctx).length, fav: D.all.filter((r) => stageOf(r) === 'fav').length, quick: filterRecipes(D.all, { maxMinutes: 30 }, ctx).length, all: D.all.length };
+  const label = { recent: t('pkRecent'), cook: `✓ ${t('pkCook')}`, fav: `★ ${t('pkFav')}`, folders: `📁 ${t('pkFolders')}`, quick: `⏱ ${t('pkQuick')}`, all: t('pkAll') };
+  const row = (r) => {
+    const i = st.sel.indexOf(r.id); const miss = D.missing(r); const m = minutesOf(r); const last = D.lastDay.get(r.id);
+    return `<div class="pk-row${i >= 0 ? ' on' : ''}"><button class="pk-pick" value="pk-tog:${esc(r.id)}" formnovalidate aria-pressed="${i >= 0}">
+      <span class="pk-th">${coverOf(r) ? photoTag(coverOf(r)) : ''}<span class="pk-letter">${esc((r.title || '?').charAt(0))}</span></span>
+      <span class="pk-tx"><b>${esc(r.title)}</b><small>${[m ? `⏱ ${fmtDur(m)}` : '', `<span class="${miss ? 'pk-miss' : 'pk-ok'}">${esc(miss ? t('nMissing', miss) : `✓ ${t('inPantryShort')}`)}</span>`, last && (st.tab === 'recent' && !q) ? esc(relDay(last)) : ''].filter(Boolean).join(' · ')}</small></span></button>
+      <button class="pk-i" value="pk-info:${esc(r.id)}" formnovalidate aria-label="${esc(t('details'))}">i</button>
+      <button class="pk-ck" value="pk-tog:${esc(r.id)}" formnovalidate aria-label="${esc(r.title)}">${i >= 0 ? i + 1 : ''}</button></div>`;
+  };
+  const chips = st.sel.length ? `<div class="pl-chips pk-chosen">${st.sel.map((id) => `<span class="pl-chip on">${esc(recipeOf(id)?.title || '?')}<button class="pl-x" value="pk-tog:${esc(id)}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></span>`).join('')}</div>` : '';
+  return `<div class="pk-head">
+      <button class="icon" value="pk-back" formnovalidate aria-label="${esc(t('back'))}">${side ? '✕' : '‹'}</button>
+      <h2>${esc(st.title ? t('pkFor', st.title) : t('chooseRecipes'))}</h2>
+      <span class="pk-count">${esc(t('forPeople', st.people))}</span>
+    </div>
+    ${chips}
+    <input type="search" id="pk-q" value="${esc(st.q)}" placeholder="${esc(t('recSearch'))}" autocomplete="off">
+    <div class="pl-ctabs pk-tabs${q ? ' dim' : ''}" role="tablist">${PK_TABS.map((k) => `<button class="${!q && st.tab === k ? 'on' : ''}" value="pk-tab:${k}" formnovalidate role="tab" aria-selected="${!q && st.tab === k}">${esc(label[k])}${counts[k] != null ? `<small>${counts[k]}</small>` : ''}</button>`).join('')}</div>
+    ${!q && st.tab === 'folders' ? `<div class="pills pk-folders"><button class="pill${!st.folder ? ' on' : ''}" value="pk-fold:" formnovalidate>${esc(t('allFolders'))}</button>${D.tree.map((f) => `<button class="pill${st.folder === f.id ? ' on' : ''}" value="pk-fold:${esc(f.id)}" formnovalidate>${esc(`${f.depth ? '· '.repeat(f.depth) : ''}${f.name}`)}</button>`).join('')}${D.unfiled ? `<button class="pill${st.folder === '__none' ? ' on' : ''}" value="pk-fold:__none" formnovalidate>${esc(t('noFolder'))}</button>` : ''}</div>` : ''}
+    <div class="pk-bar"><span>${esc(q ? t('pkFound', l.length) : t('pkN', l.length))}</span>${D.tagList.length ? `<button class="linkish" value="pk-tags" formnovalidate>${esc(t('pkTags'))}${st.tags.size ? ` · ${st.tags.size}` : ''} ${st.tagsOpen ? '▴' : '▾'}</button>` : ''}</div>
+    ${st.tagsOpen ? `<div class="pills pk-tagpills">${D.tagList.map((x) => `<button class="pill${st.tags.has(x.key) ? ' on' : ''}" value="pk-tag:${esc(x.key)}" formnovalidate>${x.pinned ? '📌 ' : ''}${esc(x.label)}</button>`).join('')}</div>` : ''}
+    <div class="pk-list" id="pk-list">${l.length ? l.map(row).join('') : `<p class="empty">${esc(!q && st.tab === 'recent' ? t('pkNoRecent') : t('noMatches'))}</p>`}</div>
+    <div class="pk-foot"><button class="btn primary" value="pk-done" ${st.sel.length || side ? '' : 'disabled'}>${esc(side ? t('plDoneN', st.sel.length) : st.sel.length ? t('addNRecipes', st.sel.length) : t('pickSome'))}</button></div>`;
+}
+function pickerPreview(st, D, r, side) {
+  const plan = kitchen.planForRecipe(r, st.people, live('r_pantry'));
+  const ings = ingredientsOf(r);
+  const groupOf = (p) => (p ? String(ings[p.idx]?.group || '').trim() : '');
+  const groupHead = (p, prev) => (groupOf(p) && groupOf(p) !== groupOf(prev) ? `<li class="ing-group">${esc(groupOf(p))}</li>` : '');
+  const m = minutesOf(r);
+  const steps = (r.steps || []).map((x) => (typeof x === 'string' ? x : x.text || '')).filter(Boolean);
+  const on = st.sel.includes(r.id);
+  return `<div class="pk-head">
+      <button class="icon" value="pk-list" formnovalidate aria-label="${esc(t('back'))}">‹</button>
+      <h2>${esc(r.title)}</h2><span></span>
+    </div>
+    ${coverOf(r) && !side ? `<div class="rec-hero">${photoTag(coverOf(r))}</div>` : ''}
+    <p class="hint">${[m ? `⏱ ${fmtDur(m)}` : '', t('forPeople', st.people), D.fname(folderOfRecipe(r, D.folders)) ? `📁 ${D.fname(folderOfRecipe(r, D.folders))}` : '', ...tagsOf(r, D.defs).map(tagName)].filter(Boolean).map(esc).join(' · ')}</p>
+    <ul class="list ing">${plan.map((p, i) => `${groupHead(p, plan[i - 1])}<li class="${p.covered ? 'have' : p.need == null && !p.tracked ? '' : 'need'}"><span class="q">${esc(qtyText(p.need, p.unit))}</span><span class="item-text">${esc(p.name)}${!p.covered && p.buy ? `<small>${esc(t('buyAmount', qtyText(p.buy, p.unit)))}</small>` : ''}</span><span class="mark">${p.covered ? '✓' : p.need == null && !p.tracked ? '' : '✕'}</span></li>`).join('')}</ul>
+    ${steps.length ? `<details class="steps-box"><summary>${esc(t('stepsN', steps.length))}</summary><ol>${steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></details>` : ''}
+    <div class="pk-foot">
+      <button class="btn ${on ? '' : 'primary'}" value="pk-tog:${esc(r.id)}" formnovalidate>${esc(on ? t('unselect') : t('select'))}</button>
+      ${r.url ? `<a class="btn" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(t('source'))}</a>` : ''}
     </div>`;
-  };
-  // Grouped as in Ricette: Preferite, then Provate, then Da provare (a new recipe is a choice, not an accident).
-  const STAGE_ICON = { fav: '★', tried: '✓', try: '✦', archived: '🗄' };
-  const grid = () => {
-    const l = list();
-    if (!l.length) return `<p class="empty">${esc(t('noMatches'))}</p>`;
-    const groups = STAGES.map((s) => [s, l.filter((r) => stageOf(r) === s)]).filter(([, g]) => g.length);
-    if (groups.length < 2) return l.map(card).join('');
-    return groups.map(([s, g]) => `<h3 class="pk-group" data-stage="${s}">${STAGE_ICON[s]} ${esc(t(`stage_${s}`))} <small>${g.length}</small></h3>${g.map(card).join('')}`).join('');
-  };
-  const pill = (value, label, on) => `<button class="pill${on ? ' on' : ''}" value="${esc(value)}" formnovalidate>${esc(label)}</button>`;
-
+}
+// An action from the list: 'done' / 'back' for the caller, true when handled (redraw), false when not ours.
+export function pickerAction(st, action) {
+  if (!action.startsWith('pk-')) return false;
+  const [a, ...rest] = action.slice(3).split(':'); const v = rest.join(':');
+  if (a === 'done') return 'done';
+  if (a === 'back') return 'back';
+  if (a === 'list') st.preview = null;
+  else if (a === 'tog') { st.sel = st.sel.includes(v) ? st.sel.filter((y) => y !== v) : [...st.sel, v]; st.preview = null; }
+  else if (a === 'info') st.preview = v;
+  else if (a === 'tab') { st.tab = v; st.q = ''; }
+  else if (a === 'fold') st.folder = v;
+  else if (a === 'tags') st.tagsOpen = !st.tagsOpen;
+  else if (a === 'tag') { if (st.tags.has(v)) st.tags.delete(v); else st.tags.add(v); }
+  return true;
+}
+// The search redraws just the list part (keeps the keyboard up).
+export function wireRecipePicker(root, st, redraw = null) {
+  const q = root.querySelector('#pk-q'); if (!q) return;
+  q.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') ev.preventDefault(); });
+  q.addEventListener('input', () => {
+    st.q = q.value;
+    const tmp = document.createElement('div'); tmp.innerHTML = pickerHtml(st, { side: Boolean(root.querySelector('.pk-pane')) });
+    for (const sel of ['#pk-list', '.pk-bar', '.pk-tabs']) { const a = root.querySelector(sel); const b = tmp.querySelector(sel); if (a && b) a.replaceWith(b); }
+    hydratePhotos(root);
+  });
+  void redraw;
+}
+export function openPicker({ people = 2, selected = [], title = '', onDone, onBack }) {
+  const st = pickerState({ people, selected, title });
   const draw = () => {
-    if (st.preview) return drawPreview(recipeOf(st.preview));
-    const n = st.sel.length;
-    openModal(`
-      <div class="pk-head">
-        <button class="icon" value="back" formnovalidate aria-label="${esc(t('back'))}">‹</button>
-        <h2>${esc(t('chooseRecipes'))}</h2>
-        <span class="pk-count">${esc(t('forPeople', people))}</span>
-      </div>
-      <input type="search" id="pk-q" value="${esc(st.q)}" placeholder="${esc(t('recSearch'))}" autocomplete="off">
-      ${tree.length ? `<div class="pills">${pill('folder:', t('allFolders'), !st.folder)}${tree.map((f) => pill(`folder:${f.id}`, `${f.depth ? '· '.repeat(f.depth) : '📁 '}${f.name}`, st.folder === f.id)).join('')}${unfiled ? pill('folder:__none', t('noFolder'), st.folder === '__none') : ''}</div>` : ''}
-      <div class="pills">${pill('cook', `✓ ${t('canCookNow')}`, st.canCook)}${pill('quick', `⏱ ${t('underMin', 30)}`, st.quick)}${pill('sort', st.sort === 'cooked' ? `↕ ${t('sortCooked')}` : `↕ ${t('sortAZ')}`, st.sort === 'cooked')}</div>
-      ${tags.length ? `<div class="pills">${tags.map((x) => pill(`tag:${x.tag}`, `${x.pinned ? '📌 ' : ''}${tagName(x.tag)}`, st.tags.has(x.tag))).join('')}</div>` : ''}
-      <div class="pk-grid" id="pk-grid">${grid()}</div>
-      <div class="pk-foot">
-        <button class="btn primary" value="done" ${n ? '' : 'disabled'}>${esc(n ? t('addNRecipes', n) : t('pickSome'))}</button>
-      </div>`, onSubmit, { cls: 'sheet' });
+    openModal(`<div class="pk">${pickerHtml(st)}</div>`, (form, action, e) => {
+      e.preventDefault(); // stay in the dialog: the picker hands back to the meal
+      const r = pickerAction(st, action);
+      if (r === 'done') { onDone(st.sel); return; }
+      if (r === 'back') { onBack(); return; }
+      if (!r) return;
+      const scroll = st.preview ? 0 : modal.querySelector('form')?.scrollTop;
+      draw();
+      if (scroll) modal.querySelector('form').scrollTop = scroll;
+    }, { cls: 'sheet' });
     hydratePhotos(modal);
-    const q = modal.querySelector('#pk-q');
-    q.addEventListener('input', () => { st.q = q.value; const g = modal.querySelector('#pk-grid'); g.innerHTML = grid(); hydratePhotos(g); });
+    wireRecipePicker(modal, st, draw);
   };
-
-  const drawPreview = (r) => {
-    const plan = kitchen.planForRecipe(r, people, live('r_pantry'));
-    // ingredient groups (Ricette v41): a heading wherever the group changes
-    const ings = ingredientsOf(r);
-    const groupOf = (p) => (p ? String(ings[p.idx]?.group || '').trim() : '');
-    const groupHead = (p, prev) => (groupOf(p) && groupOf(p) !== groupOf(prev) ? `<li class="ing-group">${esc(groupOf(p))}</li>` : '');
-    const m = minutesOf(r);
-    const steps = (r.steps || []).map((x) => (typeof x === 'string' ? x : x.text || '')).filter(Boolean);
-    const on = st.sel.includes(r.id);
-    openModal(`
-      <div class="pk-head">
-        <button class="icon" value="list" formnovalidate aria-label="${esc(t('back'))}">‹</button>
-        <h2>${esc(r.title)}</h2><span></span>
-      </div>
-      ${coverOf(r) ? `<div class="rec-hero">${photoTag(coverOf(r))}</div>` : ''}
-      <p class="hint">${[m ? `⏱ ${fmtDur(m)}` : '', t('forPeople', people), fname(folderOfRecipe(r, folders)) ? `📁 ${fname(folderOfRecipe(r, folders))}` : '', ...tagsOf(r, defs).map(tagName)].filter(Boolean).map(esc).join(' · ')}</p>
-      <ul class="list ing">${plan.map((p, i) => `${groupHead(p, plan[i - 1])}<li class="${p.covered ? 'have' : p.need == null && !p.tracked ? '' : 'need'}"><span class="q">${esc(qtyText(p.need, p.unit))}</span><span class="item-text">${esc(p.name)}${!p.covered && p.buy ? `<small>${esc(t('buyAmount', qtyText(p.buy, p.unit)))}</small>` : ''}</span><span class="mark">${p.covered ? '✓' : p.need == null && !p.tracked ? '' : '✕'}</span></li>`).join('')}</ul>
-      ${steps.length ? `<details class="steps-box"><summary>${esc(t('stepsN', steps.length))}</summary><ol>${steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></details>` : ''}
-      <div class="pk-foot">
-        <button class="btn ${on ? '' : 'primary'}" value="tog:${esc(r.id)}" formnovalidate>${esc(on ? t('unselect') : t('select'))}</button>
-        ${r.url ? `<a class="btn" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(t('source'))}</a>` : ''}
-      </div>`, onSubmit, { cls: 'sheet' });
-    hydratePhotos(modal);
-  };
-
-  function onSubmit(form, action, e) {
-    e.preventDefault(); // stay in the dialog: the picker hands back to the meal
-    if (action === 'done') { onDone(st.sel); return; }
-    if (action === 'back') { onBack(); return; }
-    if (action === 'list') { st.preview = null; draw(); return; }
-    if (action.startsWith('tog:')) {
-      const id = action.slice(4);
-      st.sel = st.sel.includes(id) ? st.sel.filter((y) => y !== id) : [...st.sel, id];
-      if (st.preview) st.preview = null;
-    } else if (action.startsWith('info:')) st.preview = action.slice(5);
-    else if (action.startsWith('folder:')) st.folder = action.slice(7);
-    else if (action.startsWith('tag:')) { const tg = action.slice(4); if (st.tags.has(tg)) st.tags.delete(tg); else st.tags.add(tg); }
-    else if (action === 'cook') st.canCook = !st.canCook;
-    else if (action === 'quick') st.quick = !st.quick;
-    else if (action === 'sort') st.sort = st.sort === 'cooked' ? 'name' : 'cooked';
-    const scroll = modal.querySelector('form')?.scrollTop;
-    draw();
-    if (scroll) modal.querySelector('form').scrollTop = scroll;
-  }
   draw();
 }
 // (v85) A saved place: name and emoji, address and link, «🛒 Ci faccio la spesa» (a shop: a visit length,
@@ -1116,7 +1057,7 @@ function collectWhen(form, x) {
   if (x.slotTimes && (mode !== 'repeat' || x.repeat !== 'weekly' || x.pickTime)) x.slotTimes = null; // (v66)
   if (x.dayMinutes && (mode !== 'repeat' || x.repeat !== 'weekly')) x.dayMinutes = null; // (v71)
   // (v81) one time: a routine's fixed time is also its usual time (the one proposed when planned by hand)
-  if (mode === 'repeat' && !x.pickTime && x.planTime != null && (isSaved(x) || isMealType(x)) && !classic()) x.defaultStart = x.planTime;
+  if (mode === 'repeat' && !x.pickTime && x.planTime != null && isSaved(x) && !classic()) x.defaultStart = x.planTime;
 }
 // (v78) The top of a task's card: when, at what time and how long, all in view. Once: the day and the
 // time. Repeats: the seven days (with Every day, Weekdays, Weekend, N times a week, Every month), the
@@ -1311,7 +1252,7 @@ export function finishTimer() {
 // (v66) The short task sheet: which top chip is open (category · length · importance), kept while it redraws.
 let edPop = null;
 // (v84) a task you have opens in the + sheet (its pills and Altre opzioni); the full editor stays behind ⋯
-const inPlusSheet = (x) => x && !x.deleted && !classic() && !isMealType(x) && !isStep(x) && !x.travelRole && !isPalestra(x) && x.id !== 'meal_check' && ['todo', 'saved', 'event'].includes(x.kind);
+const inPlusSheet = (x) => x && !x.deleted && !classic() && !isStep(x) && !x.travelRole && !isPalestra(x) && x.id !== 'meal_check' && ['todo', 'saved', 'event'].includes(x.kind);
 export function openTask(task, draft = null, opts = {}) {
   if (task && !draft && !opts.full && !opts.old && !opts.draft && !opts.openSec && inPlusSheet(get('tasks', task.id) || task)) { openPlusEdit(get('tasks', task.id) || task); return; }
   if (!draft) edPop = null;
@@ -1398,14 +1339,14 @@ export function openTask(task, draft = null, opts = {}) {
         ${i ? `<button class="icon" value="up-step:${i}" formnovalidate aria-label="↑">↑</button>` : '<span class="icon-sp"></span>'}
         <button class="icon" value="rm-step:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button>
       </div>
-      ${isMealType(x) || y.from === 'recipes' ? `<label class="check step-sub"><input type="checkbox" name="st_r_${i}" data-rerender="1" ${y.from === 'recipes' ? 'checked' : ''}> <span>⟲ ${esc(t(y.from === 'recipes' ? 'stepRecipesOn' : 'stepRecipesOff'))}</span></label>` : ''}
+      ${isMealTask(x) || y.from === 'recipes' ? `<label class="check step-sub"><input type="checkbox" name="st_r_${i}" data-rerender="1" ${y.from === 'recipes' ? 'checked' : ''}> <span>⟲ ${esc(t(y.from === 'recipes' ? 'stepRecipesOn' : 'stepRecipesOff'))}</span></label>` : ''}
       ${mine.map(([r, k]) => ruleCard(r, k)).join('')}
       <button class="btn small ghost step-rule-add" value="add-rule:${esc(y.id)}" formnovalidate>⚙ + ${esc(t('addStepRule'))}</button>
     </li>`;
   }).join('');
   const taskRules = rulesFor(null);
   const timeLabel = x.steps.length > 1 && ai > 0 && anchor ? t('anchorAt', anchor.title || '…') : t('startTime');
-  const heading = evMode ? (classic() ? (isNew ? t('newEvent') : t('editEvent')) : t('apptOpt')) : routine ? (isMealType(x) ? (isNew ? t('newMealType') : t('mealType')) : (isNew ? t('newSaved') : t('savedTask'))) : helper ? t('editPrep') : isNew ? t('newTask') : t('editTask');
+  const heading = evMode ? (classic() ? (isNew ? t('newEvent') : t('editEvent')) : t('apptOpt')) : routine ? (false ? '' : (isNew ? t('newSaved') : t('savedTask'))) : helper ? t('editPrep') : isNew ? t('newTask') : t('editTask');
   const catName0 = catsOf(x).map((c) => catName(get('categories', c))).join(', ');
 
   const basics = `
@@ -1417,8 +1358,8 @@ export function openTask(task, draft = null, opts = {}) {
     </div>
     ${dayLenPart(x)}
     ${helper ? '' : `<div class="field-label">${esc(t('categories'))}</div>${catChipsMulti(x)}`}
-    ${helper || isMealType(x) || evMode ? '' : `<label class="check"><input type="checkbox" name="routine" ${routine ? 'checked' : ''}> <span>★ ${esc(t('keepSaved'))}${small('keepSavedHint')}</span></label>`}
-    ${routine ? `<label class="check"><input type="checkbox" name="meal" data-rerender="1" ${isMealType(x) ? 'checked' : ''}> <span>${esc(t('isMeal'))}</span></label>` : ''}`;
+    ${helper || evMode ? '' : `<label class="check"><input type="checkbox" name="routine" ${routine ? 'checked' : ''}> <span>★ ${esc(t('keepSaved'))}${small('keepSavedHint')}</span></label>`}
+`;
   const off = x.eventOffset || { days: 0, when: 'before' };
   const offWeeks = off.days > 0 && off.days % 7 === 0;
   const evLine = linkedEvent ? `
@@ -1452,7 +1393,7 @@ export function openTask(task, draft = null, opts = {}) {
     ${remindField(x)}` : !helper ? whenEditor(x, { routine, linkedEvent, evLine, timeLabel, noTabs: short, lite: short, anchorLabel: x.steps.length > 1 && ai > 0 && anchor ? t('anchorAt', anchor.title || '…') : t('usualTimeOpt') }) + `
     ${remindField(x)}` : '';
   // Tasks it needs done first (not itself, not meals, not ones that already need it: no loops).
-  const needCandidates = live('tasks').filter((y) => y.id !== x.id && !isMealType(y) && !y.check && !y.done && !(y.after || []).includes(x.id) && !(x.after || []).includes(y.id))
+  const needCandidates = live('tasks').filter((y) => y.id !== x.id && !isMealTask(y) && !y.check && !y.done && !(y.after || []).includes(x.id) && !(x.after || []).includes(y.id))
     .sort((a, b) => a.title.localeCompare(b.title));
   const needsBody = helper || evMode ? '' : `
     <div class="field-label">🔒 ${esc(t('needsFirst'))}</div>
@@ -1477,12 +1418,12 @@ export function openTask(task, draft = null, opts = {}) {
       ${evTasks.some((y) => !y.done && !nextPlanned(y.id)) ? `<button class="btn small primary-ghost" value="plan-evtasks" formnovalidate>✦ ${esc(t('planThese'))}</button>` : ''}
     </div>` : '';
   const stepsBody = `
-    ${hint(isMealType(x) ? 'stepsHintMeal' : 'stepsHint')}
+    ${hint(isMealTask(x) ? 'stepsHintMeal' : 'stepsHint')}
     ${progressLine}
     ${stepCards ? `<ol class="steps-edit">${stepCards}</ol>` : ''}
     ${x.steps.length > 1 && ai > 0 && anchor ? `<p class="hint anchor-hint">⚓ ${esc(t('anchorHintGen', anchor.title || '…', x.steps.slice(0, ai).map((y) => y.title).filter(Boolean).join(', ')))}</p>` : ''}
     <button class="btn small" value="add-step" formnovalidate>+ ${esc(t('addStep'))}</button>
-    ${x.steps.length > 1 && !isMealType(x) && !helper ? stepsPlanPills(x) : ''}`;
+    ${x.steps.length > 1 && !isMealTask(x) && !helper ? stepsPlanPills(x) : ''}`;
   const rulesBody = `
     <p class="hint">${esc(t(helper ? 'rulesHint' : 'rulesHintPrep'))}</p>
     ${taskRules.map(([r, i]) => ruleCard(r, i)).join('')}
@@ -1522,7 +1463,7 @@ export function openTask(task, draft = null, opts = {}) {
     ${ups.length ? `<ul class="ed-plan">${ups.slice(0, 6).map((b) => `<li><span><b>${esc(relDay(b.date))} · ${esc(fmtTime(b.start))}–${esc(fmtTime(b.start + (b.minutes || 0)))}</b>${b.stepId ? `<small>${esc(b.title)}</small>` : ''}</span><button class="btn small" value="mv:${esc(b.id)}" formnovalidate>${esc(t('moveBtn'))}</button><button class="icon" value="unplan:${esc(b.id)}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></li>`).join('')}</ul>${ups.length > 6 ? `<p class="hint">${esc(t('findMoreN', ups.length - 6))}</p>` : ''}` : `<p class="hint">${esc(t('inPlanNone'))}</p>`}
     ${!isNew && isRoutine(x) && !x.archived ? `<button class="btn small ed-more-turn" value="plan-more" formnovalidate>+ ${esc(t('planOneMore'))}</button>` : ''}` : '';
   const optsBody = `${helper || x.travelRole ? '' : `<label>${esc(t('bufferAfter'))}<select name="buffer"><option value="" ${x.buffer == null || x.buffer === '' ? 'selected' : ''}>${esc(t('bufferDefault', Number(state.settings.taskBuffer) || 0))}</option>${[0, 5, 10, 15, 30, 60].map((m) => `<option value="${m}" ${x.buffer != null && x.buffer !== '' && Number(x.buffer) === m ? 'selected' : ''}>${m ? esc(fmtDur(m)) : esc(t('none'))}</option>`).join('')}</select></label>`}
-    ${routine ? `<label class="check"><input type="checkbox" name="meal" data-rerender="1" ${isMealType(x) ? 'checked' : ''}> <span>${esc(t('isMeal'))}</span></label>` : ''}`;
+`;
   const shortMore = short ? `<div class="field-label ed-more-h">${esc(t('moreSec'))}</div><div class="ed-more">
     ${sec('when', `↻ ${esc(t('secRepeat'))}`, [x.repeat ? (slotLine || repeatText(x)) : '', x.due && !x.repeat ? t('dueOn', relDay(x.due)) : ''].filter(Boolean).join(' · ') || '—', whenBody, false)}
     ${sec('needs', `🔒 ${esc(t('secNeeds'))}`, [(x.after || []).length ? `🔒 ${(x.after || []).length}` : '', cleanWindows(x.windows).length ? windowsText(cleanWindows(x.windows)) : ''].filter(Boolean).join(' · ') || '—', needsBody, false)}
@@ -1530,7 +1471,7 @@ export function openTask(task, draft = null, opts = {}) {
     ${sec('steps', `▤ ${esc(t('steps'))}`, x.steps.length ? `${doneN ? `◐ ${doneN}/` : ''}${x.steps.length} · ${fmtDur(stepTotal)}` : '—', stepsBody, false)}
     ${x.check ? '' : sec('checklist', `☑ ${esc(t('checklist'))}`, x.checklist.length ? String(x.checklist.length) : '—', `<label><textarea name="checklist" rows="3" placeholder="${esc(t('checklistPh'))}" aria-label="${esc(t('checklist'))}">${esc((x.checklist || []).join('\n'))}</textarea>
       ${small('checklistHint')}</label>`, false)}
-    ${advancedOn() || taskRules.length || isMealType(x) ? sec('rules', `⚙ ${esc(t(x.steps.length ? 'rulesWhole' : 'rules'))}`, taskRules.length ? String(taskRules.length) : '—', rulesBody, false) : ''}
+    ${advancedOn() || taskRules.length || isMealTask(x) ? sec('rules', `⚙ ${esc(t(x.steps.length ? 'rulesWhole' : 'rules'))}`, taskRules.length ? String(taskRules.length) : '—', rulesBody, false) : ''}
     ${sec('opts', `◦ ${esc(t('secOptions'))}`, [x.buffer ? fmtDur(Number(x.buffer)) : ''].filter(Boolean).join(' · ') || '—', optsBody, false)}
     ${sec('notes', `✎ ${esc(t('notes'))}`, x.notes ? x.notes.slice(0, 30) : '—', `<label><textarea name="notes" rows="2" aria-label="${esc(t('notes'))}">${esc(x.notes || '')}</textarea></label>`, false)}
   </div>` : '';
@@ -1549,7 +1490,7 @@ export function openTask(task, draft = null, opts = {}) {
     ${sec('steps', `▤ ${esc(t('steps'))}`, x.steps.length ? `${doneN ? `◐ ${doneN}/` : ''}${x.steps.length} · ${fmtDur(stepTotal)}` : '', stepsBody, true)}
     ${x.check ? '' : sec('checklist', `☑ ${esc(t('checklist'))}`, x.checklist.length ? String(x.checklist.length) : '', `<label><textarea name="checklist" rows="3" placeholder="${esc(t('checklistPh'))}" aria-label="${esc(t('checklist'))}">${esc((x.checklist || []).join('\n'))}</textarea>
       ${small('checklistHint')}</label>`, x.checklist.length > 0)}
-    ${advancedOn() || taskRules.length || isMealType(x) ? sec('rules', `⚙ ${esc(t(x.steps.length ? 'rulesWhole' : 'rules'))}`, taskRules.length ? String(taskRules.length) : '', rulesBody, true) : ''}
+    ${advancedOn() || taskRules.length || isMealTask(x) ? sec('rules', `⚙ ${esc(t(x.steps.length ? 'rulesWhole' : 'rules'))}`, taskRules.length ? String(taskRules.length) : '', rulesBody, true) : ''}
     ${sec('notes', esc(t('notes')), x.notes ? x.notes.slice(0, 30) : '', `<label><textarea name="notes" rows="2" aria-label="${esc(t('notes'))}">${esc(x.notes || '')}</textarea></label>`, Boolean(x.notes))}`}
     <div class="button-row">
       <button class="btn primary" value="ok">${esc(t('save'))}</button>
@@ -1741,7 +1682,7 @@ export function openTask(task, draft = null, opts = {}) {
     if (form.buffer) x.buffer = form.buffer.value === '' ? null : Number(form.buffer.value) || 0;
     if (form.querySelector('[value="w_add"]')) x.windows = readWindows(form, 'w_', (x.windows || []).length);
     if (form.stepsPlan) { const v = form.stepsPlan.value; x.splitSteps = v === 'each'; x.keepTogether = v === 'together'; }
-    if (form.routine) x.kind = form.routine.checked ? (isMealType(x) ? 'meal' : 'saved') : 'todo';
+    if (form.routine) x.kind = form.routine.checked ? 'saved' : 'todo';
     if (form.evDays) {
       const when = form.evWhen.value;
       if (when === 'none') { x.eventId = null; x.eventOffset = null; } else {
@@ -1751,7 +1692,7 @@ export function openTask(task, draft = null, opts = {}) {
     }
     if (!helper && !evMode) collectWhen(form, x);
     // (v69) the short sheet: whether it's a routine follows the Quando choice (no separate switch any more)
-    if (short && !isMealType(x) && ['todo', 'saved'].includes(x.kind || 'todo')) x.kind = x.whenMode === 'anytime' ? 'saved' : x.whenMode === 'once' ? 'todo' : x.kind || 'todo';
+    if (short && ['todo', 'saved'].includes(x.kind || 'todo')) x.kind = x.whenMode === 'anytime' ? 'saved' : x.whenMode === 'once' ? 'todo' : x.kind || 'todo';
     if (!helper && evMode) {
       if (form.due) x.due = form.due.value || null;
       x.repeat = form.repeat.value || null;
@@ -1767,7 +1708,6 @@ export function openTask(task, draft = null, opts = {}) {
     if (form.remind) { if (form.remind.value === '') delete x.remind; else x.remind = Number(form.remind.value); }
     if (form.querySelector('input[name="cats"]')) Object.assign(x, readCats(form, x));
     if (form.defaultStart) x.defaultStart = form.defaultStart.value ? parseTime(form.defaultStart.value) : null;
-    if (form.meal && isSaved(x)) x.kind = form.meal.checked ? 'meal' : 'saved';
     x.allRules = x.allRules.map((r, i) => {
       const stepId = form[`rs_${i}`]?.value || null;
       const when = form[`rw_${i}`].value;
@@ -1828,7 +1768,7 @@ export function remindField(x) {
 // Tasks a rule can add: your to-dos and small steps, not meal types, and not the task itself.
 export function ruleTargets(x) {
   const used = new Set((x.allRules || []).map((r) => r.taskId).filter(Boolean));
-  return live('tasks').filter((y) => used.has(y.id) || (y.id !== x.id && !isMealType(y) && !y.check && (!y.done || y.repeat)))
+  return live('tasks').filter((y) => used.has(y.id) || (y.id !== x.id && !isMealTask(y) && !y.check && (!y.done || y.repeat)))
     .sort((a, b) => Number(isStep(b)) - Number(isStep(a)) || a.title.localeCompare(b.title));
 }
 
@@ -1864,7 +1804,9 @@ export function saveTask(x) {
     minutes: steps.length ? steps.reduce((n, y) => n + (Number(y.minutes) || 0), 0) : x.minutes,
     priority: 0, done: Boolean(x.done), lenSet: true, // you saw the length: it counts as set
   }), { silent: true });
-  return applyTravel(saved, { prev: prevTask || saved });
+  const out = applyTravel(saved, { prev: prevTask || saved });
+  if (prevTask?.category !== out.category || isMealTask(out)) syncMealBlocks(); // (v87) its turns become meals (or not)
+  return out;
 }
 
 // A checklist that must be finished before something counts as done.
@@ -1943,7 +1885,6 @@ function tookRow(b, task) {
     ${keep ? `<button class="btn small" value="took-keep:${b.minutes}" formnovalidate>${esc(t('tookKeep', fmtDur(b.minutes)))}</button>` : ''}</div>`;
 }
 export function openBlock(block, defaults = {}) {
-  if ((block || defaults).kind === 'meal') { openMeal(block); return; }
   const isNew = !block;
   const b = block || { title: '', date: currentDate(), start: 9 * 60, minutes: 30, category: '', notes: '', done: false, ...defaults };
   const task = b.taskId && get('tasks', b.taskId);
@@ -1951,7 +1892,10 @@ export function openBlock(block, defaults = {}) {
   const items = checklistOf(b);
   const isShop = b.kind === 'groceries';
   const status = outcomeOf(b);
-  const turnUi = !classic() && !isNew && task && !isShop && !['meal', 'prep'].includes(b.kind); // (v84) a turn: this time, short
+  const turnUi = !classic() && !isNew && task && !isShop && b.kind !== 'prep'; // (v84) a turn: this time, short (v87: meals too)
+  const isMeal = !isNew && task && (b.kind === 'meal' || isMealTask(task)); // (v87) its recipes, in the sheet
+  if (ui.mealPick && (ui.mealPick.id !== b.id || !isMeal || !wideNow())) ui.mealPick = null;
+  const pick = ui.mealPick; // (v88) the recipe list open beside it
   // With steps, the time shown is when the anchor step starts (e.g. "Workout at 19:00"; getting there starts earlier).
   const off = !isNew && task ? anchorOffset(b, task) : 0;
   const anchorName = off ? anchorTitle(task) : null;
@@ -1971,13 +1915,13 @@ export function openBlock(block, defaults = {}) {
     : status === 'failed' ? `<div class="es-state fail"><span>✕ ${esc(t('esFailLine'))}</span><button class="btn small" value="reset" formnovalidate>${esc(t('reset'))}</button></div>`
     : running ? `<div class="es-state run"><span>⏱ ${esc(t('esRunning', Math.max(1, Math.round((Date.now() - b.startedAt) / 60000))))}</span></div><div class="es-row"><button class="btn primary" value="finish" formnovalidate>■ ${esc(t('esFinish'))}</button><button class="btn" value="fail" formnovalidate>✕ ${esc(t('esFail'))}</button></div>`
     : `<div class="es-row">${b.date === today() && !isShop ? `<button class="btn" value="block-start" formnovalidate>▶ ${esc(t(isPalestra(task) ? 'palStart' : 'esStart'))}</button>` : ''}<button class="btn primary" value="done" formnovalidate>✓ ${esc(t('esDone'))}</button><button class="btn" value="fail" formnovalidate>✕ ${esc(t('esFail'))}</button></div>`}${cnt}${learn}</div>`;
-  openModal(`
+  openModal(pickWrap(pick, `
     ${!esNew || isShop ? `<h2>${esc(isShop ? `🛒 ${t('groceryTitle')}` : isNew ? t('newBlock') : t('editBlock'))}</h2>` : ''}
     ${parent ? `<p class="hint">↳ ${esc(t('prepForBlock', parent.title, fmtTime(parent.start)))}</p>` : ''}
     ${status === 'failed' ? `<p class="conn bad">✕ ${esc(t('markedCouldnt'))}${b.missing?.length ? ` ${esc(t('missingWere', b.missing.join(', ')))}` : ''}</p>` : ''}
     ${isCheckStep(b) && !status ? `${hint('checkStepHint')}` : ''}
     ${turnUi ? `<input type="hidden" name="taskId" value="${esc(b.taskId || '')}"><input type="hidden" name="title" value="${esc(b.title)}"><input type="hidden" name="category" value="${esc(b.category || '')}">
-      <div class="tb-ttl">${esc(b.title)}</div><div class="tb-kick">${esc([isSeries(task) ? `↻ ${repeatText(task)}` : isEvent(task) ? `📌 ${t('apptOpt')}` : t('wm_once'), task.category ? catName(get('categories', task.category)) : ''].filter(Boolean).join(' · '))}</div>` : ''}
+      <div class="tb-ttl">${esc(b.title)}</div><div class="tb-kick">${esc([isSeries(task) ? `↻ ${repeatText(task)}` : isEvent(task) ? `📌 ${t('apptOpt')}` : t('wm_once'), isMeal ? `🍽 ${t('meal')}` : isApptLike(task) && !isEvent(task) ? `📅 ${t('apptOpt')}` : '', task.category ? catName(get('categories', task.category)) : ''].filter(Boolean).join(' · '))}</div>` : ''}
     ${isShop || turnUi ? '' : `
       ${b.kind === 'prep' || isEvent(task) ? `<input type="hidden" name="taskId" value="${esc(b.taskId || '')}">` : `<input type="hidden" name="taskId" value="${esc(b.taskId || '')}">
       <details class="task-pick" ${isNew && !b.taskId ? 'open' : ''}><summary><span class="field-label">${esc(t('linkTask'))}</span> <span class="tp-cur">${esc(task ? task.title : t('noTaskLinked'))}</span></summary>
@@ -1998,6 +1942,7 @@ export function openBlock(block, defaults = {}) {
     ${isShop ? (esNew && !isNew ? tripListHtml(b) : shoppingSection(b)) : ''}
     ${items.length && !isNew ? `<div class="field-label">${esc(t('checklist'))}</div>
       <ul class="list checklist">${items.map((it, i) => `<li><label><input type="checkbox" data-ci="${i}" ${(b.checked || [])[i] ? 'checked' : ''}><span class="item-text">${esc(it)}</span></label></li>`).join('')}</ul>` : ''}
+    ${isMeal ? mealSection(b) : ''}
     ${stepsSection(b)}
     ${isShop || turnUi ? '' : `<div class="field-label">${esc(t('category'))}</div>${catChips(b.category)}`}
     ${turnUi ? `<textarea name="notes" hidden>${esc(b.notes || '')}</textarea><input type="checkbox" name="allowOverlap" hidden ${b.allowOverlap ? 'checked' : ''}>` : `<label>${esc(t('notes'))}<textarea name="notes" rows="2">${esc(b.notes || '')}</textarea></label>
@@ -2017,8 +1962,29 @@ export function openBlock(block, defaults = {}) {
       <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
       ${isNew ? '' : `<button class="btn" value="dup" formnovalidate>${esc(t('duplicate'))}</button>
       <button class="btn danger" value="delete" formnovalidate>${esc(t('delete'))}</button>`}
-    </div>`}`, (form, action, e) => {
+    </div>`}`), (form, action, e) => {
     if (stepAction(b, action, e, openBlock)) return;
+    // (v88) the recipe list beside the sheet (a computer): its own actions; Fatto sets the recipes
+    if (pick && action.startsWith('pk-')) {
+      e.preventDefault();
+      const r = pickerAction(pick.st, action);
+      if (r === 'done') { setMealRecipes(get('blocks', b.id), pick.st.sel); changed(); ui.mealPick = null; }
+      else if (r === 'back') ui.mealPick = null;
+      openBlock(get('blocks', b.id)); return;
+    }
+    // (v87) the meal's recipes and servings: saved straight away (like a step), the sheet stays
+    if (isMeal && action.startsWith('ml-')) {
+      e.preventDefault();
+      const cur = get('blocks', b.id); const ids = mealRecipes(cur).map((r) => r.recipeId);
+      if (action === 'ml-pick') {
+        if (wideNow()) { ui.mealPick = { id: cur.id, st: pickerState({ people: cur.servings || 2, selected: ids, title: task.title }) }; openBlock(cur); return; } // (v88) beside the sheet
+        pickMealRecipes(cur, (nb) => openBlock(nb)); return;
+      }
+      if (action === 'ml-check') { checkMealNow(cur); changed(); openBlock(get('blocks', b.id)); return; }
+      if (action.startsWith('ml-rm:')) { ids.splice(Number(action.slice(6)), 1); setMealRecipes(cur, ids); }
+      if (action.startsWith('ml-ppl:')) setMealRecipes(cur, ids, Math.max(1, Math.min(30, (cur.servings || 2) + Number(action.slice(7)))));
+      changed(); openBlock(get('blocks', b.id)); return;
+    }
     // (v67) Esito: Fatto (a checklist or a rule may ask first) and Fine of a running timer
     if (action === 'done' && task?.lenUnknown && !classic()) { // (v82) «non so»: done, then how long it took
       e.preventDefault();
@@ -2147,6 +2113,7 @@ export function openBlock(block, defaults = {}) {
     finish(rec);
   });
   wireSteps(b, openBlock);
+  if (pick) { hydratePhotos(modal); wireRecipePicker(modal, pick.st); modal.addEventListener('close', () => { ui.mealPick = null; }, { once: true }); }
   const form = modal.querySelector('form');
   wireTimePair(form, b); // (v72) Inizio → Fine, the length, and the rest of the day
   // Picking a task fills in the hidden field and tells the form (title, length and category follow).
@@ -2377,13 +2344,16 @@ export function openCategory(cat) {
     <h2>${esc(isNew ? t('newCategory') : t('editCategory'))}</h2>
     <label>${esc(t('name'))}<input name="name" ${isNew ? 'required' : ''} value="${esc(c.name || '')}" placeholder="${esc(catName(c))}" autocomplete="off"></label>
     <label>${esc(t('color'))}<input name="color" type="color" value="${esc(c.color)}"></label>
+    <label class="check"><input type="checkbox" name="meal" ${catFlag(c.id, 'meal') || (isNew && c.meal) ? 'checked' : ''}> <span>🍽 ${esc(t('catMeal'))}<small>${esc(t('catMealSub'))}</small></span></label>
+    <label class="check"><input type="checkbox" name="event" ${catFlag(c.id, 'event') ? 'checked' : ''}> <span>📅 ${esc(t('catEvent'))}<small>${esc(t('catEventSub'))}</small></span></label>
     <div class="button-row">
       <button class="btn primary" value="ok">${esc(t('save'))}</button>
       <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
       ${isNew ? '' : `<button class="btn danger" value="delete" formnovalidate>${esc(t('delete'))}</button>`}
     </div>`, (form, action) => {
     if (action === 'delete') { if (confirm(t('confirmDeleteCategory'))) { remove('categories', c.id); changed(); } return; }
-    upsert('categories', { ...c, id: c.id || uid(), name: form.name.value.trim(), color: form.color.value, order: c.order ?? 50 }, { silent: true });
+    upsert('categories', { ...c, id: c.id || uid(), name: form.name.value.trim(), color: form.color.value, order: c.order ?? 50, meal: form.meal.checked, event: form.event.checked }, { silent: true });
+    syncMealBlocks();
     changed();
   });
 }

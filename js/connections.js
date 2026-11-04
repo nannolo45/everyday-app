@@ -1,6 +1,6 @@
 // connections.js: moved from app.js (v36). See app.js for how the modules fit together.
 import { $, esc, hint, small, toast, ui } from './core.js';
-import { askScope, openMeal, openQuickTask, openSpare } from './editors.js';
+import { askScope, openMealPick, openQuickTask, openSpare } from './editors.js';
 import { detectLang, getLang, setLang, t } from './i18n.js';
 import { setDecimalSeparator } from './parse.js';
 import { today } from './plan.js';
@@ -145,7 +145,7 @@ export function handleShortcut() {
   render();
   if (go === 'add') setTimeout(openQuickTask, 50);
   if (go === 'time') setTimeout(openSpare, 50);
-  if (go === 'meal') setTimeout(() => { ui.mealDate = today(); openMeal(null); }, 50);
+  if (go === 'meal') setTimeout(() => openMealPick(today()), 50);
 }
 
 export function showUpdateBar() {

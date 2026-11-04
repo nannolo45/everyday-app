@@ -3,14 +3,14 @@ import { cardRows, fixAll, toFix, weekCardHtml } from '../weekpick.js';
 import { openAutoPlanner } from '../editors.js';
 import { catColor, esc, fmtDay, hint, PPM, range, reasonText, relDay, toast, ui } from '../core.js';
 import { t } from '../i18n.js';
-import { isEvent, isMealType } from '../kinds.js';
-import { alreadyPlanned, autoApply, autoChecks, blocksOn, blockTimeText, checklistLeft, checklistOf, checkMissed, conflictsOn, conflictText, eventsOn, isInvite, ISSUE_SEC, issueText, linkFor, nextPlanned, outcomeOf, partsLeft, plannedWhen, prereqsOf, splitsSteps, stepTimes, taskDayOf, taskIssues, timedEventsOn, timesLeft } from '../model.js';
+import { isEvent } from '../kinds.js';
+import { alreadyPlanned, isApptLike, isMealTask, mealRecipes, taskIcon, autoApply, autoChecks, blocksOn, blockTimeText, checklistLeft, checklistOf, checkMissed, conflictsOn, conflictText, eventsOn, isInvite, ISSUE_SEC, issueText, linkFor, nextPlanned, outcomeOf, partsLeft, plannedWhen, prereqsOf, splitsSteps, stepTimes, taskDayOf, taskIssues, timedEventsOn, timesLeft } from '../model.js';
 import { addDays, dateStr, dayTotals, fmtDur, fmtTime, importanceOf, layoutBlocks, parseDate, sortTasks, today, weekday } from '../plan.js';
 import { addGhostList, autoHoursFor, hoursShort, inRange, loadOf, selecting, spreadLabel, trayTasks } from '../planning.js';
 import { changed, currentDate, render } from '../shell.js';
 import { matchesQ } from '../shoplist.js';
 import { get, live, state } from '../store.js';
-import { watchMonth } from '../sync.js';
+import { ricetteConfigured, watchMonth } from '../sync.js';
 import { MODE_ICON } from '../travel.js';
 import { openModal, searchBox, windowsText } from '../widgets.js';
 import { DATE_GROUPS, dateBuckets, filterBar, sortPicker, sortTaskList, taskFilter, taskGroupsCfg, taskHay } from './tasks.js';
@@ -254,6 +254,8 @@ export function blockHtml(b, startMin, conflict, compact = false) {
   if (items.length) extra = `<span class="mini-badge">☑ ${items.length - checklistLeft(items, b.checked)}/${items.length}</span>`;
   if (b.kind === 'groceries') { const n = live('r_shopping').filter((x) => !x.checked).length; extra = `<span class="mini-badge">${n}</span>`; }
   if (status === 'failed') extra = `<span class="mini-badge bad">✕</span>`;
+  // (v87) a meal with nothing chosen yet: «＋ Ricetta» right on the block
+  if (b.kind === 'meal' && !status && !mealRecipes(b).length && ricetteConfigured() && !compact && b.cols === 1) extra += `<button class="blk-btn blk-addrec" type="button" data-action="meal-pick" data-id="${esc(b.id)}">＋ ${esc(t('recipeShort'))}</button>`;
   const st = stepTimes(b);
   // A task over several days: which day this is, and on a trace how much got done that day.
   // (on the time line: the title column is often too narrow to show them)
@@ -267,7 +269,7 @@ export function blockHtml(b, startMin, conflict, compact = false) {
     return `<div class="blk-step${i ? '' : ' first'}${hpx < 16 ? ' tight' : ''}${y.state ? ` ${y.state}` : status === 'done' ? ' done' : status === 'partial' ? ' later' : ''}" style="top:${(y.start - b.start) * P}px;height:${hpx}px">
       ${hpx >= 11 ? `${stepCheck(b, y)}<span class="st-title${y.travel && !y.known ? ' unknown' : ''}">${y.travel ? `${MODE_ICON[y.mode] || '🚌'} ` : ''}${y.travel && !y.known ? '? ' : ''}${esc(y.title)}</span><span class="st-time">${fmtTime(y.start)}</span>` : ''}</div>`;
   }).join('')}</div>` : '';
-  const isEv = Boolean(b.taskId && isEvent(get('tasks', b.taskId)));
+  const isEv = Boolean(b.taskId && isApptLike(get('tasks', b.taskId))); // (v87) also a task in an appointments category
   return `<div class="block${ui.flash === b.id ? ' flash' : ''}${stepsIn ? ' with-steps' : ''}${status ? ` ${status}` : ''}${status === 'failed' ? ' done' : ''}${short ? ' short' : ''}${conflict ? ' conflict' : ''}${b.kind ? ` k-${b.kind}` : ''}${isEv ? ' own-event' : ''}" data-id="${esc(b.id)}" data-start="${b.start}" data-minutes="${b.minutes}"
     style="--c:${esc(color)};top:${(b.start - startMin) * P}px;height:${Math.max(b.minutes * P, 16)}px;left:${left};width:${width}">
     ${status === 'partial' ? `<span class="blk-check part" aria-label="${esc(t('partlyDone'))}" title="${esc(t('partlyDone'))}">◐</span>` : `<input type="checkbox" class="blk-check" data-action="block-done" data-id="${esc(b.id)}" ${status === 'done' ? 'checked' : ''} aria-label="${esc(t('markDone'))}">`}
@@ -501,7 +503,7 @@ function agRow(it) {
   const b = it.b; const st = outcomeOf(b);
   const swap = placing && !st && b.id !== ui.pickBlock; // (v70) tap it to put what you're placing here instead
   // (v69) a block not yet done can be dragged to another free stretch or day (mouse)
-  return `<li class="ag-row${st ? ` is-${st}` : isBehind(b) ? ' is-behind' : ''}${ui.flash === b.id ? ' flash' : ''}"${st ? '' : ` draggable="true" data-drag="block:${esc(b.id)}" data-min="${b.minutes || 30}"`} style="--c:${esc(catColor(b.category) || 'var(--accent)')}">${time}<button class="ag-c${swap ? ' swap' : ''}" type="button" data-action="${swap ? 'swap-block' : 'open-block'}" data-id="${esc(b.id)}">${swap ? `<span class="ag-swap">${esc(t('swapHere'))}</span>` : ''}<span class="ag-t">${st === 'done' ? '✓ ' : ''}${esc(b.title)}</span>${isBehind(b) ? `<span class="inv-tag behind">⏰ ${esc(t('behindTag'))}</span>` : ''}${b.palLive && !st ? `<span class="inv-tag live">● ${esc(t('palLiveTag'))}</span>` : ''}${b.place ? `<small>📍 ${esc(b.place)}</small>` : ''}${lenBar(it.minutes)}</button></li>`;
+  return `<li class="ag-row${st ? ` is-${st}` : isBehind(b) ? ' is-behind' : ''}${ui.flash === b.id ? ' flash' : ''}"${st ? '' : ` draggable="true" data-drag="block:${esc(b.id)}" data-min="${b.minutes || 30}"`} style="--c:${esc(catColor(b.category) || 'var(--accent)')}">${time}<button class="ag-c${swap ? ' swap' : ''}" type="button" data-action="${swap ? 'swap-block' : 'open-block'}" data-id="${esc(b.id)}">${swap ? `<span class="ag-swap">${esc(t('swapHere'))}</span>` : ''}<span class="ag-t">${st === 'done' ? '✓ ' : ''}${b.taskId ? taskIcon(get('tasks', b.taskId)) : ''}${esc(b.title)}</span>${isBehind(b) ? `<span class="inv-tag behind">⏰ ${esc(t('behindTag'))}</span>` : ''}${b.palLive && !st ? `<span class="inv-tag live">● ${esc(t('palLiveTag'))}</span>` : ''}${b.place ? `<small>📍 ${esc(b.place)}</small>` : ''}${lenBar(it.minutes)}</button>${b.kind === 'meal' && !st && !swap && !mealRecipes(b).length && ricetteConfigured() ? `<button class="ag-addrec" type="button" data-action="meal-pick" data-id="${esc(b.id)}">＋ ${esc(t('recipeShort'))}</button>` : ''}</li>`; // (v87) a meal with nothing chosen: «＋ Ricetta» beside it
 }
 const gapRow = (date, start, min) => {
   const pick = (ui.pickBlock && get('blocks', ui.pickBlock)) || (ui.pick && get('tasks', ui.pick)); // (v56) something picked: where it fits lights up (v70: or a block being moved)
@@ -609,7 +611,7 @@ export function openGapFits(date, start, min) {
   // (v70) routines too: this day's turns still without a time, then "N times a week" and "quando capita"
   const turns = toFix(date, date).filter((r) => r.date === date && fits(r.x)).map((r) => r.x);
   const tIds = new Set(turns.map((x) => x.id));
-  const others = routines().filter((x) => !x.archived && !isMealType(x) && fits(x) && !tIds.has(x.id) && (x.repeat === 'times' ? timesLeft(x, date) > 0 : !hasRhythm(x)));
+  const others = routines().filter((x) => !x.archived && !isMealTask(x) && fits(x) && !tIds.has(x.id) && (x.repeat === 'times' ? timesLeft(x, date) > 0 : !hasRhythm(x)));
   const opt = (value, title, sub) => `<button class="add-opt" value="${esc(value)}"><span class="item-text">${esc(title)}<small>${esc(sub)}</small></span></button>`;
   const any = list.length || turns.length || others.length;
   openModal(`<h2>${esc(t('agFitsTitle', fmtDur(min), fmtTime(start)))}</h2><p class="hint">${esc(relDay(date))}</p>

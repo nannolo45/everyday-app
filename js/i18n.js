@@ -6,6 +6,14 @@ const plural = (n, one, many) => (n === 1 ? one : many);
 
 const dict = {
   en: {
+    // (v88) the recipe list
+    pkRecent: 'Recent', pkCook: 'Can make', pkFav: 'Favourites', pkFolders: 'Folders', pkQuick: 'Quick', pkAll: 'All A–Z', pkFor: (x) => `Recipes for ${x}`,
+    pkFound: (n) => `Searching everything · ${n}`, pkN: (n) => `${n} ${n === 1 ? 'recipe' : 'recipes'}`, pkTags: 'Tags', pkNoRecent: 'Nothing cooked yet: try ✓ Can make or All.',
+    // (v87) meals and appointments by category
+    noMealTasks: 'No meals yet: put a task in the Meals category (or in a category marked 🍽 in Settings → Categories).',
+    mealWhat: 'What we eat', mealNothingYet: 'Nothing chosen yet: pick from Ricette.', mealMissing: (n) => `${n} ${n === 1 ? 'thing is' : 'things are'} missing: the check before the meal puts ${n === 1 ? 'it' : 'them'} on the shopping list.`,
+    mealAllThere: 'Everything is in the pantry.', recipeShort: 'Recipe', mealPeople: 'People', mealPeopleHint: 'How many each time, unless you change it on the day.',
+    catMeal: 'Its tasks are meals', catMealSub: 'each time you choose the recipes, from Ricette', catEvent: 'Its tasks are appointments', catEventSub: 'they show 📅, like those from Google Calendar',
     // (v85) saved places
     placesTitle: 'Saved places', nPlaces: (n, s) => (n ? `${n} ${n === 1 ? 'place' : 'places'}${s ? ` · ${s} ${s === 1 ? 'shop' : 'shops'}` : ''}` : 'No places yet'),
     placesWhy: 'The places you go to, with opening hours if they have them. The planner only sends you to a place when it is open; a place without hours has no limits. 🛒 marks the shops: the shopping list uses those.',
@@ -383,6 +391,14 @@ const dict = {
     r_morning: 'your morning slot', r_afternoon: 'your afternoon slot', r_evening: 'your evening slot',
   },
   it: {
+    // (v88) la lista delle ricette
+    pkRecent: 'Recenti', pkCook: 'Si può fare', pkFav: 'Preferite', pkFolders: 'Cartelle', pkQuick: 'Veloci', pkAll: 'Tutte A–Z', pkFor: (x) => `Ricette per ${x}`,
+    pkFound: (n) => `Cerca in tutte · ${n}`, pkN: (n) => `${n} ${n === 1 ? 'ricetta' : 'ricette'}`, pkTags: 'Tag', pkNoRecent: 'Ancora niente cucinato: prova ✓ Si può fare o Tutte.',
+    // (v87) pasti e appuntamenti dalla categoria
+    noMealTasks: 'Ancora nessun pasto: metti un’attività nella categoria Pasti (o in una categoria segnata 🍽 in Impostazioni → Categorie).',
+    mealWhat: 'Cosa si mangia', mealNothingYet: 'Ancora niente: scegli da Ricette.', mealMissing: (n) => `${n === 1 ? 'Manca 1 cosa' : `Mancano ${n} cose`}: il controllo prima del pasto ${n === 1 ? 'la mette' : 'le mette'} nella spesa.`,
+    mealAllThere: 'C’è tutto in dispensa.', recipeShort: 'Ricetta', mealPeople: 'Persone', mealPeopleHint: 'Quante di solito; il giorno stesso puoi cambiarlo.',
+    catMeal: 'Le sue attività sono pasti', catMealSub: 'ogni volta scegli le ricette, da Ricette', catEvent: 'Le sue attività sono appuntamenti', catEventSub: 'hanno 📅, come quelli di Google Calendar',
     // (v85) luoghi salvati
     placesTitle: 'Luoghi salvati', nPlaces: (n, s) => (n ? `${n} ${n === 1 ? 'luogo' : 'luoghi'}${s ? ` · ${s} ${s === 1 ? 'negozio' : 'negozi'}` : ''}` : 'Ancora nessun luogo'),
     placesWhy: 'I posti dove vai, con gli orari se ne hanno. Il planner ti ci manda solo quando sono aperti; un luogo senza orari non ha limiti. 🛒 segna i negozi: la lista della spesa usa quelli.',
@@ -755,6 +771,14 @@ const dict = {
     r_morning: 'la tua fascia del mattino', r_afternoon: 'la tua fascia del pomeriggio', r_evening: 'la tua fascia serale',
   },
   de: {
+    // (v88) die Rezeptliste
+    pkRecent: 'Zuletzt', pkCook: 'Machbar', pkFav: 'Favoriten', pkFolders: 'Ordner', pkQuick: 'Schnell', pkAll: 'Alle A–Z', pkFor: (x) => `Rezepte für ${x}`,
+    pkFound: (n) => `Suche in allen · ${n}`, pkN: (n) => `${n} ${n === 1 ? 'Rezept' : 'Rezepte'}`, pkTags: 'Tags', pkNoRecent: 'Noch nichts gekocht: versuch ✓ Machbar oder Alle.',
+    // (v87) Mahlzeiten und Termine über die Kategorie
+    noMealTasks: 'Noch keine Mahlzeiten: lege eine Aufgabe in die Kategorie Mahlzeiten (oder in eine mit 🍽 markierte Kategorie unter Einstellungen → Kategorien).',
+    mealWhat: 'Was es gibt', mealNothingYet: 'Noch nichts gewählt: aus Ricette wählen.', mealMissing: (n) => `${n === 1 ? '1 Sache fehlt' : `${n} Sachen fehlen`}: die Prüfung vor der Mahlzeit setzt ${n === 1 ? 'sie' : 'sie'} auf die Einkaufsliste.`,
+    mealAllThere: 'Alles ist im Vorrat.', recipeShort: 'Rezept', mealPeople: 'Personen', mealPeopleHint: 'Wie viele meistens; am Tag selbst änderbar.',
+    catMeal: 'Ihre Aufgaben sind Mahlzeiten', catMealSub: 'jedes Mal Rezepte aus Ricette wählen', catEvent: 'Ihre Aufgaben sind Termine', catEventSub: 'sie zeigen 📅, wie die aus Google Calendar',
     // (v85) gespeicherte Orte
     placesTitle: 'Gespeicherte Orte', nPlaces: (n, s) => (n ? `${n} ${n === 1 ? 'Ort' : 'Orte'}${s ? ` · ${s} ${s === 1 ? 'Geschäft' : 'Geschäfte'}` : ''}` : 'Noch keine Orte'),
     placesWhy: 'Die Orte, an die du gehst, mit Öffnungszeiten, falls sie welche haben. Der Planer schickt dich nur hin, wenn geöffnet ist; ein Ort ohne Zeiten hat keine Grenzen. 🛒 markiert die Geschäfte: die Einkaufsliste nutzt diese.',

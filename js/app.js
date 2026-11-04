@@ -14,10 +14,10 @@
 import { moveWeek, openRoutine } from './routines.js';
 import { $, findCategory, hideToast, fmtDay, modal, PPM, quickFields, range, relDay, route, seedCategories, TAB_OF, TABS, toast, ui, view } from './core.js';
 import { setupDrag } from './drag.js';
-import { afterStart, openPalestra, doShift, finishTimer, openAddMenu, openPickSheet, openQuickTask, plusKind, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, openMeal, openPlanSaved, openSavedPicker, openPlaceRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
+import { afterStart, openPalestra, doShift, finishTimer, openAddMenu, openPickSheet, openQuickTask, plusKind, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, pickMealRecipes, openPlanSaved, openSavedPicker, openPlaceRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
 import { t } from './i18n.js';
 import { isEvent } from './kinds.js';
-import { noRhythm, repairRhythms, anchorOffset, autoChecks, leadOf, checklistLeft, checkMissed, conflictsOn, eventOf, followParent, migrateBlocksToEvents, normalizeKinds, planTask, saveEvent, seedMeals, setOutcome, setStepOutcome, setTaskDone, syncEventTasks, travelTasks, trySetBlockDone, tryStep } from './model.js';
+import { migrateMeals, syncMealBlocks, noRhythm, repairRhythms, anchorOffset, autoChecks, leadOf, checklistLeft, checkMissed, conflictsOn, eventOf, followParent, migrateBlocksToEvents, planTask, saveEvent, seedMeals, setOutcome, setStepOutcome, setTaskDone, syncEventTasks, travelTasks, trySetBlockDone, tryStep } from './model.js';
 import { fmtTime, isDate, parseTime, quickAdd, today } from './plan.js';
 import { addGhosts, assignDrop, autoHoursFor, fixConflict, placeGhosts, planEventTasks, planGroceryTrips, spreadDays, trayTasks, undoReflow, warnConflicts } from './planning.js';
 import { changed, currentDate, positionNow, released, render, renderIfSafe, renderShell, runSync, scheduleSync, scrollToGhost, syncScheduled, typing, updateSyncBadge } from './shell.js';
@@ -289,7 +289,6 @@ view.addEventListener('click', (e) => {
       try { p.showPicker(); } catch { p.focus(); p.click(); }
       break;
     }
-    case 'new-meal': ui.mealDate = currentDate(); openMeal(null); break;
     case 'new-saved': openSavedPicker(currentDate()); break;
     case 'add-menu': openAddMenu(); break;
     case 'auto': openAutoPlanner(); break;
@@ -372,7 +371,7 @@ view.addEventListener('click', (e) => {
     case 'block-edit': openBlock(get('blocks', id)); break;
     case 'block-fail': setOutcome(get('blocks', id), 'failed'); changed(); break;
     case 'block-reset': setOutcome(get('blocks', id), null); changed(); break;
-    case 'meal-type-new': openTask(null, { title: '', minutes: 30, kind: 'meal', defaultStart: 12 * 60, category: 'meals', prep: [], rules: [], checklist: [], notes: '' }); break;
+    case 'meal-pick': { const b = get('blocks', id); if (b) pickMealRecipes(b); break; } // (v87) «＋ Ricetta» on a meal block
     case 'saved-new': openTask(null, { title: '', minutes: 30, kind: 'saved', defaultStart: null, when: '', category: null, importance: 3, prep: [], rules: [], steps: [], checklist: [], notes: '' }); break;
     case 'event': { const ev = eventOf(id); if (isEvent(ev)) openTask(ev); else if (ev) openEvent(ev); break; }
     case 'event-open': { const ev = eventOf(id); if (isEvent(ev)) openTask(ev); else if (ev) openEvent(ev); break; }
@@ -642,7 +641,7 @@ async function boot() {
   seedMeals();
   if (!isConfigured()) seedSharedSettings();
   await applySharedSettings();
-  normalizeKinds();
+  migrateMeals(); syncMealBlocks(); // (v87)
   repairRhythms(); // (v82)
   saveSettings({ travelCache: pruneCache(travelCache()) });
   migrateBlocksToEvents();

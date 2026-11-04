@@ -6,7 +6,7 @@
 import { catName, catsOf, categories, esc, modal, relDay, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { isTodo } from '../kinds.js';
-import { countedOf, nextPlanned, noRhythm, outcomeOf } from '../model.js';
+import { countedOf, nextPlanned, noRhythm, outcomeOf, taskIcon } from '../model.js';
 import { addDays, fmtDur, fmtTime, sortTasks, today } from '../plan.js';
 import { endedRoutines, isArchived, isRoutine, legend, routineRow, weekHeader } from '../routines.js';
 import { matchesQ } from '../shoplist.js';
@@ -144,14 +144,14 @@ export function plainRow(x) {
   const meta = [dateOf(x) ? relDay(dateOf(x)) : '', x.lenSet === false ? '' : fmtDur(x.minutes || 30), ...catsOf(x).map((c) => catName(get('categories', c)))].filter(Boolean).join(' · ');
   const box = typeOf(x) === 'repeat' ? '<span class="vw-rep" aria-hidden="true">↻</span>' : `<input type="checkbox" data-action="task-done" data-id="${esc(x.id)}" ${x.done ? 'checked' : ''} aria-label="${esc(t('markDone'))}">`;
   return `<li class="vw-row${open ? ' open' : ''}${x.done ? ' done' : ''}">${box}
-    <button class="task-main" type="button" data-action="${typeOf(x) === 'repeat' && !classic() ? 'routine-open' : 'vw-row'}" data-id="${esc(x.id)}" aria-expanded="${open}"><span class="item-text">${esc(x.title)}${meta ? `<small>${esc(meta)}</small>` : ''}</span></button>${tag(x)}
+    <button class="task-main" type="button" data-action="${typeOf(x) === 'repeat' && !classic() ? 'routine-open' : 'vw-row'}" data-id="${esc(x.id)}" aria-expanded="${open}"><span class="item-text">${taskIcon(x)}${esc(x.title)}${meta ? `<small>${esc(meta)}</small>` : ''}</span></button>${tag(x)}
     ${open ? missChips(x) : ''}</li>`;
 }
 // (v83) A saved thing with no rhythm, in Salvate: its length, when you last did it, ▶ to plan it.
 function lastDone(x) { return live('blocks').filter((b) => b.taskId === x.id && !b.deleted && outcomeOf(b) === 'done').map((b) => b.date).sort().pop() || null; }
 function anyRow(x) {
   const last = lastDone(x);
-  return `<li class="vw-row sv-any"><button class="task-main" type="button" data-action="routine-open" data-id="${esc(x.id)}"><span class="item-text">${esc(x.title)}<small>${esc(`${fmtDur(x.minutes || 30)} · ${last ? t('svLast', relDay(last)) : t('svNever')}`)}</small></span></button><button class="btn small sv-plan" type="button" data-action="saved-plan" data-id="${esc(x.id)}" aria-label="${esc(t('svPlan', x.title))}" title="${esc(t('svPlan', x.title))}">▶</button></li>`;
+  return `<li class="vw-row sv-any"><button class="task-main" type="button" data-action="routine-open" data-id="${esc(x.id)}"><span class="item-text">${taskIcon(x)}${esc(x.title)}<small>${esc(`${fmtDur(x.minutes || 30)} · ${last ? t('svLast', relDay(last)) : t('svNever')}`)}</small></span></button><button class="btn small sv-plan" type="button" data-action="saved-plan" data-id="${esc(x.id)}" aria-label="${esc(t('svPlan', x.title))}" title="${esc(t('svPlan', x.title))}">▶</button></li>`;
 }
 export const isSalvate = (v) => !classic() && v.id === 'routine' && (!v.by || v.by === 'cat');
 function fullRow(x, ws, sv = false) {

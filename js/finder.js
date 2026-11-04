@@ -3,8 +3,8 @@
 // jumps there and the block flashes. "Sposta…" opens the week grid for that one block.
 import { catColor, catName, catsOf, esc, relDay, toast, ui } from './core.js';
 import { getLang, t } from './i18n.js';
-import { isEvent, isMealType } from './kinds.js';
-import { countedOf, ensureSeries, leadOf, outcomeOf } from './model.js';
+import { isEvent } from './kinds.js';
+import { countedOf, ensureSeries, isMealTask, leadOf, outcomeOf } from './model.js';
 import { addDays, fmtDur, fmtTime, isoDay, occurrences, today } from './plan.js';
 import { trayTasks } from './planning.js';
 import { matchesQ } from './shoplist.js';
@@ -131,7 +131,7 @@ function shelfRow(x, p) {
 }
 function shelfRows() {
   const p = shelfPeriod();
-  const all = routines().filter((x) => !x.archived && !isMealType(x)).sort((a, b) => a.title.localeCompare(b.title));
+  const all = routines().filter((x) => !x.archived && !isMealTask(x)).sort((a, b) => a.title.localeCompare(b.title));
   const rh = all.filter((x) => hasRhythm(x)); const any = all.filter((x) => !hasRhythm(x));
   const ended = endedRoutines().sort((a, b) => (b.repeatUntil || '').localeCompare(a.repeatUntil || ''));
   return `<p class="hint">${esc(t(isWide() ? 'shelfHint' : 'shelfHintTap', p.month ? t('shelfMonth') : t('shelfWeek')))}</p>
@@ -169,7 +169,7 @@ export function finderHtml({ props = false } = {}) {
   else if (tab === 'all') body = `<ul class="fd-list">${items.sort((a, b) => a.title.localeCompare(b.title)).map(itemRow).join('')}</ul>`;
   else body = todoRows();
   const nPlan = new Set(live('blocks').filter((b) => b.taskId && !outcomeOf(b) && b.date >= today() && b.date <= addDays(today(), 13) && b.kind !== 'prep').map((b) => b.taskId)).size;
-  const tabs = [...(hideTodo ? [] : [['todo', 'pnTabTodo', nTodo]]), ['rout', 'pnTabRout', routines().filter((x) => !x.archived && !isMealType(x)).length], ['plan', 'pnTabPlan', nPlan], ['all', 'pnTabAll', items.length]];
+  const tabs = [...(hideTodo ? [] : [['todo', 'pnTabTodo', nTodo]]), ['rout', 'pnTabRout', routines().filter((x) => !x.archived && !isMealTask(x)).length], ['plan', 'pnTabPlan', nPlan], ['all', 'pnTabAll', items.length]];
   const pv = props ? proposalsHtml() : '';
   return `<div class="fd">
     ${searchBox({ id: 'fd-q', value: ui.fdQ || '', ph: t('findPh') })}
