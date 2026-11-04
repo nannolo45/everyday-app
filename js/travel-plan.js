@@ -7,6 +7,7 @@ import { isConfigured } from './sync.js';
 import { cachedMinutes, MODES as TRAVEL_MODES, travelMinutes, UNKNOWN_MINUTES } from './travel.js';
 import { anchorIndex, busyOn, nextBlockOf, outcomeOf, travelTasks } from './model.js';
 import { render, scheduleSync } from './shell.js';
+import { placeAddress, placeById } from './places.js';
 
 // ---------- travel ----------
 // A task with a place gets travel steps: "Get there" before it (on unless switched off) and
@@ -51,7 +52,15 @@ export function ownMinutes(task) {
   return Number(m?.minutes) || Number(task?.minutes) || 30;
 }
 export function travelCfg() { const s = state.settings.travel || {}; return { home: '', mode: 'transit', buffer: 5, googleKey: '', startHere: false, thereDefault: 'place', backDefault: s.back ? 'place' : 'off', ...s }; }
-export function travelOf(task) { const c = travelCfg(); return { there: c.thereDefault !== 'off', back: c.backDefault !== 'off', mode: 'default', ...(task?.travel || {}) }; }
+// (v90) A saved place can carry its own default (`travel` on the place); the task's own `travel` wins.
+// `from` / `to`: 'auto' (where you'll be before / where you go next, else home), 'home', or a saved place's id;
+// `thereMin` / `backMin`: fixed minutes (null = looked up). No outward leg or no return: `there` / `back` false.
+export function travelOf(task) {
+  const c = travelCfg(); const p = task?.placeId ? placeById(task.placeId) : null;
+  return { there: c.thereDefault !== 'off', back: c.backDefault !== 'off', mode: 'default', from: 'auto', to: 'auto', thereMin: null, backMin: null, ...(p?.travel || {}), ...(task?.travel || {}) };
+}
+// An end chosen by hand: its address ('' for 'auto').
+export const endAddress = (v) => (v === 'home' ? travelCfg().home : v && v !== 'auto' && v !== 'none' ? placeAddress(placeById(v)) : '');
 export const travelAffected = (x) => x.place || x.steps?.some((y) => y.travel || y.buffer) || travelCfg().thereDefault === 'always' || travelCfg().backDefault === 'always' || bufferOf(x) > 0;
 export const travelMode = (task) => { const m = travelOf(task).mode; return TRAVEL_MODES.includes(m) ? m : travelCfg().mode; };
 export const travelCache = () => state.settings.travelCache || {};
@@ -63,18 +72,30 @@ export function hereNow(date = today()) {
 // home again; otherwise where you are (today, if you let the app use your location) or home.
 export function originFor(task, block = null) {
   const c = travelCfg();
+  const own = endAddress(travelOf(task).from); if (own) return own;
   const date = block?.date || null;
   if (block) {
     const before = busyOn(date).filter((b) => b.id !== block.id && b.taskId && b.taskId !== task.id && b.start + b.minutes <= block.start + 1)
       .sort((a, b) => b.start - a.start);
     for (const b of before) {
       const tk = get('tasks', b.taskId);
-      if (tk?.place) return travelOf(tk).back ? (hereNow(date) || c.home) : tk.place;
+      if (tk?.place) return travelOf(tk).back ? travelDest(tk, b) : tk.place; // (v90) where its return went
     }
   }
   return (date ? hereNow(date) : '') || c.home;
 }
-export function travelDest(task) { return hereNow() || travelCfg().home; }
+// Where the return goes: the end chosen by hand; else (v90) the place of what comes right after on that day
+// (within an hour); else where you are, or home.
+export function travelDest(task, block = null) {
+  const own = endAddress(travelOf(task).to); if (own) return own;
+  if (block) {
+    const end = block.start + (block.minutes || 0);
+    const nb = busyOn(block.date).filter((b) => b.id !== block.id && b.taskId && b.taskId !== task.id && b.start >= end - 1 && b.start - end <= 60).sort((a, b) => a.start - b.start)[0];
+    const tk = nb && get('tasks', nb.taskId);
+    if (tk?.place) return tk.place;
+  }
+  return hereNow() || travelCfg().home;
+}
 // (Re)build a task's steps around its travel, using what's cached; returns the task with
 // `minutes` and `steps` updated, and marks what still needs fetching.
 export function withTravel(task, { origin = null, block = null } = {}) {
@@ -113,7 +134,9 @@ export function withTravel(task, { origin = null, block = null } = {}) {
   }
   const from = origin ?? originFor(task, block);
   const mk = (kind, a, b, old) => {
-    const to = kind === 'there' ? task.place : travelDest(task);
+    const to = kind === 'there' ? task.place : travelDest(task, block);
+    const fixed = tv[kind === 'there' ? 'thereMin' : 'backMin'];
+    if (fixed != null && fixed !== '' && Number.isFinite(Number(fixed))) return legOf(kind, { id: TRV[kind], travel: kind, mode, from: a, to, minutes: Number(fixed), known: true, pending: false, fixed: true });
     const m = cachedMinutes(travelCache(), mode, a, b);
     const known = m != null && m !== undefined;
     return legOf(kind, { id: TRV[kind], travel: kind, mode, from: a, to,
@@ -122,12 +145,18 @@ export function withTravel(task, { origin = null, block = null } = {}) {
   const steps = [];
   if (tv.there) steps.push(...mk('there', from, task.place, travelStep(task, 'there')));
   steps.push(...core);
-  if (tv.back) steps.push(...mk('back', task.place, travelDest(task), travelStep(task, 'back')));
+  if (tv.back) steps.push(...mk('back', task.place, travelDest(task, block), travelStep(task, 'back')));
   steps.push(...bufSteps);
   return { ...task, steps, minutes: total(steps) };
 }
 // Apply the travel steps to a saved task and move its blocks so the task itself stays at its time
 // (travel grows or shrinks in front of it). Returns the stored task.
+// (v90) The legs as they'd be now, for the route line: { there, back } (each a step or null).
+export function routeOf(task, block = null) {
+  const w = withTravel(task, { block });
+  const st = (k) => (w.steps || []).find((y) => y.travel === k && y.lookup !== false) || null;
+  return { there: st('there'), back: st('back') };
+}
 export function applyTravel(task, opts = {}) {
   const block = opts.block || nextBlockOf(task.id);
   const next = withTravel(task, { ...opts, block });

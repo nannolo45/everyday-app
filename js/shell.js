@@ -198,6 +198,7 @@ export function settleScroll(r) {
 
 // (v51) Repeats that need a time: today's, and from the weekly moment the week's (see weekpick.js).
 function todayFixCard() {
+  if (!classicOn()) return ''; // (v90) a line inside Today instead (views/today.js)
   const { rows, weekOn, key } = todayRows();
   ui.weekRows = rows;
   return weekCardHtml({ rows, title: t(weekOn ? 'toFixWeek' : 'toFixToday'), key: weekOn ? key : null });

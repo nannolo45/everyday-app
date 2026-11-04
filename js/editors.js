@@ -29,6 +29,7 @@ import { K, readerList, readerTrips, RICETTE_SHOP, SH, shopAdd, shopName, shopRe
 import { cardRowsIn, fixOcc, skipOcc, slotOptions, toFix } from './weekpick.js';
 import { openPlus, openPlusEdit } from './plus.js';
 import { deletePlace, placeEmoji, placeUsers, savePlace } from './places.js';
+import { tripHtml, tvAction, tvRead, tvRecord, tvSame, tvState } from './tripui.js';
 import { pullCandidate, pullUp, runningBlock, shiftAfter, startBlock, startTask, stopTimer, timeHistory, undoShift } from './timer.js';
 import { cleanWindows, dateBox, dayShort, durField, lines, openModal, placeLink, plannedIso, readDur, readWindows, repeatText, searchBox, TIME24, windowsEditor, windowsText } from './widgets.js';
 
@@ -955,6 +956,7 @@ const PLACE_EMOJI = ['📍', '🛒', '🥖', '💊', '📮', '🏛️', '🏦', 
 export function openPlaceRec(place = null, opts = {}) {
   const x = place ? { ...place, hours: (place.hours || []).map((w) => ({ ...w })) } : { name: '', minutes: 30, hours: [], place: '', link: '', em: opts.shop ? '🛒' : '📍', shop: Boolean(opts.shop) };
   const users = () => placeUsers(place?.id, live(SH()).filter((i) => !i.checked));
+  const tv = tvState(x.travel || {}); // (v90) the trip this place's tasks count by default
   // what's on the plan from today that would fall outside these hours
   const outside = () => {
     if (!place) return [];
@@ -977,6 +979,9 @@ export function openPlaceRec(place = null, opts = {}) {
     ${windowsEditor('w_', x.hours)}
     <p class="hint">${esc(t(cleanWindows(x.hours).length ? 'plcHoursHint' : x.shop ? 'openingHoursHint' : 'plcNoHoursHint'))}</p>
     ${out.length ? `<p class="notice-inline">⚠ ${esc(t('plcOutside', out.length))}</p>` : ''}
+    <div class="field-label">🚶 ${esc(t('tvPlaceDefault'))}</div>
+    <div class="plc-trip">${tripHtml(tv, { here: `${x.em || placeEmoji(x)} ${x.name || t('plcNew')}`, skip: place?.id })}</div>
+    <p class="hint">${esc(t('tvPlaceDefaultHint'))}</p>
     ${u.tasks.length || u.items.length ? `<div class="field-label">${esc(t('plcUsedBy'))}</div><ul class="plc-used">${u.tasks.map((y) => `<li><span>${esc(y.title)}</span></li>`).join('')}${u.items.length ? `<li><span>🛒 ${esc(u.items.map((i) => i.name).join(', '))}</span><small>${esc(t('tasksTab_shop'))}</small></li>` : ''}</ul>` : ''}
     <div class="button-row">
       <button class="btn primary" value="ok">${esc(t('save'))}</button>
@@ -988,13 +993,16 @@ export function openPlaceRec(place = null, opts = {}) {
       if (x.shop) x.minutes = readDur(form, 'minutes', x.minutes || 30);
       x.hours = readWindows(form, 'w_', x.hours.length);
       x.place = form.elements.namedItem('place').value.trim(); x.link = form.elements.namedItem('link').value.trim();
+      tvRead(form, tv);
+      const tr = tvAction(tv, action);
+      if (tr) { e.preventDefault(); if (typeof tr === 'string') tv.all = tr.slice(4); draw(); return; }
       const wm = action.match(/^w_(add|rm:(\d+))$/);
       if (wm) { e.preventDefault(); if (wm[1] === 'add') x.hours.push({ days: x.hours.length ? [6] : [1, 2, 3, 4, 5], from: 480, to: 1200 }); else x.hours.splice(Number(wm[2]), 1); draw(); return; }
       if (action === 'shop-tog') { e.preventDefault(); x.shop = !x.shop; if (x.shop && !x.minutes) x.minutes = 30; draw(); return; }
       if (action === 'delete') { if (confirm(t(u.tasks.length ? 'plcDeleteUsed' : 'plcDeleteConfirm', x.name))) { deletePlace(place.id); changed(); } render(); return; }
       if (!x.name) { e.preventDefault(); return; }
       const { shop, ...fields } = x;
-      const saved = savePlace({ ...fields, id: place?.id || uid(), hours: cleanWindows(x.hours) }, shop);
+      const saved = savePlace({ ...fields, id: place?.id || uid(), hours: cleanWindows(x.hours), travel: tvSame(tv, tvState({})) ? null : tvRecord(tv) }, shop);
       for (const y of live('tasks').filter((z) => z.placeId === saved.id)) applyTravel(y);
       changed();
       render();

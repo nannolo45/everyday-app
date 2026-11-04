@@ -5,7 +5,8 @@
 import { esc, planSettings, relDay, ui } from './core.js';
 import { t } from './i18n.js';
 import { isSaved, isTodo } from './kinds.js';
-import { busyOn, isEnded, leadOf, openTurnsOf, planTask, timesLeft, turnsLeftOf } from './model.js';
+import { busyOn, isEnded, leadOf, openTurnsOf, periodKey, planTask, timesLeft, turnsLeftOf } from './model.js';
+import { openModal } from './widgets.js';
 import { addDays, fmtDur, fmtTime, freeSlot, nowMinutes, occurrences, REPEATS, ruleAt, today } from './plan.js';
 import { autoHoursFor, placeBlock, planPlacements } from './planning.js';
 import { WINDOWS } from './smart.js';
@@ -112,11 +113,17 @@ export function todayRows() {
 }
 export function laterWeek(key) { saveSettings({ weekCardLater: key }); }
 
+const dayLabel = (d) => relDay(d);
+const chip = (attrs, label, on) => `<button type="button" class="occ-chip${on ? ' on' : ''}" ${attrs}>${esc(label)}</button>`;
 export function weekCardHtml({ rows, title, key = null }) {
   if (!rows.length) return '';
-  const dayLabel = (d) => relDay(d);
-  const chip = (attrs, label, on) => `<button type="button" class="occ-chip${on ? ' on' : ''}" ${attrs}>${esc(label)}</button>`;
-  const body = rows.map((r) => {
+  const body = rows.map(occRowHtml).join('');
+  const any = rows.some((r) => (r.options || r.placements || []).length);
+  return `<section class="week-card"><div class="wc-head"><b>${esc(title)}</b><small>${rows.length}</small></div>${body}
+    <div class="button-row left">${any ? `<button class="btn primary" type="button" data-action="fix-week">${esc(t('fixHighlighted'))}</button>` : ''}${key ? `<button class="btn" type="button" data-action="routine-review" data-id="${esc(cardWeek())}">${esc(t('rtReview'))}</button><button class="btn" type="button" data-action="week-later" data-id="${esc(key)}">${esc(t('laterBtn'))}</button>` : ''}</div></section>`;
+}
+// One routine's row: its free times (or placements) as chips.
+function occRowHtml(r) {
     if (r.date) {
       const opts = r.options.map((o, i) => chip(`data-action="fix-occ" data-id="${esc(r.x.id)}" data-date="${r.date}" data-start="${o.start}"`, fmtTime(o.start), i === 0)).join('');
       return `<div class="occ-row"><div class="occ-head"><span><b>${esc(r.x.title)}</b> · ${esc(dayLabel(r.date))}</span><small>${esc([fmtDur(r.x.minutes || 30), r.x.when ? t('usuallyPart', t(`when_${r.x.when}`).toLowerCase()) : ''].filter(Boolean).join(' · '))}</small></div>
@@ -124,10 +131,42 @@ export function weekCardHtml({ rows, title, key = null }) {
     }
     const opts = r.placements.map((p) => chip(`data-action="fix-times" data-id="${esc(r.x.id)}" data-date="${p.date}" data-start="${p.start}" data-minutes="${p.minutes}"`, `${dayLabel(p.date)} ${fmtTime(p.start)}`, true)).join('');
     return `<div class="occ-row"><div class="occ-head"><span><b>${esc(r.x.title)}</b> · ${esc(t('timesLeftN', r.n))}</span><small>${esc(fmtDur(r.x.minutes || 30))}</small></div><div class="occ-chips">${opts || `<small class="hint">${esc(t('noFreeSlotWeek'))}</small>`}</div></div>`;
-  }).join('');
-  const any = rows.some((r) => (r.options || r.placements || []).length);
-  return `<section class="week-card"><div class="wc-head"><b>${esc(title)}</b><small>${rows.length}</small></div>${body}
-    <div class="button-row left">${any ? `<button class="btn primary" type="button" data-action="fix-week">${esc(t('fixHighlighted'))}</button>` : ''}${key ? `<button class="btn" type="button" data-action="routine-review" data-id="${esc(cardWeek())}">${esc(t('rtReview'))}</button><button class="btn" type="button" data-action="week-later" data-id="${esc(key)}">${esc(t('laterBtn'))}</button>` : ''}</div></section>`;
+}
+// (v90) Today: one line instead of a card. It offers the routines that fit (tap to open them with their
+// times); those with no room are a count, decided once in a sheet (Salta, Fai posto nel Planner). ✕ hides it
+// until tomorrow. The classic layout keeps the card.
+export const fitsRow = (r) => Boolean((r.options || r.placements || []).length);
+export function todayStripHtml({ rows, weekOn }) {
+  if (!rows.length || state.settings.fixHiddenOn === today()) return '';
+  const fit = rows.filter(fitsRow); const stuck = rows.filter((r) => !fitsRow(r));
+  const tot = stuck.reduce((n, r) => n + (Number(r.x.minutes) || 30) * (r.n || 1), 0);
+  const head = fit.length ? t('fxFit', fit.length, weekOn) : t('fxStuck', stuck.length, weekOn);
+  const sub = fit.length && stuck.length ? t('fxStuckMore', stuck.length, weekOn) : fit.length ? t('fxTap') : t('fxTotal', fmtDur(tot));
+  const open = fit.length && ui.fxOpen;
+  return `<section class="fx-strip${open ? ' open' : ''}"><div class="fx-line"><button type="button" class="fx-main" data-action="${fit.length ? 'fx-toggle' : 'fx-stuck'}" aria-expanded="${Boolean(open)}"><span class="fx-ic" aria-hidden="true">${fit.length ? '🕒' : '↻'}</span><span class="fx-tx">${esc(head)}<small>${esc(sub)}</small></span><span class="fx-chev" aria-hidden="true">${open ? '▾' : '›'}</span></button><button type="button" class="fx-x" data-action="fx-hide" aria-label="${esc(t('fxHide'))}" title="${esc(t('fxHide'))}">✕</button></div>
+    ${open ? `<div class="fx-body">${fit.map(occRowHtml).join('')}<div class="button-row left"><button class="btn primary" type="button" data-action="fix-week">${esc(t('fixHighlighted'))}</button>${stuck.length ? `<button class="btn" type="button" data-action="fx-stuck">${esc(t('fxStuckN', stuck.length))}</button>` : ''}</div></div>` : ''}</section>`;
+}
+export function hideStripToday() { saveSettings({ fixHiddenOn: today() }); }
+// «Salta questa settimana» for a routine of N times a week.
+export function skipWeek(x, date = today()) { const pk = periodKey(date, x.timesPer || 'week'); upsert('tasks', { ...x, skipPer: [...new Set([...(x.skipPer || []), pk])] }); }
+const skipRow = (r) => { const x = get('tasks', r.x.id); if (!x) return; if (r.date) skipOcc(x, r.date); else skipWeek(x); };
+// The routines with no room, decided once: skip each (or all), or go make room in the Planner.
+export function openStuck(rows, weekOn, done) {
+  const draw = () => {
+    const stuck = rows.filter((r) => !fitsRow(r) && !r.gone);
+    if (!stuck.length) { document.querySelector('dialog[open]')?.close(); done(); return; }
+    const tot = stuck.reduce((n, r) => n + (Number(r.x.minutes) || 30) * (r.n || 1), 0);
+    openModal(`<h2>${esc(t(weekOn ? 'fxStuckTitleW' : 'fxStuckTitle'))}</h2><p class="hint">${esc(t('fxStuckHint', stuck.length, fmtDur(tot), weekOn))}</p>
+      <div class="fx-list">${stuck.map((r) => `<div class="occ-row"><div class="occ-head"><span><b>${esc(r.x.title)}</b>${r.date ? ` · ${esc(dayLabel(r.date))}` : r.n > 1 ? ` · ${esc(t('timesLeftN', r.n))}` : ''}</span><small>${esc(fmtDur(Number(r.x.minutes) || 30))}</small></div>
+        <div class="occ-chips"><button class="occ-chip" value="sk:${esc(r.x.id)}:${r.date || ''}" formnovalidate>${esc(t(r.date ? 'fxSkipDay' : 'fxSkipWeek', r.date ? dayLabel(r.date) : ''))}</button><button class="occ-chip" value="room" formnovalidate>${esc(t('fxMakeRoom'))}</button></div></div>`).join('')}</div>
+      <div class="button-row"><button class="btn" value="all" formnovalidate>${esc(t('fxSkipAll'))}</button><button class="btn primary" value="close" formnovalidate>${esc(t('close'))}</button></div>`, (form, action, e) => {
+      if (action.startsWith('sk:')) { e.preventDefault(); const [, id, date] = action.split(':'); const r = rows.find((y) => y.x.id === id && (y.date || '') === date); if (r) { skipRow(r); r.gone = true; } draw(); return; }
+      if (action === 'all') { for (const r of stuck) { skipRow(r); r.gone = true; } }
+      if (action === 'room') location.hash = '#/plan';
+      done();
+    }, { cls: 'fx-stuck-sheet' });
+  };
+  draw();
 }
 // Accepting every highlighted suggestion of a card (the first slot of each day; all the placements).
 export function fixAll(rows) {

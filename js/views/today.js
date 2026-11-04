@@ -11,6 +11,7 @@ import { get } from '../store.js';
 import { MODE_ICON } from '../travel.js';
 import { behindCard, loadBar, prepareDays, weekStart } from './planner.js';
 import { classic } from './impegni.js';
+import { todayRows, todayStripHtml } from '../weekpick.js';
 
 // ---------- Today: the home tab ----------
 // "What do I do now?" first: the next move with its leave and start times. Then the day, what is
@@ -29,6 +30,8 @@ export function pressingTasks() {
     }).slice(0, 6);
 }
 
+// (v90) routines that still need a time: one line under what's next (shell.js shows the card in the classic layout)
+function routineStrip() { const { rows, weekOn } = todayRows(); ui.weekRows = rows; ui.weekOn = weekOn; return todayStripHtml({ rows, weekOn }); }
 export function viewToday() {
   const td = today(); const now = nowMinutes();
   prepareDays([td]);
@@ -94,6 +97,7 @@ export function viewToday() {
     ${ui.reflow ? `<div class="reflow"><span>${esc(t('reflowMoved', ui.reflow.moved))}</span><button class="linkish" type="button" data-action="reflow-undo">${esc(t('undo'))}</button><button class="icon" type="button" data-action="reflow-ok" aria-label="${esc(t('close'))}">✕</button></div>` : ''}
     ${nowCard}
     ${classic() ? '' : behindCard(td)}
+    ${classic() ? '' : routineStrip()}
     <section class="today-list" aria-label="${esc(t('today'))}">
       ${items.length ? items.map(row).join('') : `<p class="empty">${esc(t('emptyDay'))}</p>`}
       ${spareLine}

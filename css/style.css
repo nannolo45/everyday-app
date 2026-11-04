@@ -2052,3 +2052,27 @@ body.is-wide #view > :last-child { margin-bottom: 0; }
   .tb-wrap.side .pk-pane { position: sticky; top: 8px; margin-top: 8px; max-height: calc(100vh - 80px); overflow: auto; padding: 0 14px; border: 1.5px solid var(--accent); border-radius: 16px; background: var(--bg); }
   .tb-wrap.side .pk-pane .pk-head { padding-top: 12px; }
 }
+
+/* ---------- v90: Today's one line for routines that need a time; the trip's route line ---------- */
+.fx-strip { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; margin: 0 0 12px; overflow: hidden; }
+.fx-line { display: flex; align-items: stretch; }
+.fx-main { flex: 1; display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 10px 12px; background: none; border: none; color: var(--ink); font: inherit; font-size: .95rem; text-align: left; cursor: pointer; }
+.fx-ic { font-size: 1.05rem; flex: none; }
+.fx-tx { flex: 1; min-width: 0; } .fx-tx small { display: block; color: var(--muted); font-size: .8rem; margin-top: 1px; }
+.fx-chev { color: var(--muted); flex: none; }
+.fx-x { flex: none; width: 44px; background: none; border: none; border-left: 1px solid var(--line); color: var(--muted); font: inherit; cursor: pointer; }
+.fx-body { border-top: 1px solid var(--line); padding: 4px 12px 12px; }
+.fx-body .button-row { margin-top: 8px; }
+.tv-route { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 5px; margin: 10px 0 0; font-size: .86rem; }
+.tv-node { border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; background: var(--field, var(--surface)); color: var(--ink); font: inherit; font-size: .85rem; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tv-node.on { border-color: var(--accent); }
+.tv-node.here { border-color: var(--accent); color: var(--accent); font-weight: 700; cursor: default; }
+.tv-node.off { border-style: dashed; color: var(--muted); }
+.tv-leg { background: none; border: none; border-bottom: 1px dashed var(--muted); color: var(--muted); font: inherit; font-size: .82rem; padding: 2px 2px; cursor: pointer; }
+.tv-leg.fixed { color: var(--warn, #b5780c); border-bottom-color: var(--warn, #b5780c); }
+.tv-ar { color: var(--muted); }
+.tv-box { border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin-top: 10px; }
+.tv-bh { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: .9rem; }
+.tv-mins { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; font-size: .85rem; color: var(--muted); }
+.tv-mins .pl-num { width: 64px; }
+.plc-trip { margin-top: 4px; }

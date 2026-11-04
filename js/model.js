@@ -1045,6 +1045,7 @@ export function timesLeft(x, date) {
   if (x.repeat !== 'times' || isEnded(x)) return 0;
   const per = x.timesPer || 'week'; const pk = periodKey(date, per);
   const inP = (d) => periodKey(d, per) === pk;
+  if ((x.skipPer || []).includes(pk)) return 0; // (v90) «Salta questa settimana»
   const blocks = live('blocks').filter((b) => b.taskId === x.id && b.kind !== 'prep' && inP(b.date) && b.outcome !== 'failed');
   const logged = (x.doneLog || []).filter(inP).length;
   const ghosts = (ui.assign?.ghosts || []).filter((g) => g.taskId === x.id && inP(g.date)).length;

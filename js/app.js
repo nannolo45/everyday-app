@@ -27,7 +27,7 @@ import { isConfigured, isSyncing, removeCalendarData } from './sync.js';
 import { applyTravel, ensureLegTasks, LEGS, legTemplate, pruneCache, scheduleTravelRefresh, setLegTask, travelBusy, travelCache, travelCfg, travelTimer } from './travel-plan.js';
 import { setupTrayDrag } from './tray.js';
 import { elapsedText, pauseTimer, resumeTimer, runningBlock, startBlock } from './timer.js';
-import { fixAll, fixOcc, fixTimes, laterWeek, skipOcc } from './weekpick.js';
+import { fixAll, fixOcc, fixTimes, hideStripToday, laterWeek, openStuck, skipOcc } from './weekpick.js';
 import { openEventFilters, prepareEvents } from './views/events.js';
 import { placePicked, wideClick } from './views/wide.js';
 import { applyTheme } from './theme.js';
@@ -313,6 +313,9 @@ view.addEventListener('click', (e) => {
     case 'occ-more': { const x = get('tasks', id); if (x) openPickSheet(x, btn.dataset.date); break; }
     case 'fix-week': { const n = fixAll(ui.weekRows || []); toast(t('fixedN', n)); changed(); break; }
     case 'week-later': laterWeek(id); render(); break;
+    case 'fx-toggle': ui.fxOpen = !ui.fxOpen; render(); break;
+    case 'fx-hide': hideStripToday(); toast(t('fxHidden')); render(); break;
+    case 'fx-stuck': openStuck(ui.weekRows || [], ui.weekOn, () => changed()); break;
     case 'task-tools': openTaskTools(id || 'todo'); break;
     case 'filter-off': saveSettings({ taskFilter: { ...taskFilter(), [id]: id === 'cat' ? '' : false } }); render(); break;
     case 'pal-start': { const b = get('blocks', id); const x = b && get('tasks', b.taskId); if (!x) break; const nb = startBlock(b); openPalestra(x, nb); afterStart(nb); break; }

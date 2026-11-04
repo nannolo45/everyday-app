@@ -8,9 +8,10 @@ import { catName, categories, esc, planSettings, relDay, toast, ui } from './cor
 import { state } from './store.js';
 import { t } from './i18n.js';
 import { isEvent, isSaved, isTodo } from './kinds.js';
-import { catFlag, anchorOffset, deleteBlock, ensureSeries, eventTasksOf, isSeries, outcomeOf, planTask, saveEvent, seriesBlocks } from './model.js';
+import { catFlag, anchorOffset, nextBlockOf, deleteBlock, ensureSeries, eventTasksOf, isSeries, outcomeOf, planTask, saveEvent, seriesBlocks } from './model.js';
 import { upcomingOf } from './finder.js';
-import { ownMinutes, realSteps, travelOf } from './travel-plan.js';
+import { ownMinutes, realSteps, routeOf, travelOf } from './travel-plan.js';
+import { tripHtml, tvAction, tvRead, tvRecord, tvState } from './tripui.js';
 import { skipOcc } from './weekpick.js';
 import { openWeekGrid } from './weekgrid.js';
 import { changed } from './shell.js';
@@ -65,7 +66,7 @@ function fresh(text = '') {
     len: 30, lenUnit: null, lenSet: false, unknown: false,
     wc: undefined, once: true, date: today(), mode: 'first', start: null, end: null, anchor: 'start',
     n: 1, per: 'settimana', days: [], until: 'always', times: [],
-    cat: null, more: false, open: null, imp: 3, due: '', place: '', placeId: null, people: 2, travel: true, steps: [], after: [], ok: [], ko: [], notes: '',
+    cat: null, more: false, open: null, imp: 3, due: '', place: '', placeId: null, people: 2, tv: tvState(), tvOwn: false, legOv: null, steps: [], after: [], ok: [], ko: [], notes: '',
     // (v84) editing a task: its id, the Quando it had (to know if it changed), its steps, checklist, margin, other rules
     edit: null, orig: null, stepObjs: null, checklist: [], buffer: '', keepRules: [], ov: null, rk: 'ok', untilKeep: null, ovt: 'recent',
   };
@@ -154,10 +155,20 @@ function catPanel() {
   return `<div class="pl-chips">${categories().map((c) => `<button class="pl-chip${P.cat === c.id ? ' on' : ''}" value="cat:${esc(c.id)}" formnovalidate><i class="cat-dot" style="--c:${esc(c.color || 'var(--line)')}"></i>${esc(catName(c))}</button>`).join('')}<button class="pl-chip${!P.cat ? ' on' : ''}" value="cat:" formnovalidate>${esc(t('noCategory'))}</button></div>`;
 }
 // (v85) Luogo e spostamenti: a saved place (search, or ☰ Tutte), or an address typed for this task only.
+// (v90) the trip as it would be: a draft of the task with this sheet's place and travel
+function draftRoute() {
+  if (!P.place) return null;
+  const x0 = (P.edit && get('tasks', P.edit)) || {};
+  try { return routeOf({ ...x0, id: P.edit || 'pl-draft', title: P.name || '…', kind: x0.kind || 'todo', place: P.place, placeId: P.placeId, travel: tvRecord(P.tv), steps: [], minutes: len() }, P.edit ? nextBlockOf(P.edit) : null); } catch { return null; }
+}
+// a place was chosen: its own travel default, unless you set the trip by hand in this sheet
+function placeChosen() { if (P.tvOwn) return; const d = placeById(P.placeId)?.travel; P.tv = tvState(d || {}); }
+// what the task stores: nothing (the place's default applies) unless you changed it here or the place has none
+const tvFor = (pid = P.placeId) => (P.tvOwn || !placeById(pid)?.travel ? tvRecord(P.tv) : null);
 function placeLabel() { const p = placeById(P.placeId); return p ? `${placeEmoji(p)} ${p.name}` : P.place ? `📍 ${P.place}` : ''; }
 function placeBody() {
   const p = placeById(P.placeId);
-  const travel = `<button class="pl-tog${P.travel ? ' on' : ''}" value="travel" formnovalidate><span>${esc(t('plTravel'))}<small>${esc(t('plTravelSub'))}</small></span><i></i></button>`;
+  const travel = tripHtml(P.tv, { here: placeLabel(), route: draftRoute(), skip: P.placeId });
   if (p) return `<div class="pl-chips"><span class="pl-chip on">${esc(placeEmoji(p))} ${esc(p.name)}<button class="pl-x" value="plc-rm" formnovalidate aria-label="${esc(t('remove'))}">✕</button></span></div>
     <p class="pl-hint">${esc([p.place && p.place !== p.name ? p.place : '', hasHours(p) ? `🕒 ${windowsText(p.hours)}` : t('plcNoLimits')].filter(Boolean).join(' · '))}</p>${travel}`;
   if (P.place) return `<div class="pl-chips"><span class="pl-chip on">📍 ${esc(P.place)}<button class="pl-x" value="plc-rm" formnovalidate aria-label="${esc(t('remove'))}">✕</button></span><button class="pl-chip" value="plc-save" formnovalidate>☆ ${esc(t('plcSaveAs'))}</button></div>
@@ -314,6 +325,9 @@ function onSubmit(form, action, e) {
   e.preventDefault();
   const [a, b, c] = action.split(':');
   let focus = null;
+  // (v90) the trip's route line
+  const tr = tvAction(P.tv, action);
+  if (tr) { P.tvOwn = true; if (typeof tr === 'string') { P.legOv = tr.slice(4); P.ov = 'place'; P.ovq = ''; P.ovt = 'recent'; } draw(tr === true ? null : '#pl-ovq'); return; }
   if (P.edit && editAction(a, b, c, action)) return;
   if (a === 'pop') { const was = P.pop; if (was) P.touched[was] = true; P.pop = was === b ? null : b; if (b === 'when' && P.pop === 'when' && P.wc === undefined) P.wc = undefined; }
   else if (a === 'save') P.save = !P.save;
@@ -329,16 +343,18 @@ function onSubmit(form, action, e) {
   else if (a === 'row') { P.open = P.open === b ? null : b; if (P.open) { P.more = true; P.pop = null; } }
   else if (a === 'ov') { P.ov = b; P.ovq = ''; P.ovt = 'recent'; focus = '#pl-ovq'; }
   else if (a === 'ovt') { P.ovt = b; P.ovq = ''; }
-  else if (a === 'plc') { const p = placeById(b); if (p) { P.placeId = p.id; P.place = placeAddress(p); } P.ov = null; P.ovq = ''; }
+  else if (a === 'plc' && P.legOv) { if (placeById(b)) { P.tv[P.legOv] = b; P.tvOwn = true; } P.legOv = null; P.ov = null; P.ovq = ''; }
+  else if (a === 'plc') { const p = placeById(b); if (p) { P.placeId = p.id; P.place = placeAddress(p); placeChosen(); } P.ov = null; P.ovq = ''; }
   else if (a === 'plc-txt') { P.placeId = null; P.place = decodeURIComponent(action.slice('plc-txt:'.length)).trim(); }
   else if (a === 'plc-rm') { P.placeId = null; P.place = ''; focus = '#pl-place'; }
   else if (a === 'plc-save' || (a === 'ov-new' && b === 'place') || a === 'plc-new') {
     const v = a === 'plc-save' ? P.place : decodeURIComponent(action.slice(`${a}:${a === 'ov-new' ? 'place:' : ''}`.length)).trim();
-    if (v) { const p = placeByText(v) || quickPlace(v, uid); P.placeId = p.id; P.place = placeAddress(p); toast(t('plcSaved', p.name)); }
+    if (v && P.legOv && a !== 'plc-save') { const p = placeByText(v) || quickPlace(v, uid); P.tv[P.legOv] = p.id; P.tvOwn = true; P.legOv = null; }
+    else if (v) { const p = placeByText(v) || quickPlace(v, uid); P.placeId = p.id; P.place = placeAddress(p); placeChosen(); toast(t('plcSaved', p.name)); }
     P.ov = null; P.ovq = '';
   }
   else if (a === 'ovk') { P.ov = b; P.ovq = ''; }
-  else if (a === 'ov-close') { P.ov = null; P.ovq = ''; }
+  else if (a === 'ov-close') { P.ov = null; P.ovq = ''; P.legOv = null; }
   else if (a === 'turns') P.ov = 'turns';
   else if (a === 'ov-tog') { const i = P[b].findIndex((x) => x.id === c); if (i >= 0) P[b].splice(i, 1); else { const x = get('tasks', c); if (x) P[b].push({ id: x.id, title: x.title }); } }
   else if (a === 'ov-new') { const n = decodeURIComponent(action.slice(`ov-new:${b}:`.length)).trim(); if (n) P[b].push({ title: n, isNew: true }); P.ovq = ''; focus = '#pl-ovq'; }
@@ -347,7 +363,6 @@ function onSubmit(form, action, e) {
   else if (a === 'imp') P.imp = Number(b);
   else if (a === 'ppl') P.people = Number(b);
   else if (a === 'due') P.due = '';
-  else if (a === 'travel') P.travel = !P.travel;
   else if (a === 'step-rm') { if (P.stepObjs) { P.stepObjs.splice(Number(b), 1); if (P.stepObjs.length) P.len = stepSum(); } else P.steps.splice(Number(b), 1); }
   else if (a === 'li-rm') P[b].splice(Number(c), 1);
   else if (a === 'li-add') { const x = get('tasks', c); if (x) P[b].push({ id: x.id, title: x.title }); focus = `#pl-li-${b}`; }
@@ -360,6 +375,7 @@ function collect(form) {
   const v = (id) => form.querySelector(`#${id}`);
   if (v('pl-name')) P.name = v('pl-name').value;
   if (v('pl-notes')) P.notes = v('pl-notes').value;
+  const tv0 = JSON.stringify(P.tv); tvRead(form, P.tv); if (JSON.stringify(P.tv) !== tv0) P.tvOwn = true;
   // (v85) the place is chosen from the suggestions (Enter: a saved place by that name, else the text as typed)
 }
 // (v86) A field's late "change" (it fires when you tap a button) redraws the sheet afterwards. That redraw
@@ -426,7 +442,7 @@ function wire() {
       if (ev.key !== 'Enter' || !oq.value.trim()) return;
       ev.preventDefault();
       const q = oq.value.trim();
-      if (P.ov === 'place') { const p = placeByText(q) || quickPlace(q, uid); P.placeId = p.id; P.place = placeAddress(p); P.ov = null; P.ovq = ''; redraw(); return; }
+      if (P.ov === 'place') { const p = placeByText(q) || quickPlace(q, uid); if (P.legOv) { P.tv[P.legOv] = p.id; P.tvOwn = true; P.legOv = null; } else { P.placeId = p.id; P.place = placeAddress(p); placeChosen(); } P.ov = null; P.ovq = ''; redraw(); return; }
       const hit = candidates().find((x) => x.title.toLowerCase() === q.toLowerCase());
       if (hit && !P[P.ov].some((a) => a.id === hit.id)) P[P.ov].push({ id: hit.id, title: hit.title }); else if (!hit) P[P.ov].push({ title: q, isNew: true });
       P.ovq = ''; redraw('#pl-ovq');
@@ -496,7 +512,7 @@ function save() {
     lenSet: P.lenSet || P.unknown ? !P.unknown : Boolean(P.touched.len), lenUnknown: P.unknown || undefined, importance: P.imp !== 3 ? P.imp : q.importance || 3, priority: q.priority || 0,
     category: cat, moreCats: [], due: P.due || (P.wc === undefined ? q.due : null) || null, place: P.place || qPlace?.addr || '', placeId: P.placeId || qPlace?.id || null, ...(catFlag(cat, 'meal') ? { people: P.people } : {}), notes: P.notes, done: false, checklist: [],
     steps, splitSteps: steps.length > 1 && !P.steps.length, after: newIds(P.after), allRules: rules, windows: [],
-    ...(P.place || qPlace ? { travel: { there: P.travel, back: P.travel, mode: 'default' } } : {}),
+    ...((P.place || qPlace) && tvFor(P.placeId || qPlace?.id) ? { travel: tvFor(P.placeId || qPlace?.id) } : {}),
   };
   ui.justAdded ||= new Set();
   // an appointment: fixed, at its day and time (all day, or several days)
@@ -569,7 +585,7 @@ function fromTask(x) {
   const p = fresh(x.title || '');
   Object.assign(p, {
     edit: x.id, save: isSaved(x), appt: isEvent(x), len: ownMinutes(x), lenSet: x.lenSet !== false, unknown: Boolean(x.lenUnknown),
-    cat: x.category || null, imp: x.importance || 3, people: x.people || 2, place: x.place || '', placeId: placeById(x.placeId) ? x.placeId : null, travel: travelOf(x).there !== false, notes: x.notes || '',
+    cat: x.category || null, imp: x.importance || 3, people: x.people || 2, place: x.place || '', placeId: placeById(x.placeId) ? x.placeId : null, tv: tvState(travelOf(x)), tvOwn: Boolean(x.travel && ('from' in x.travel || !placeById(x.placeId)?.travel)), notes: x.notes || '',
     stepObjs: realSteps(x).map((y) => ({ ...y })), checklist: [...(x.checklist || [])], buffer: x.buffer == null ? '' : x.buffer,
     after: (x.after || []).map((id) => get('tasks', id)).filter(Boolean).map((y) => ({ id: y.id, title: y.title })),
     touched: { len: true, when: true, cat: true }, more: true,
@@ -645,7 +661,7 @@ function saveEdit({ stay = false } = {}) {
   const rule = (a, when) => (a.rule ? { ...a.rule, when } : { id: uid(), when, then: 'task', taskId: a.id || null, title: a.title, minutes: 30, place: 'pool', stepId: null });
   const x = {
     ...x0, title, minutes: L, lenSet: !P.unknown, lenUnknown: P.unknown || undefined, category: P.cat, importance: P.imp,
-    place: P.place, placeId: P.placeId || null, ...(catFlag(P.cat, 'meal') ? { people: P.people } : {}), travel: { ...travelOf(x0), there: P.travel, back: P.travel }, notes: P.notes, checklist: P.checklist, buffer: P.buffer === '' ? null : Number(P.buffer),
+    place: P.place, placeId: P.placeId || null, ...(catFlag(P.cat, 'meal') ? { people: P.people } : {}), travel: P.place ? tvFor() && { ...tvFor(), mode: travelOf(x0).mode } : x0.travel ?? null, notes: P.notes, checklist: P.checklist, buffer: P.buffer === '' ? null : Number(P.buffer),
     steps: (P.stepObjs || []).filter((y) => y.title), after: newIds(P.after),
     allRules: [...P.keepRules, ...P.ok.map((a) => rule(a, 'done')), ...P.ko.map((a) => rule(a, 'failed'))],
     kind: P.appt ? 'event' : P.save || routine ? 'saved' : isEvent(x0) || isSaved(x0) ? 'todo' : x0.kind,
