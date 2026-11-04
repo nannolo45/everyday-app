@@ -69,7 +69,11 @@ export function settingsHtml(s, msg) {
   const dayPage = `${dayTop}</form>`;
   const plannerPage = `<form class="form" id="planner-form">${planRest.replace('</form>', '')}
     <label class="opt">${esc(t('snap'))}<select name="snap">${opts([5, 10, 15, 30], s.snap, (m) => `${m} min`)}</select>${why('snapWhy')}</label>
-  </form>`;
+    <label>${esc(t('clockL'))}<select name="clock12"><option value="0" ${!s.clock12 ? 'selected' : ''}>${esc(t('clock24'))}</option><option value="1" ${s.clock12 ? 'selected' : ''}>${esc(t('clock12'))}</option></select></label>
+    <div class="field-label">${esc(t('badgesL'))}</div>
+    ${[['conflicts', 'badgeConflicts', 'red'], ['behind', 'badgeBehind', 'yel'], ['toPlan', 'badgeToPlan', 'acc']].map(([k, l, c]) => `<label class="check"><input type="checkbox" name="badge_${k}" ${(s.planBadges || {})[k] !== false ? 'checked' : ''}> <span><i class="bdot ${c}"></i> ${esc(t(l))}</span></label>`).join('')}
+    ${why('badgesWhy')}
+  </form>`; // (v82) the clock and the Planner icon's numbers
   const travelCard = `
   <form class="form" id="travel-form">
     <label>${esc(t('homeAddress'))}<input name="home" value="${esc(travelCfg().home)}" placeholder="${esc(t('homePh'))}" autocomplete="street-address"></label>

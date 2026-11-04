@@ -156,6 +156,17 @@ function applyMove(y, how, taken = null) {
   if (how === 'pick') { ui.pickBlock = y.id; ui.pick = null; ui.pickOcc = null; }
   return () => { upsert('blocks', before, { silent: true }); if (xBefore && (how === 'skip' || how === 'replan')) upsert('tasks', xBefore, { silent: true }); if (how === 'pick') ui.pickBlock = null; };
 }
+// (v82) A block dragged onto the side panel comes off the plan: a task back to «Da pianificare», a turn of a
+// routine with fixed times among the turns to plan again, a turn picked each week back to be picked.
+export function unplanToPane(id) {
+  const y = get('blocks', id); if (!y) return false;
+  const x = y.taskId && get('tasks', y.taskId);
+  if (outcomeOf(y) || isEvent(x)) { toast(t('cantUnplan', y.title)); return false; }
+  const undo = applyMove(y, y.seriesId && !y.pickOcc ? 'replan' : 'back');
+  changed();
+  toast(t('unplannedPane', y.title), 6000, [{ label: t('undo'), run: () => { undo(); changed(); toast(t('undone')); } }]);
+  return true;
+}
 // Placing something on a busy block: it takes that slot; you say where the other one goes.
 export function openSwap(yId) {
   const y = get('blocks', yId); if (!y) return;

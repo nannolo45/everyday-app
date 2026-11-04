@@ -47,7 +47,7 @@ function rail() {
   const td = today(); const end = addDays(weekStart(td), 6);
   const days = []; for (let d = td; d <= end; d = addDays(d, 1)) days.push(d);
   return `<aside class="rail" aria-label="${esc(t('railNav'))}">
-    ${['today', 'events', 'tasks', 'plan'].map((k) => `<a class="rl-tab${cur === k ? ' on' : ''}" href="#/${k}"><span class="rl-ico">${ICONS[k]}</span><span>${esc(t(TAB_KEYS[k]))}</span>${k === 'tasks' && nUn && cur !== 'tasks' ? `<span class="nbadge">${nUn}</span>` : ''}${k === 'plan' ? (() => { const c = planCounts(); return c.toPlan || c.behind ? `<span class="plan-count rl">${planBadge(c)}</span>` : ''; })() : ''}</a>${k === 'tasks' ? views : ''}`).join('')}
+    ${['today', ...(classic() ? ['events'] : []), 'tasks', 'plan'].map((k) => `<a class="rl-tab${cur === k ? ' on' : ''}" href="#/${k}"><span class="rl-ico">${ICONS[k]}</span><span>${esc(t(TAB_KEYS[k]))}</span>${k === 'tasks' && nUn && cur !== 'tasks' ? `<span class="nbadge">${nUn}</span>` : ''}${k === 'plan' ? (() => { const c = planCounts(); return c.toPlan || c.behind ? `<span class="plan-count rl">${planBadge(c)}</span>` : ''; })() : ''}</a>${k === 'tasks' ? views : ''}`).join('')}
     <div class="rl-sep"></div>
     <div class="rl-lab">${esc(t('vf_when_week'))}</div>
     ${days.map((d) => `<button type="button" class="rl-day${r.name === 'plan' && ui.shownDate === d ? ' on' : ''}" data-action="rail-day" data-id="${d}"><span>${esc(fmtDay(d, { weekday: 'short', day: 'numeric' }))}</span>${loadBar(d, { text: false })}</button>`).join('')}
@@ -107,7 +107,7 @@ function paneToday() {
   return `<h2 class="pn-h">${esc(t('pnWaiting'))}</h2>
     ${nUn ? `<div class="vw-card"><b>${esc(t('nToSort', nUn))}</b><button class="btn small primary" type="button" data-action="pn-triage">${esc(t('sortNow'))}</button></div>` : ''}
     ${nPlan ? `<div class="ag-card-top"><span><b>${esc(t('agToPlan', nPlan))}</b></span><a class="btn small" href="#/plan">${esc(t('tabPlan'))} ›</a></div>` : ''}
-    ${next.length ? `<div class="field-label">${esc(t('pnNextEvents'))}</div><ul class="ev2-list">${next.map((e) => `<li class="ev2"><span class="ev2-date"><small>${esc(fmtDay(e.date, { weekday: 'short' }))}</small><b>${parseDate(e.date).getDate()}</b></span><span class="ev2-col"><a class="ev2-card" href="#/events" style="--c:${esc(e.color || 'var(--accent)')}"><span class="ag-t">${esc(e.title)}</span><small>${esc(e.allDay ? t('allDay') : e.start != null ? fmtTime(e.start) : '')}</small></a></span></li>`).join('')}</ul>` : ''}`;
+    ${next.length ? `<div class="field-label">${esc(t('pnNextEvents'))}</div><ul class="ev2-list">${next.map((e) => `<li class="ev2"><span class="ev2-date"><small>${esc(fmtDay(e.date, { weekday: 'short' }))}</small><b>${parseDate(e.date).getDate()}</b></span><span class="ev2-col"><a class="ev2-card" href="${classic() ? '#/events' : `#/plan/${e.date}`}" style="--c:${esc(e.color || 'var(--accent)')}"><span class="ag-t">${esc(e.title)}</span><small>${esc(e.allDay ? t('allDay') : e.start != null ? fmtTime(e.start) : '')}</small></a></span></li>`).join('')}</ul>` : ''}`;
 }
 export function paneHtml() {
   const r = route();

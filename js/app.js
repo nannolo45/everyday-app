@@ -17,7 +17,7 @@ import { setupDrag } from './drag.js';
 import { afterStart, openPalestra, doShift, finishTimer, openAddMenu, openPickSheet, openQuickTask, plusKind, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, openMeal, openPlanSaved, openSavedPicker, openShopRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
 import { t } from './i18n.js';
 import { isEvent } from './kinds.js';
-import { anchorOffset, autoChecks, leadOf, checklistLeft, checkMissed, conflictsOn, eventOf, followParent, migrateBlocksToEvents, normalizeKinds, planTask, saveEvent, seedMeals, setOutcome, setStepOutcome, setTaskDone, syncEventTasks, travelTasks, trySetBlockDone, tryStep } from './model.js';
+import { noRhythm, repairRhythms, anchorOffset, autoChecks, leadOf, checklistLeft, checkMissed, conflictsOn, eventOf, followParent, migrateBlocksToEvents, normalizeKinds, planTask, saveEvent, seedMeals, setOutcome, setStepOutcome, setTaskDone, syncEventTasks, travelTasks, trySetBlockDone, tryStep } from './model.js';
 import { fmtTime, isDate, parseTime, quickAdd, today } from './plan.js';
 import { addGhosts, assignDrop, autoHoursFor, fixConflict, placeGhosts, planEventTasks, planGroceryTrips, spreadDays, trayTasks, undoReflow, warnConflicts } from './planning.js';
 import { changed, currentDate, positionNow, released, render, renderIfSafe, renderShell, runSync, scheduleSync, scrollToGhost, syncScheduled, typing, updateSyncBadge } from './shell.js';
@@ -31,11 +31,11 @@ import { openEventFilters, prepareEvents } from './views/events.js';
 import { placePicked, wideClick } from './views/wide.js';
 import { applyTheme } from './theme.js';
 applyTheme();
-import { classic, curView, openFilters, openPick, openSort, openTriage, openViews, setView, setWhen, viewList } from './views/impegni.js';
+import { classic, curView, openFilters, openPick, openSort, openTriage, openViews, setView, setWeekly, setWhen, viewList } from './views/impegni.js';
 import { openWeekGrid } from './weekgrid.js';
 import { goToBlock, goToProposal, openChooser, openPropsList, resumeRoutine, sheetClick } from './finder.js';
 import { setLowPref } from './lowstock.js';
-import { countToast, firstFreeStart, moveBlockTo, openConflictChoice, openDropOn, placeItem } from './placing.js';
+import { countToast, firstFreeStart, moveBlockTo, openConflictChoice, openDropOn, placeItem, unplanToPane } from './placing.js';
 import { agendaAdd, agendaPlan, keepFix, keepGhost, openGapFits, planStyle, showSteps } from './views/planner.js';
 import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName, SHOPS } from './views/shop.js';
 import { openTaskTools, taskFilter } from './views/tasks.js';
@@ -184,7 +184,9 @@ view.addEventListener('change', (e) => {
       for (const k of ['weekCardDay', 'weekCardHour', 'snap']) if (k in g) patch[k] = Number(g[k]);
       if ('planStyle' in g) patch.planStyle = g.planStyle;
       if ('defaultView' in g) patch.defaultView = g.defaultView;
-      saveSettings(patch);
+      if ('clock12' in g) patch.clock12 = g.clock12 === '1';
+      if (el.form.elements.badge_conflicts) patch.planBadges = { conflicts: el.form.badge_conflicts.checked, behind: el.form.badge_behind.checked, toPlan: el.form.badge_toPlan.checked };
+      saveSettings(patch); changed();
       if (el.name === 'defaultView') ui.view = null;
       return;
     }
@@ -258,6 +260,10 @@ view.addEventListener('click', (e) => {
     case 'ag-choose': openChooser(); break; // (v67) the phone's Pianifica
     case 'pv-list': openPropsList(); break;
     case 'pv-go': goToProposal(id, btn.dataset.date); break;
+    case 'rh-week': { const x = get('tasks', id); if (x) { setWeekly(x); toast(t('rhDone', x.title)); } changed(); break; }
+    case 'rh-ok': { const x = get('tasks', id); if (x) upsert('tasks', { ...x, rhythmOk: true }); changed(); break; }
+    case 'rh-all': { for (const x of noRhythm()) setWeekly(x); saveSettings({ rhythmAsked: true }); toast(t('rhAllDone')); changed(); break; }
+    case 'rh-none': saveSettings({ rhythmAsked: true }); changed(); break;
     case 'fd-unpick': { ui.pick = null; ui.pickOcc = null; ui.pickBlock = null; const ch = ui.chain; ui.chain = null; render(); if (ch) toast(t('chainStopped'), 7000, [{ label: t('undoAll'), run: () => { ch.undo(); changed(); toast(t('undone')); } }]); break; } // (v81)
     case 'swap-event': openDropOn('event', id); break;
     case 'box-fold': { ui.boxFold = ui.boxFold || new Set(); if (ui.boxFold.has(id)) ui.boxFold.delete(id); else ui.boxFold.add(id); render(); break; } // (v71) placing on an invitation: you won't go, it takes its slot
@@ -474,7 +480,7 @@ view.addEventListener('sorted', (e) => onSorted(e.detail));
 // (v69) Drag and drop (mouse): rows of the Planner's pane (tasks, routine turns, routines on the shelf) and
 // blocks in the agenda, onto a free stretch (where it fits lights up), a day of the week, or a day in the rail.
 let dnd = null;
-const dropTarget = (el) => el?.closest?.('.ag-gap, .ag-day, .rl-day, .ag-row[data-drag^="block:"], .ag-row[data-ev]');
+const dropTarget = (el) => el?.closest?.('.ag-gap, .ag-day, .rl-day, .ag-row[data-drag^="block:"], .ag-row[data-ev]') || (dnd?.v.startsWith('block:') ? el?.closest?.('.pane') : null); // (v82) a block onto the panel: off the plan
 document.addEventListener('dragstart', (e) => {
   const src = e.target.closest?.('[data-drag]'); if (!src) return;
   dnd = { v: src.dataset.drag, min: Number(src.dataset.min) || 30 };
@@ -500,6 +506,7 @@ document.addEventListener('drop', (e) => {
   const tg = dropTarget(e.target); if (!tg) return;
   e.preventDefault();
   const v = dnd.v; dndEnd();
+  if (tg.classList.contains('pane')) { unplanToPane(v.slice(6)); return; }
   if (tg.classList.contains('ag-row')) { // (v70) onto a block: it takes that slot, you say where the other goes (v71: or onto an invitation)
     const yId = tg.dataset.ev ? null : tg.dataset.drag.slice(6); const [k0, id0, occ0] = v.split(':');
     if (k0 === 'block') { if (id0 === yId) return; ui.pickBlock = id0; ui.pick = null; } else { ui.pick = id0; ui.pickOcc = k0 === 'turn' && occ0 ? occ0 : null; ui.pickBlock = null; }
@@ -630,6 +637,7 @@ async function boot() {
   if (!isConfigured()) seedSharedSettings();
   await applySharedSettings();
   normalizeKinds();
+  repairRhythms(); // (v82)
   saveSettings({ travelCache: pruneCache(travelCache()) });
   migrateBlocksToEvents();
   syncEventTasks();

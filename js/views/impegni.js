@@ -6,7 +6,7 @@
 import { catName, catsOf, categories, esc, modal, relDay, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { isTodo } from '../kinds.js';
-import { countedOf, nextPlanned } from '../model.js';
+import { countedOf, nextPlanned, noRhythm, outcomeOf } from '../model.js';
 import { addDays, fmtDur, fmtTime, sortTasks, today } from '../plan.js';
 import { endedRoutines, isArchived, isRoutine, legend, routineRow, weekHeader } from '../routines.js';
 import { matchesQ } from '../shoplist.js';
@@ -15,7 +15,7 @@ import { render } from '../shell.js';
 import { durField, openModal, readDur, searchBox } from '../widgets.js';
 import { openWeekGrid } from '../weekgrid.js';
 import { weekStart } from './planner.js';
-import { SH, viewShop } from './shop.js';
+import { SH, shopReader, viewShop } from './shop.js';
 import { foldBtn, folded, taskHay, taskRow } from './tasks.js';
 
 // The older layouts stay reachable for the older test suites (a switch kept on the device, not a setting).
@@ -49,7 +49,7 @@ export function viewList() {
   return list;
 }
 const saveViews = (list) => saveSettings({ views: list });
-export const viewName = (v) => v.name || t(`vw_${v.id}`);
+export const viewName = (v) => v.name || (v.id === 'routine' && !classic() ? t('vw_saved') : t(`vw_${v.id}`)); // (v83) Routine → Salvate
 export function curView() { const l = viewList(); return l.find((v) => v.id === (ui.view2 || state.settings.curView)) || l[0]; }
 export function setView(id) { ui.view2 = id; ui.vTemp = null; ui.openRow = null; saveSettings({ curView: id }); }
 function patchView(id, patch) { saveViews(viewList().map((v) => (v.id === id ? { ...v, ...patch } : v))); }
@@ -109,6 +109,11 @@ function addedKey(x, td) {
 export function groupsOf(list, by, dir = 1) {
   const td = today();
   const cats = categories().map((c) => c.id);
+  if (by === 'saved') { // (v83) Salvate: what repeats, then what you keep to do again whenever
+    const rep = list.filter((x) => x.repeat); const any = list.filter((x) => !x.repeat);
+    const az = (a, b) => (a.title || '').localeCompare(b.title || '');
+    return [['rep', rep], ['any', any]].filter(([, l]) => l.length).map(([k, l]) => ({ key: k, label: t(`gs_${k}`), list: l.sort(az) }));
+  }
   const key = (x) => (by === 'added' ? addedKey(x, td) : by === 'when' ? (typeOf(x) === 'repeat' && whenOf(x) !== 'today' ? 'rep' : whenOf(x)) : by === 'cat' ? (catsOf(x)[0] || '') : typeOf(x));
   const order = by === 'added' ? ['today', 'yesterday', 'week', 'earlier'] : by === 'when' ? ['today', 'week', 'rep', 'later', 'none'] : by === 'cat' ? ['', ...cats] : TYPES;
   const label = (k) => (by === 'added' ? t(`ga_${k}`) : by === 'when' ? t(`gw_${k}`) : by === 'cat' ? (k ? catName(get('categories', k)) : t('noGroup')) : t(`vf_type_${k}`));
@@ -142,7 +147,15 @@ export function plainRow(x) {
     <button class="task-main" type="button" data-action="${typeOf(x) === 'repeat' && !classic() ? 'routine-open' : 'vw-row'}" data-id="${esc(x.id)}" aria-expanded="${open}"><span class="item-text">${esc(x.title)}${meta ? `<small>${esc(meta)}</small>` : ''}</span></button>${tag(x)}
     ${open ? missChips(x) : ''}</li>`;
 }
-function fullRow(x, ws) {
+// (v83) A saved thing with no rhythm, in Salvate: its length, when you last did it, ▶ to plan it.
+function lastDone(x) { return live('blocks').filter((b) => b.taskId === x.id && !b.deleted && outcomeOf(b) === 'done').map((b) => b.date).sort().pop() || null; }
+function anyRow(x) {
+  const last = lastDone(x);
+  return `<li class="vw-row sv-any"><button class="task-main" type="button" data-action="routine-open" data-id="${esc(x.id)}"><span class="item-text">${esc(x.title)}<small>${esc(`${fmtDur(x.minutes || 30)} · ${last ? t('svLast', relDay(last)) : t('svNever')}`)}</small></span></button><button class="btn small sv-plan" type="button" data-action="saved-plan" data-id="${esc(x.id)}" aria-label="${esc(t('svPlan', x.title))}" title="${esc(t('svPlan', x.title))}">▶</button></li>`;
+}
+export const isSalvate = (v) => !classic() && v.id === 'routine' && (!v.by || v.by === 'cat');
+function fullRow(x, ws, sv = false) {
+  if (sv && !x.repeat) return anyRow(x);
   if (typeOf(x) === 'repeat') return routineRow(x, ws);
   if (!unsorted(x)) return taskRow(x);
   return plainRow(x);
@@ -156,10 +169,18 @@ function tabs(cur) {
   const btn = (v) => `<button type="button" role="tab" class="${v.id === cur.id ? 'on' : ''}${v.pin ? '' : ' loose'}" aria-selected="${v.id === cur.id}" data-action="vw-tab" data-id="${esc(v.id)}">${esc(viewName(v))}${v.fixed && nUn ? ` <span class="nbadge">${nUn > 99 ? '99+' : nUn}</span>` : v.shop && nShop ? ` <small>${nShop > 99 ? '99+' : nShop}</small>` : ''}</button>`;
   return `<div class="seg vw-tabs" role="tablist">${l.filter((v) => v.pin).map(btn).join('')}${cur.pin ? '' : btn(cur)}<button type="button" class="vw-edit" data-action="vw-views">✎ ${esc(t('vwViews'))}</button></div>`;
 }
+// (v82) Routines without a rhythm (often «ogni …» lost by the + before v81): set it with one tap, or leave them.
+function rhythmCard() {
+  const list = noRhythm(); if (!list.length) return '';
+  return `<div class="vw-card rh-card"><b>${esc(t('rhTitle', list.length))}</b><small>${esc(t('rhSub'))}</small>
+    <ul>${list.map((x) => `<li><span>${esc(x.title)}<small>${esc(fmtDur(x.minutes || 30))} · ${esc(t('wm_anytime'))}</small></span><button class="btn small" type="button" data-action="rh-week" data-id="${esc(x.id)}">${esc(t('rhWeek'))}</button><button class="icon" type="button" data-action="rh-ok" data-id="${esc(x.id)}" aria-label="${esc(t('rhOk'))}" title="${esc(t('rhOk'))}">✕</button></li>`).join('')}</ul>
+    <div class="button-row left"><button class="btn small primary" type="button" data-action="rh-all">${esc(t('rhAll'))}</button><button class="btn small" type="button" data-action="rh-none">${esc(t('rhNone'))}</button></div></div>`;
+}
+export function setWeekly(x) { upsert('tasks', { ...x, repeat: 'times', timesN: 1, timesPer: 'week', pickTime: true, whenMode: 'repeat', due: null }); }
 export function viewImpegni() {
   const v = curView();
   const top = tabs(v);
-  if (v.shop) return `${top}<p class="vw-shows">${esc(showsText(v))}</p>${viewShop()}`;
+  if (v.shop) return `${top}${shopReader() ? "" : `<p class="vw-shows">${esc(showsText(v))}</p>`}${viewShop()}`; // (v83) the reader says where the list is
   const f = filterOf(v);
   const q = (ui.taskQ || '').trim();
   const ws = ui.routineWeek || weekStart(today());
@@ -174,9 +195,10 @@ export function viewImpegni() {
     <button class="btn small tools-btn" type="button" data-action="vw-sort" aria-label="${esc(t('sortGroup'))}">▤ ${esc(sortLabel(v))}</button></div>`;
   const nUn = (classic() ? unsortedList() : toPlanList()).length;
   const card = v.fixed && nUn && !q ? `<div class="vw-card"><b>${esc(t('nToSort', nUn))}</b><button class="btn small primary" type="button" data-action="vw-triage">${esc(t('sortNow'))}</button></div>` : '';
-  const groups = groupsOf(list, v.by || 'when', v.dir ?? 1);
-  const hasRep = !v.fixed && list.some((x) => typeOf(x) === 'repeat');
-  const row = v.fixed ? plainRow : (x) => fullRow(x, ws);
+  const sv = isSalvate(v);
+  const groups = groupsOf(list, sv ? 'saved' : v.by || 'when', v.dir ?? 1);
+  const hasRep = !v.fixed && list.some((x) => typeOf(x) === 'repeat' && (!sv || x.repeat));
+  const row = v.fixed ? plainRow : (x) => fullRow(x, ws, sv);
   const fresh = !v.fixed ? [...(ui.justAdded || [])].map((id) => get('tasks', id)).filter((x) => x && list.includes(x)) : [];
   const freshSet = new Set(fresh);
   const body = groups.map((g) => { const l = g.list.filter((x) => !freshSet.has(x)); return l.length ? `<section class="vw-grp"><h3 class="vw-gh">${esc(g.label)} <small>${l.length}</small></h3><ul class="list tasks${v.fixed ? ' plain' : ' saved routines'}">${l.map(row).join('')}</ul></section>` : ''; }).join('');
@@ -185,7 +207,9 @@ export function viewImpegni() {
   ${tools}
   ${card}
   ${fresh.length ? `<section class="just-added"><h2 class="part-h ja-h">${esc(t('justAdded'))} <small>${fresh.length}</small></h2><ul class="list tasks fresh">${fresh.map(row).join('')}</ul></section>` : ''}
-  ${hasRep ? weekHeader(list.filter((x) => typeOf(x) === 'repeat'), ws) : ''}
+  ${(hasRep || sv) && !q && !state.settings.rhythmAsked && (v.f?.type || []).join() === 'repeat' ? rhythmCard() : ''}
+  ${sv ? `<p class="hint sv-hint">${esc(t('svHint'))}</p>` : ''}
+  ${hasRep ? weekHeader(list.filter((x) => typeOf(x) === 'repeat' && (!sv || x.repeat)), ws) : ''}
   ${list.length ? body : `<p class="empty">${esc(q || n ? t('noMatch') : t('vwEmpty'))}</p>`}
   ${hasRep ? legend() : ''}
   ${endedHtml(v)}

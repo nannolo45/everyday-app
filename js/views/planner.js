@@ -516,7 +516,9 @@ export function behindToday() {
 }
 export function planCounts() {
   const td = today();
-  return { toPlan: trayTasks().length + toFix(td, weekEndOf(td)).length, behind: behindToday().length };
+  // (v82) and the conflicts from today to the end of the week
+  let conflicts = 0; for (let d = td; d <= weekEndOf(td); d = addDays(d, 1)) conflicts += conflictsOn(d).length;
+  return { toPlan: trayTasks().length + toFix(td, weekEndOf(td)).length, behind: behindToday().length, conflicts };
 }
 export const behindCard = (date) => { // (v81) also on Oggi
   if (date !== today()) return '';

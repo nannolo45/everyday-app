@@ -151,9 +151,14 @@ export function resumeRoutine(id) {
   toast(t('resumed', relDay(mon)));
   render();
 }
+const classicUi = () => { try { return localStorage.getItem('everyday-classic') === '1'; } catch { return false; } };
 export function finderHtml({ props = false } = {}) {
   const q = (ui.fdQ || '').trim();
-  const tab = ui.fdTab || 'todo';
+  const nTodo = trayTasks().length + routineTurns().length; // the same number as the Planner's card
+  // (v82) nothing left to plan: no Da pianificare tab; the panel opens on the next one
+  const tab0 = ui.fdTab || 'todo';
+  const hideTodo = !nTodo && !(ui.assign?.ghosts || []).length && !classicUi();
+  const tab = tab0 === 'todo' && hideTodo ? 'rout' : tab0;
   const items = findItems();
   let body;
   if (q) {
@@ -163,9 +168,8 @@ export function finderHtml({ props = false } = {}) {
   else if (tab === 'rout') body = shelfRows();
   else if (tab === 'all') body = `<ul class="fd-list">${items.sort((a, b) => a.title.localeCompare(b.title)).map(itemRow).join('')}</ul>`;
   else body = todoRows();
-  const nTodo = trayTasks().length + routineTurns().length; // the same number as the Planner's card
   const nPlan = new Set(live('blocks').filter((b) => b.taskId && !outcomeOf(b) && b.date >= today() && b.date <= addDays(today(), 13) && b.kind !== 'prep').map((b) => b.taskId)).size;
-  const tabs = [['todo', 'pnTabTodo', nTodo], ['rout', 'pnTabRout', routines().filter((x) => !x.archived && !isMealType(x)).length], ['plan', 'pnTabPlan', nPlan], ['all', 'pnTabAll', items.length]];
+  const tabs = [...(hideTodo ? [] : [['todo', 'pnTabTodo', nTodo]]), ['rout', 'pnTabRout', routines().filter((x) => !x.archived && !isMealType(x)).length], ['plan', 'pnTabPlan', nPlan], ['all', 'pnTabAll', items.length]];
   const pv = props ? proposalsHtml() : '';
   return `<div class="fd">
     ${searchBox({ id: 'fd-q', value: ui.fdQ || '', ph: t('findPh') })}

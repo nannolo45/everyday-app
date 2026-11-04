@@ -8,7 +8,7 @@ import { refood } from '../foods.js';
 import { getLang, t } from '../i18n.js';
 import { qtyText } from '../model.js';
 import { parseIngredient } from '../parse.js';
-import { today } from '../plan.js';
+import { fmtTime, today } from '../plan.js';
 import { tripMode } from '../planning.js';
 import { changed, runSync } from '../shell.js';
 import { addedOf, availableModes, fold, byItemOrder, currentMode, DRAG_MODES, filterCount, filterItems, GROUPED_MODES, groupItems, itemMatches as itemMatchesQ, saveModeTarget } from '../shoplist.js';
@@ -117,7 +117,38 @@ function toolRow(mode) {
     ${chips ? `<div class="sl-chips shop-filter-chips">${chips}</div>` : ''}`;
 }
 
+// (v83) With Ricette connected the list is Ricette's: Everyday only reads it (like Palestra's workouts), shows
+// the trips in the plan, and after a trip asks how it went (ticking what you got is the one thing it writes).
+// The classic layout keeps the old editable list.
+const classicOn = () => { try { return localStorage.getItem('everyday-classic') === '1'; } catch { return false; } };
+export const shopReader = () => ricetteConfigured() && !classicOn();
+export const RICETTE_SHOP = 'https://nannolo45.github.io/ricette-app/#/list';
+export function readerTrips() {
+  const td = today();
+  return live('blocks').filter((b) => b.kind === 'groceries' && !b.deleted && !b.done && !b.outcome && b.date >= td).sort((a, b) => a.date.localeCompare(b.date) || a.start - b.start);
+}
+// The items, read only: grouped by department, no ticks, no sheet.
+export function readerList(items) {
+  return shopGroups(items, 'dept').map((g) => `<div class="sr-group"><h3 class="sr-gh">${esc(g.label)}</h3><ul class="sr-list">${g.items.map((i) => { const qn = slFmt.qty(i); return `<li><span class="sr-bul" aria-hidden="true">•</span><span class="sr-name">${esc(i.name)}${qn ? ` <small>${esc(qn)}</small>` : ''}</span></li>`; }).join('')}</ul></div>`).join('');
+}
+function viewReader() {
+  const open = live(SH()).filter((i) => !i.checked);
+  const cart = live(SH()).filter((i) => i.checked).length;
+  const at = state.meta.ricetteSynced ? new Date(state.meta.ricetteSynced).toLocaleTimeString(getLang(), { hour: '2-digit', minute: '2-digit', hour12: false }) : null;
+  const trips = readerTrips();
+  return `${listFrozen() ? `<p class="sl-frozen" role="alert">⚠ ${esc(t('sl_contract'))}</p>` : ''}
+  <div class="sr-head"><b>${esc(t('srToBuy', open.length))}</b><span class="sr-ro">${esc(t('srFromRicette'))}</span></div>
+  <p class="hint">${esc(t('srHint'))}${at ? ` ${esc(t('srSyncedAt', at))}` : ''}</p>
+  ${open.length ? readerList(open) : `<p class="empty">${esc(t('listEmpty'))}</p>`}
+  ${cart ? `<p class="hint sr-cart">🛒 ${esc(t('srInCart', cart))}</p>` : ''}
+  <a class="btn sr-edit" href="${RICETTE_SHOP}" target="_blank" rel="noopener">✎ ${esc(t('srEdit'))} ↗</a>
+  <h3 class="sr-th">${esc(t('srTrips'))}</h3>
+  ${trips.length ? `<ul class="sr-trips">${trips.map((b) => `<li><button type="button" class="sr-trip" data-action="open-block" data-id="${esc(b.id)}">🛒 ${esc(`${relDay(b.date)} · ${fmtTime(b.start)}`)}${b.shops?.length ? ` · ${esc(b.shops.map(shopName).filter(Boolean).join(' → '))}` : ''}<small>${esc(t('srTripSub', b.minutes))}</small></button></li>`).join('')}</ul>` : `<p class="hint">${esc(t('srNoTrips'))}</p>`}
+  ${open.length ? `<button type="button" class="btn primary sr-plan" data-action="plan-trips">▶ ${esc(t('srPlanTrip'))}</button>` : ''}`;
+}
+
 export function viewShop() {
+  if (shopReader()) return viewReader();
   const q = (ui.shopQ || '').trim();
   const mode = listMode();
   const open = openItems();
