@@ -14,15 +14,23 @@ export function nowMinutes(now = new Date()) { return now.getHours() * 60 + now.
 
 // ---------- times and durations ----------
 
+// (v82) 24 hours by default; 12 hours (3:30 pm) when chosen in Settings → Planner.
+let clock12 = false;
+export function setClock12(on) { clock12 = Boolean(on); }
+export const isClock12 = () => clock12;
 export function fmtTime(min) {
   const m = ((Math.round(min) % 1440) + 1440) % 1440;
+  if (clock12) { const h = Math.floor(m / 60); return `${((h + 11) % 12) + 1}:${pad(m % 60)} ${h < 12 ? 'am' : 'pm'}`; }
   return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
 }
 
 export function parseTime(s) {
-  const m = String(s || '').trim().match(/^(\d{1,2})(?:[:.]?(\d{2}))?$/);
+  const raw = String(s || '').trim().toLowerCase();
+  const ap = raw.match(/\s*([ap])\.?\s*m?\.?$/);
+  const m = raw.replace(/\s*[ap]\.?\s*m?\.?$/, '').match(/^(\d{1,2})(?:[:.]?(\d{2}))?$/);
   if (!m) return null;
-  const h = Number(m[1]); const mi = Number(m[2] || 0);
+  let h = Number(m[1]); const mi = Number(m[2] || 0);
+  if (ap) { if (h < 1 || h > 12) return null; if (ap[1] === 'p' && h < 12) h += 12; if (ap[1] === 'a' && h === 12) h = 0; }
   if (h > 24 || mi > 59) return null;
   return Math.min(1440, h * 60 + mi);
 }

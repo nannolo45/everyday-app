@@ -12,7 +12,7 @@ import { WINDOWS } from './smart.js';
 import { get, live, saveSettings, state, upsert } from './store.js';
 import { weekStart } from './views/planner.js';
 
-export const pickTasks = () => live('tasks').filter((x) => !x.done && !x.archived && (x.pickTime || x.next?.pickTime || (x.replan || []).some((d) => d >= today())) && (isTodo(x) || isSaved(x)) && (REPEATS.includes(x.repeat) || x.repeat === 'times' || REPEATS.includes(x.next?.repeat)));
+export const pickTasks = () => live('tasks').filter((x) => !x.done && !x.archived && (x.pickTime || x.repeat === 'times' || x.next?.pickTime || (x.replan || []).some((d) => d >= today())) && (isTodo(x) || isSaved(x)) && (REPEATS.includes(x.repeat) || x.repeat === 'times' || REPEATS.includes(x.next?.repeat)));
 // (v69) a turn placed on another day ("al posto di Mer") keeps its occurrence date in `occ`
 const hasBlock = (x, date) => live('blocks').some((b) => b.taskId === x.id && (b.date === date || b.occ === date) && b.kind !== 'prep');
 
