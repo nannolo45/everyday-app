@@ -50,7 +50,7 @@ function rail() {
     ${['today', 'events', 'tasks', 'plan'].map((k) => `<a class="rl-tab${cur === k ? ' on' : ''}" href="#/${k}"><span class="rl-ico">${ICONS[k]}</span><span>${esc(t(TAB_KEYS[k]))}</span>${k === 'tasks' && nUn && cur !== 'tasks' ? `<span class="nbadge">${nUn}</span>` : ''}${k === 'plan' ? (() => { const c = planCounts(); return c.toPlan || c.behind ? `<span class="plan-count rl">${planBadge(c)}</span>` : ''; })() : ''}</a>${k === 'tasks' ? views : ''}`).join('')}
     <div class="rl-sep"></div>
     <div class="rl-lab">${esc(t('vf_when_week'))}</div>
-    ${days.map((d) => `<button type="button" class="rl-day${r.name === 'plan' && ui.shownDate === d ? ' on' : ''}" data-action="rail-day" data-id="${d}"><span>${esc(d === td ? t('today') : fmtDay(d, { weekday: 'short', day: 'numeric' }))}</span>${loadBar(d, { text: false })}</button>`).join('')}
+    ${days.map((d) => `<button type="button" class="rl-day${r.name === 'plan' && ui.shownDate === d ? ' on' : ''}" data-action="rail-day" data-id="${d}"><span>${esc(fmtDay(d, { weekday: 'short', day: 'numeric' }))}</span>${loadBar(d, { text: false })}</button>`).join('')}
   </aside>`;
 }
 
@@ -74,7 +74,7 @@ function paneTask() {
     <div class="field-label">${esc(t('mLen'))}</div><div class="vw-miss big">${lensFor(x).map((m) => chip('pn-set', 'len', m, fmtDur(m), x.lenSet !== false && (x.minutes || 30) === m, mi.includes('len'))).join('')}</div>
     <dl class="pn-kv">${kv.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
     <div class="button-row left">
-      ${!rep && !planned && !x.done ? `<button class="btn primary" type="button" data-action="pn-plan" data-id="${esc(x.id)}">▶ ${esc(t('pnPlan'))}</button>` : ''}
+      ${!rep && !planned && !x.done ? `<button class="btn primary" type="button" data-action="pn-plan" data-id="${esc(x.id)}">✦ ${esc(t('pnPlan'))}</button>` : ''}
       ${rep ? `<button class="btn primary" type="button" data-action="routine-open" data-id="${esc(x.id)}">${esc(t('pnOpenRoutine'))}</button>` : `<button class="btn" type="button" data-action="pn-done" data-id="${esc(x.id)}">${x.done ? '↺' : '✓'} ${esc(x.done ? t('pnUndone') : t('markDone'))}</button>`}
       <button class="btn" type="button" data-action="task-edit" data-id="${esc(x.id)}">${esc(t('pnAll'))}</button>
     </div>

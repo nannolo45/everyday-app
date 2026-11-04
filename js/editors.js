@@ -26,7 +26,7 @@ import { MODE_ICON, MODES as TRAVEL_MODES } from './travel.js';
 import { impBadge, invTag } from './views/planner.js';
 import { remindDefault, remindLabel, REMINDS } from './views/settings.js';
 import { SHOPS, shopAdd, shopsList, tripRowsHtml } from './views/shop.js';
-import { fixOcc, skipOcc, slotOptions } from './weekpick.js';
+import { cardRowsIn, fixOcc, skipOcc, slotOptions, toFix } from './weekpick.js';
 import { pullCandidate, pullUp, runningBlock, shiftAfter, startBlock, startTask, stopTimer, timeHistory, undoShift } from './timer.js';
 import { cleanWindows, dateBox, dayShort, durField, lines, openModal, placeLink, plannedIso, readDur, readWindows, repeatText, searchBox, TIME24, windowsEditor, windowsText } from './widgets.js';
 
@@ -182,9 +182,9 @@ export function openAutoPlanner() {
   };
   const cards = bad.map(fix).filter(Boolean);
   openModal(`
-    <h2>✦ ${esc(t('planBtn'))}</h2>
-    <p class="hint">${esc(t('planFlowIntro', sel.length, cards.length))}</p>
-    <div class="days spans">${AUTO_SPANS.map((k) => `<label class="day-pill"><input type="radio" name="span" value="${k}" ${k === last.span ? 'checked' : ''}><span>${esc(t(`span_${k}`))}</span></label>`).join('')}</div>
+    <h2>✦ ${esc(t('smartTitle'))}</h2>
+    <p class="hint">${esc(t('planFlowIntro', sel.length + (ui.assign?.fixWanted ? toFix(td, addDays(td, 6 - ((parseDate(td).getDay() + 6) % 7))).length : 0), cards.length))}</p>
+    <div class="days spans">${AUTO_SPANS.map((k) => `<label class="day-pill"><input type="radio" name="span" value="${k}" ${k === last.span ? 'checked' : ''}><span${k === '1' ? ' class="span-1"' : ''}>${esc(k === '1' ? spanOne(from0) : t(`span_${k}`))}</span></label>`).join('')}</div>
     <div class="two">
       <label>${esc(t('fromDay'))}${dateBox(`<input type="date" name="from" value="${esc(from0)}" min="${esc(td)}">`, from0)}</label>
       <label>${esc(t('spanN'))}<input type="number" name="n" min="1" max="90" value="${esc(last.n || 5)}"></label>
@@ -218,13 +218,19 @@ export function openAutoPlanner() {
     if (!ui.assign) ui.assign = { sel: new Set(), ghosts: [], range: null, opts: false, open: false, q: '' };
     const ids = ui.assign.sel.size ? trayTasks().filter((x) => ui.assign.sel.has(x.id)).map((x) => x.id) : trayTasks().map((x) => x.id);
     if (!ids.length) { toast(t('trayEmpty')); render(); return; }
+    const busy = [];
+    if (ui.assign.fixWanted) { ui.assign.fix = cardRowsIn(days, busy); ui.assign.fixWanted = false; }
+    const more = (ui.assign.fix || []).reduce((k, r) => k + (r.date ? (r.options?.length ? 1 : 0) : (r.placements || []).length), 0);
     if (route().name !== 'plan') { location.hash = span === '1' ? `#/plan/${from}` : '#/plan'; ui.view = span === '1' ? 'day' : span === 'month' ? 'month' : 'week'; }
     ui.assign.open = false; // the previews matter now; the list can be opened again
-    placeGhosts(ids, days);
+    placeGhosts(ids, days, null, { busy, more });
     scheduleTravelRefresh();
   });
   modal.querySelector('input[name=n]').addEventListener('input', () => { const r = modal.querySelector('input[name=span][value=n]'); if (r) r.checked = true; });
+  // (v81) the one-day chip names the day it plans
+  modal.querySelector('input[name=from]')?.addEventListener('change', (ev) => { const el = modal.querySelector('.span-1'); if (el && isDate(ev.target.value)) el.textContent = spanOne(ev.target.value); });
 }
+const spanOne = (d) => { if (d === today()) return t('span_1'); const s = fmtDay(d, { weekday: 'short', day: 'numeric' }); return t('spanOnly', getLang() === 'it' ? s.toLocaleLowerCase('it') : s); };
 
 // Import tasks from pasted text: one per line (lists from messages, notes, emails). Bullets,
 // numbers and checkboxes are dropped; "30m", "!1" and "#work" work as in quick add.
@@ -359,7 +365,7 @@ export function openQuickTask({ saved = false, kind = saved ? 'saved' : 'todo', 
     : saved ? `<button class="btn primary big" value="add"><b>${esc(t('addSavedBtn'))}</b><small id="quick-slot">${esc(t('addSavedSub'))}</small></button>
       <button class="linkish" value="more">${esc(t('moreDetails'))}</button>`
     : !classic() ? `<button class="btn primary big" value="add"><b>${esc(t('addBtnTask'))}</b><small>${esc(t('addBtnTaskSub'))}</small></button>
-      <div class="two-btn"><button class="btn two-line" value="when"><b>🕒 ${esc(t('whenChip'))}</b><small>${esc(t('chooseWhenSub'))}</small></button><button class="btn two-line" value="plan"><b>✦ ${esc(t('planBtn'))}</b><small id="quick-slot"></small></button></div>
+      <div class="two-btn"><button class="btn two-line" value="when"><b>🕒 ${esc(t('whenChip'))}</b><small>${esc(t('chooseWhenSub'))}</small></button><button class="btn two-line" value="plan"><b>✦ ${esc(t('putFirstFree'))}</b><small id="quick-slot"></small></button></div>
       <button class="linkish" value="more">${esc(t('moreDetails'))}</button>` // (v66) the week grid, or the app picks
     : `<button class="btn primary big" value="add"><b>${esc(t('addBtnTask'))}</b><small>${esc(t('addBtnTaskSub'))}</small></button>
       <div class="two-btn"><button class="btn two-line" value="plan"><b>${esc(t('addAndPlan'))}</b><small id="quick-slot"></small></button><button class="btn two-line" value="when"><b>${esc(t('chooseWhen'))}</b><small>${esc(t('chooseWhenSub'))}</small></button></div>
@@ -370,6 +376,7 @@ export function openQuickTask({ saved = false, kind = saved ? 'saved' : 'todo', 
     ${app}
     <input id="quick-q" class="quick-q" name="q" autocomplete="off" enterkeyhint="done" placeholder="${esc(ph)}" aria-label="${esc(t(`kind_${kind}`))}" value="${esc(text)}">
     <div class="quick-chips" id="quick-chips"></div>
+    ${isTask && !classic() ? '<p class="qw-sum quick-rhythm" id="quick-rhythm" hidden></p>' : ''}
     ${isTask && !classic() ? `<div class="quick-pick"><button type="button" class="mchip" data-qp="cat">● ${esc(t('mGroup'))}</button><button type="button" class="mchip" data-qp="len">⏱ ${esc(t('mLen'))}</button></div><div class="quick-pop" id="quick-pop" hidden></div>` : ''}
     <p class="hint" id="quick-hint">${esc(kind === 'shop' ? t('shopQuickHint') : kind === 'event' ? t('eventQuickHint') : t('quickHint'))}</p>
     <p class="quick-done" id="quick-done" aria-live="polite"></p>
@@ -395,7 +402,7 @@ export function openQuickTask({ saved = false, kind = saved ? 'saved' : 'todo', 
     const r = makeQuick(form.q.value, saved);
     if (!r) { e.preventDefault(); form.q.focus(); return; }
     const { x, q } = r;
-    const timed = q.due && q.time != null && !q.repeat;
+    const timed = q.due && q.time != null && (!q.repeat || (q.repeat !== 'times' && !classic())); // (v81) a routine at a time: its turns go on the plan
     if (action === 'when' && !classic()) {
       // (v66) the week grid; back takes the new task away again and the text comes back
       const txt = form.q.value;
@@ -423,19 +430,24 @@ export function openQuickTask({ saved = false, kind = saved ? 'saved' : 'todo', 
     if (isTask || kind === 'event') {
       if (q.minutes) chips.push(fmtDur(q.minutes));
       for (const c of [q.category, ...(q.moreCats || [])].map(findCategory).filter(Boolean)) chips.push(`<i style="--c:${esc(catColor(c))}"></i>${esc(catName(get('categories', c)))}`);
-      if (q.due) chips.push(esc(q.time != null ? `${relDay(q.due)} ${fmtTime(q.time)}` : kind === 'event' ? relDay(q.due) : t('dueChip', relDay(q.due))));
+      if (q.repeat && isTask && !classic()) chips.push(`↻ ${esc(rhythmChip(q))}`); // (v81) the rhythm, never a due date
+      else if (q.due) chips.push(esc(q.time != null ? `${relDay(q.due)} ${fmtTime(q.time)}` : kind === 'event' ? relDay(q.due) : t('dueChip', relDay(q.due))));
       if (q.importance && isTask) chips.push(esc(t(`imp_${q.importance}`)));
       if (q.place) chips.push(`📍 ${esc(q.place)}`);
-      if (q.repeat) chips.push('↻');
+      if (q.repeat && (!isTask || classic())) chips.push('↻');
     }
+    // (v81) a rhythm makes it a routine: the chip on top says so
+    if (isTask && !classic()) for (const c of modal.querySelectorAll('.kind-chip')) { const k = c.value.slice(5); const on = q.repeat ? k === 'saved' : k === kind; c.classList.toggle('on', on); c.setAttribute('aria-pressed', String(on)); }
     if (vw && isTask && q.title && !wouldShow(vw, quickFields(q))) chips.push(`<b class="qc-warn">${esc(t('notInView', viewName(vw)))}</b>`);
     modal.querySelector('#quick-chips').innerHTML = q.title ? chips.map((c) => (c.startsWith('<b') ? c : `<span class="qc">${c}</span>`)).join('') : '';
     modal.querySelector('#quick-hint').hidden = Boolean(input.value.trim());
     const slotEl = modal.querySelector('#quick-slot');
     if (kind === 'event') slotEl.textContent = q.title ? (q.due ? (q.time != null ? t('atTime', relDay(q.due), fmtTime(q.time)) : t('allDayOn', relDay(q.due))) : t('eventNoDate')) : '';
+    if (isTask && !classic()) { const sum = modal.querySelector('#quick-rhythm'); if (sum) { sum.hidden = !(q.repeat && q.title); if (q.repeat) sum.innerHTML = `<b>${esc(rhythmSum(q))}</b><small>${esc(q.repeat === 'times' || q.time == null ? t('qwPickSum') : t('qwFixedSum'))}</small>`; } }
     if (kind !== 'todo') return;
     let slot = '';
-    if (q.due && q.time != null && !q.repeat) slot = t('atTime', relDay(q.due), fmtTime(q.time));
+    if (q.repeat && !classic()) slot = q.repeat !== 'times' && q.time != null ? t('qwFixedSum') : t('rtNoTimeYet');
+    else if (q.due && q.time != null && !q.repeat) slot = t('atTime', relDay(q.due), fmtTime(q.time));
     else if (q.title) { const s = suggestSlot({ title: q.title, minutes: q.minutes, due: q.due, importance: q.importance, priority: q.priority }); slot = s ? t('firstFree', relDay(s.date), fmtTime(s.start)) : t('noFreeWeek'); }
     slotEl.textContent = slot;
   };
@@ -470,7 +482,7 @@ export function openQuickTask({ saved = false, kind = saved ? 'saved' : 'todo', 
     const r = makeQuick(input.value, saved);
     if (!r) return;
     const { x, q } = r;
-    if (q.due && q.time != null && !q.repeat) planTask(x, q.due, Math.max(0, q.time - anchorOffset(null, x)));
+    if (q.due && q.time != null && (!q.repeat || (q.repeat !== 'times' && !classic()))) planTask(x, q.due, Math.max(0, q.time - anchorOffset(null, x)));
     (ui.justAdded ||= new Set()).add(x.id);
     input.value = ''; update();
     modal.querySelector('#quick-done').textContent = `✓ ${t('addedName', x.title)}`;
@@ -503,11 +515,28 @@ function addEvent(text, { keepOpen = false } = {}) {
   changed();
   return true;
 }
+// (v81) What a typed rhythm says: "Gio", "Mar, Gio · 20:30", "Ogni giorno · 20:30", "3× a settimana".
+function rhythmDays(q) {
+  if (q.repeat === 'monthly') return t('qwMonthly');
+  const k = [...(q.repeatDays || [])].sort().join();
+  return k === '1,2,3,4,5,6,7' ? t('qwAll') : k === '1,2,3,4,5' ? t('qwWd') : k === '6,7' ? t('qwWe') : (q.repeatDays || []).map(dayShort).join(', ');
+}
+function rhythmChip(q) {
+  if (q.repeat === 'times') return t('timesShort', q.timesN || 3, t(`per_${q.timesPer || 'week'}`));
+  return `${rhythmDays(q)}${q.time != null ? ` · ${fmtTime(q.time)}` : ''}`;
+}
+function rhythmSum(q) {
+  const len = q.minutes ? ` · ${fmtDur(q.minutes)}` : '';
+  if (q.repeat === 'times') return `↻ ${t('rtTimesN', q.timesN || 3, q.timesPer || 'week')}${len}`;
+  return `↻ ${rhythmDays(q)}${q.time != null ? ` · ${fmtTime(q.time)}` : ''}${len}`;
+}
 function makeQuick(text, saved = false) {
   const q = quickAdd(text || '');
   if (!q.title) return null;
   // a saved task keeps no due date (it's reused); a date and time typed in plan this one use
-  const f = saved ? { ...quickFields(q), kind: 'saved', due: null, repeat: null } : quickFields(q);
+  const f0 = quickFields(q);
+  // (v81) a routine keeps the rhythm you typed; typing a rhythm makes it a routine
+  const f = q.repeat && !classic() ? { ...f0, kind: 'saved' } : saved ? { ...f0, kind: 'saved', due: null, repeat: null } : f0;
   return { q, x: applyTravel(upsert('tasks', { id: uid(), createdAt: Date.now(), ...f }, { silent: true })) };
 }
 // After adding from the sheet: it shows on top of Da fare, and a bar says where it went (Change, Undo).
@@ -622,7 +651,7 @@ export function openEvent(e) {
     <p class="hint"><span class="cat" style="--c:${esc(e.color)}">${esc(e.calendar)}</span> · ${esc(fmtDay(e.date))}${e.allDay ? '' : ` · ${range(e.start, e.minutes)}`}</p>
     ${e.location ? `<p>📍 ${esc(e.location)}</p>` : ''}
     ${inviteBox(e)}
-    ${hint('eventReadOnly')}
+    ${hint(evSkipOf(e.id) ? 'eventReadOnlyFree' : e.busy === false ? 'eventReadOnlyFree0' : 'eventReadOnly')}
     <div class="field-label">✓ ${esc(t('secEventTasks'))}${list.length ? ` <small>${esc(readinessText(e.id))}</small>` : ''}</div>
     ${list.length ? `<ul class="list ev-tasks">${list.map((y) => { const nb = nextPlanned(y.id); return `<li class="${y.done ? 'done' : ''}"><button class="task-main" value="ev-task:${esc(y.id)}" formnovalidate><span class="item-text">${y.done ? '✓ ' : ''}${esc(y.title)}<small>${esc([offsetText(y.eventOffset), y.due ? relDay(y.due) : ''].filter(Boolean).join(' · '))}</small><small class="${y.done ? '' : nb ? 'ok' : 'warn'}">${esc(y.done ? t('doneLabel') : nb ? t('plannedAt', relDay(nb.date), fmtTime(nb.start)) : t('toPlanLabel'))}</small></span></button></li>`; }).join('')}</ul>` : ''}
     <div class="button-row left">
@@ -1038,14 +1067,18 @@ function collectWhen(form, x) {
     if (x.repeat === 'times') { if (form.timesN) { x.timesN = Math.max(1, Number(form.timesN.value) || 1); x.timesPer = form.timesPer.value || 'week'; } x.timesN ||= 3; x.timesPer ||= 'week'; }
     if (form.every) x.every = Math.max(1, Number(form.every.value) || 1);
     if (form.querySelector('input[name=repeatDays]')) x.repeatDays = [...form.querySelectorAll('input[name=repeatDays]:checked')].map((el) => Number(el.value));
-    else if (x.repeat === 'weekly' && !(x.repeatDays || []).length) x.repeatDays = [plannedIso(x)];
+    else if (x.repeat === 'weekly' && !(x.repeatDays || []).length) x.repeatDays = x.planDate || classic() ? [plannedIso(x)] : []; // (v81) nothing ticked by itself
     if (form.repeatUntil) x.repeatUntil = form.repeatUntil.value || null;
     if (form.repeatCount) x.repeatCount = Math.max(0, Number(form.repeatCount.value) || 0) || null; // (v69) per N volte
     if (form.scope) x.scope = form.querySelector('input[name=scope]:checked')?.value || 'following';
-    const tm = val('timeMode') || (x.pickTime || (x.pickTime == null && x.planTime == null) ? 'pick' : 'fixed');
+    const switching = !val('timeMode');
+    // (v81) a meal type or routine with its usual time: switching to Si ripete keeps that time
+    const usual = switching && x.planTime == null && x.pickTime == null && x.defaultStart != null && !classic() ? x.defaultStart : null;
+    const tm = val('timeMode') || (usual != null ? 'fixed' : x.pickTime || (x.pickTime == null && x.planTime == null) ? 'pick' : 'fixed');
     x.pickTime = x.repeat === 'times' || tm === 'pick';
     if (x.pickTime) { x.planTime = null; x.planDate = ''; } else {
-      if (form.planTime) x.planTime = form.planTime.value ? parseTime(form.planTime.value) : null;
+      if (form.planTime) { const v = form.planTime.value ? parseTime(form.planTime.value) : null; if (v != null || !switching) x.planTime = v; }
+      if (x.planTime == null && usual != null) x.planTime = usual;
       x.planDate = x.planTime != null ? (form.planDate?.value || x.planDate || td) : ''; // no time yet: not on the plan
     }
     if (!x.due) x.due = td; // where the repeats start counting from
@@ -1054,6 +1087,8 @@ function collectWhen(form, x) {
   }
   if (x.slotTimes && (mode !== 'repeat' || x.repeat !== 'weekly' || x.pickTime)) x.slotTimes = null; // (v66)
   if (x.dayMinutes && (mode !== 'repeat' || x.repeat !== 'weekly')) x.dayMinutes = null; // (v71)
+  // (v81) one time: a routine's fixed time is also its usual time (the one proposed when planned by hand)
+  if (mode === 'repeat' && !x.pickTime && x.planTime != null && (isSaved(x) || isMealType(x)) && !classic()) x.defaultStart = x.planTime;
 }
 // (v78) The top of a task's card: when, at what time and how long, all in view. Once: the day and the
 // time. Repeats: the seven days (with Every day, Weekdays, Weekend, N times a week, Every month), the
@@ -1076,10 +1111,10 @@ function quickWhen(x, { lenNow, steps }) {
       <div class="pills day-chips">${chips.map(([d, l]) => `<button class="day-chip${x.planDate === d ? ' on' : ''}" value="day:${d}" formnovalidate>${esc(l)}</button>`).join('')}
       <label class="day-other${x.planDate && !chips.some(([d]) => d === x.planDate) ? ' on' : ''}">${dateBox(`<input name="planDate" type="date" value="${esc(x.planDate || '')}" aria-label="${esc(t('otherDay'))}">`, x.planDate || '')}</label></div>
       <div class="field-label">${esc(t('qwAt'))}</div><div class="qw-time"><input name="planTime" ${TIME24} value="${x.planTime != null ? fmtTime(x.planTime) : ''}" placeholder="—" aria-label="${esc(t('qwAt'))}"><small class="hint">${esc(t('qwAtAny'))}</small></div>
-      <button class="linkish qw-grid" value="when" formnovalidate>🗓 ${esc(t('qwGridOnce'))}</button>`;
+`;
   } else if (mode === 'repeat') {
     const rep = x.repeat === 'weekdays' ? 'weekly' : x.repeat === 'daily' ? 'weekly' : (x.repeat || 'weekly');
-    const days = x.repeat === 'daily' ? ALL7 : x.repeat === 'weekdays' ? [1, 2, 3, 4, 5] : ((x.repeatDays || []).length ? x.repeatDays : [plannedIso(x)]);
+    const days = x.repeat === 'daily' ? ALL7 : x.repeat === 'weekdays' ? [1, 2, 3, 4, 5] : ((x.repeatDays || []).length ? x.repeatDays : x.planDate ? [plannedIso(x)] : []);
     const pick = rep === 'times' || x.pickTime || (x.pickTime == null && x.planTime == null);
     const pre = presetOf({ ...x, repeat: rep === 'weekly' ? 'weekly' : rep, repeatDays: days });
     body = `<input type="radio" name="repeat" value="${rep}" checked hidden>
@@ -1089,7 +1124,7 @@ function quickWhen(x, { lenNow, steps }) {
     : `<div class="field-label">${esc(t('qwAt'))}</div><div class="qw-time"><input name="planTime" ${TIME24} value="${x.planTime != null && !pick ? fmtTime(x.planTime) : ''}" placeholder="—" aria-label="${esc(t('qwAt'))}"><input type="hidden" name="planDate" value="${esc(x.planDate || td)}">
         <span class="pills"><label class="day-chip${!pick ? ' on' : ''}"><input type="radio" name="timeMode" value="fixed" ${!pick ? 'checked' : ''} data-rerender="1" hidden>${esc(t('qwFixed'))}</label><label class="day-chip${pick ? ' on' : ''}"><input type="radio" name="timeMode" value="pick" ${pick ? 'checked' : ''} data-rerender="1" hidden>${esc(t('qwPick'))}</label></span></div>
       ${rep === 'weekly' && x.slotTimes ? `<p class="hint">${esc(t('slotTimesHint'))}</p>` : ''}`}
-      <button class="linkish qw-grid" value="when" formnovalidate>🗓 ${esc(t('qwGrid'))}</button>`;
+      ${rep !== 'weekly' || days.length ? `<button class="linkish qw-grid" value="when" formnovalidate>🗓 ${esc(t('qwGrid'))}</button>` : ''}`;
   }
   return `<div class="qw">${body}${lenRow}<p class="qw-sum">${qwSummary(x, mode, lenNow)}</p></div>`;
 }
@@ -1098,9 +1133,22 @@ function qwSummary(x, mode, len) {
   if (mode === 'anytime') return `${esc(t('wm_anytime'))} · ${esc(d)}`;
   if (mode === 'once') return `${esc(x.planDate ? relDay(x.planDate) : t('qwNoDay'))}${x.planTime != null ? ` · ${esc(fmtTime(x.planTime))}` : ''} · ${esc(d)}`;
   if (x.repeat === 'times') return `↻ <b>${esc(t('timesShort', x.timesN || 3, t(`per_${x.timesPer || 'week'}`)))}</b> · ${esc(d)}<small>${esc(t('qwPickSum'))}</small>`;
+  if (x.repeat !== 'monthly' && !(x.repeatDays || []).length) return `<b class="qw-need">${esc(t('qwPickDays'))}</b><small>${esc(t('qwPickDaysSub'))}</small>`; // (v81)
   const pick = x.pickTime || (x.pickTime == null && x.planTime == null);
   const days = x.repeat === 'monthly' ? t('qwMonthly') : presetOf(x) === 'all' ? t('qwAll') : presetOf(x) === 'wd' ? t('qwWd') : presetOf(x) === 'we' ? t('qwWe') : (x.repeatDays || []).slice().sort().map(dayShort).join(', ');
-  return `↻ <b>${esc(days)}</b>${pick ? '' : ` · <b>${esc(x.planTime != null ? fmtTime(x.planTime) : '—')}</b>`} · ${esc(d)}<small>${esc(pick ? t('qwPickSum') : x.planTime != null ? t('qwFixedSum') : t('qwNeedTime'))}</small>`;
+  return `↻ <b>${esc(days)}</b>${pick ? '' : ` · <b>${esc(x.planTime != null ? fmtTime(x.planTime) : '—')}</b>`} · ${esc(d)}${dayDiffs(x, pick) ? `<span class="qw-diff">${esc(dayDiffs(x, pick))}</span>` : ''}<small>${esc(pick ? t('qwPickSum') : x.planTime != null ? t('qwFixedSum') : t('qwNeedTime'))}</small>`;
+}
+// (v81) The days that differ from the rest (their own time or length): "Gio: 20:00 · 1h".
+export function dayDiffs(x, pick = x.pickTime) {
+  if (x.repeat !== 'weekly') return '';
+  const base = x.planTime ?? x.seriesTime;
+  const out = [];
+  for (const d of [...(x.repeatDays || [])].sort((a, b) => a - b)) {
+    const tm = !pick ? x.slotTimes?.[d] : null; const m = x.dayMinutes?.[d];
+    const bits = [tm != null && tm !== base ? fmtTime(tm) : '', m && m !== x.minutes ? fmtDur(m) : ''].filter(Boolean);
+    if (bits.length) out.push(`${dayShort(d)}: ${bits.join(' · ')}`);
+  }
+  return out.join(' — ');
 }
 export const whenModeOf = (x) => x.whenMode || (x.repeat ? 'repeat' : isSaved(x) && !x.planDate && !x.due ? 'anytime' : 'once');
 function whenEditor(x, { routine, linkedEvent, evLine, timeLabel, anchorLabel, noTabs = false, lite = false }) {
@@ -1254,6 +1302,7 @@ export function openTask(task, draft = null, opts = {}) {
     x.planDate = nb?.date || '';
     x.planTime = nb ? nb.start + anchorOffset(nb) : null;
     x.planBlockId = nb?.id || null;
+    if (!evMode && !classic() && isSeries(x) && x.seriesTime != null && !x.pickTime) x.planTime = x.seriesTime; // (v81) the routine's own time, not the next turn's
     if (evMode) {
       if (isNew && !x.planDate) { x.planDate = opts.date || ''; x.planTime = opts.start ?? null; }
       if (!x.planDate) x.planDate = x.due || '';
@@ -1369,7 +1418,7 @@ export function openTask(task, draft = null, opts = {}) {
       <div class="days"><label class="day-pill"><input type="radio" name="scope" value="following" ${x.scope !== 'all' ? 'checked' : ''}><span>${esc(t('scopeFollowing', relDay(x.fromOcc)))}</span></label>
       <label class="day-pill"><input type="radio" name="scope" value="all" ${x.scope === 'all' ? 'checked' : ''}><span>${esc(t('scopeAll'))}</span></label></div>` : ''}
     </div>` : ''}
-    ${remindField(x)}` : !helper ? whenEditor(x, { routine, linkedEvent, evLine, timeLabel, noTabs: short, lite: short && !isMealType(x), anchorLabel: x.steps.length > 1 && ai > 0 && anchor ? t('anchorAt', anchor.title || '…') : t('usualTimeOpt') }) + `
+    ${remindField(x)}` : !helper ? whenEditor(x, { routine, linkedEvent, evLine, timeLabel, noTabs: short, lite: short, anchorLabel: x.steps.length > 1 && ai > 0 && anchor ? t('anchorAt', anchor.title || '…') : t('usualTimeOpt') }) + `
     ${remindField(x)}` : '';
   // Tasks it needs done first (not itself, not meals, not ones that already need it: no loops).
   const needCandidates = live('tasks').filter((y) => y.id !== x.id && !isMealType(y) && !y.check && !y.done && !(y.after || []).includes(x.id) && !(x.after || []).includes(y.id))
@@ -1383,7 +1432,7 @@ export function openTask(task, draft = null, opts = {}) {
     ${windowsEditor('w_', x.windows || [])}
     ${hint('windowsHint')}`;
   const whenSummary = evMode ? [x.planDate ? `${relDay(x.planDate)} ${x.planTime != null ? fmtTime(x.planTime) : t('allDay')}` : t('dateMissing'), x.repeat ? `↻ ${repeatText(x)}` : ''].filter(Boolean).join(' · ')
-    : !helper ? [x.planDate ? `${relDay(x.planDate)}${x.planTime != null ? ` ${fmtTime(x.planTime)}` : ''}` : '', x.due ? t('dueOn', relDay(x.due)) : '', x.repeat ? `↻ ${x.repeat === 'times' ? t('timesShort', x.timesN || 3, t(`per_${x.timesPer || 'week'}`)) : repeatText(x)}` : '', routine && x.defaultStart != null ? t('usually', fmtTime(x.defaultStart)) : ''].filter(Boolean).join(' · ') : '';
+    : !helper ? [x.planDate ? `${relDay(x.planDate)}${x.planTime != null ? ` ${fmtTime(x.planTime)}` : ''}` : '', x.due && !x.repeat ? t('dueOn', relDay(x.due)) : '', x.repeat ? `↻ ${x.repeat === 'times' ? t('timesShort', x.timesN || 3, t(`per_${x.timesPer || 'week'}`)) : repeatText(x)}` : '', routine && x.defaultStart != null ? t('usually', fmtTime(x.defaultStart)) : ''].filter(Boolean).join(' · ') : '';
   // Events: the tasks to do around them, with how far before or after, and whether each is planned.
   const evTasks = evMode && x.id ? eventTasksOf(x.id) : [];
   const evTasksBody = evMode ? `
@@ -1427,8 +1476,8 @@ export function openTask(task, draft = null, opts = {}) {
   const whenChip = slotLine || (x.repeat ? `↻ ${x.repeat === 'times' ? t('timesShort', x.timesN || 3, t(`per_${x.timesPer || 'week'}`)) : repeatText(x)}` : ups.length ? `${relDay(ups[0].date)} ${fmtTime(ups[0].start)}${ups.length > 1 ? ` +${ups.length - 1}` : ''}` : x.due ? t('dueOn', relDay(x.due)) : t('whenChip'));
   const c0 = catsOf(x)[0];
   const wm = whenModeOf(x);
-  const modeSeg = short && !isMealType(x) ? `<div class="seg when-mode ed-wm" role="radiogroup" aria-label="${esc(t('secWhen'))}">${['once', 'repeat', 'anytime'].map((m) => `<label class="${m === wm ? 'on' : ''}"><input type="radio" name="whenMode" value="${m}" ${m === wm ? 'checked' : ''} data-rerender="1"><span>${esc(t(`wm_${m}`))}</span></label>`).join('')}</div><p class="hint ed-wm-what">${esc(t(`wmWhat_${wm}`))}</p>` : '';
-  const quick = short && !isMealType(x); // (v78) when, at what time and how long: in view at the top
+  const modeSeg = short ? `<div class="seg when-mode ed-wm" role="radiogroup" aria-label="${esc(t('secWhen'))}">${['once', 'repeat', 'anytime'].map((m) => `<label class="${m === wm ? 'on' : ''}"><input type="radio" name="whenMode" value="${m}" ${m === wm ? 'checked' : ''} data-rerender="1"><span>${esc(t(`wm_${m}`))}</span></label>`).join('')}</div><p class="hint ed-wm-what">${esc(t(`wmWhat_${wm}`))}</p>` : '';
+  const quick = short; // (v78; v80 meal types too) when, at what time and how long: in view at the top
   const shortTop = short ? `${modeSeg}${quick ? quickWhen(x, { lenNow, steps: x.steps.length > 0 }) : ''}<div class="ed-chips">
       <button class="mchip ed-chip${c0 ? ' set' : ''}" value="pop:cat" formnovalidate aria-expanded="${edPop === 'cat'}">${c0 ? `<i class="cat-dot" style="--c:${esc(catColor(c0))}"></i>` : ''}${esc(catName0 || t('mGroup'))}</button>
       ${quick && !x.steps.length ? '' : `<button class="mchip ed-chip set" value="pop:len" formnovalidate aria-expanded="${edPop === 'len'}">⏱ ${esc(x.dayMinutes && Object.keys(x.dayMinutes).length ? dayLenSummary(x) : fmtDur(lenNow))}</button>`}
@@ -1444,7 +1493,7 @@ export function openTask(task, draft = null, opts = {}) {
   const optsBody = `${helper || x.travelRole ? '' : `<label>${esc(t('bufferAfter'))}<select name="buffer"><option value="" ${x.buffer == null || x.buffer === '' ? 'selected' : ''}>${esc(t('bufferDefault', Number(state.settings.taskBuffer) || 0))}</option>${[0, 5, 10, 15, 30, 60].map((m) => `<option value="${m}" ${x.buffer != null && x.buffer !== '' && Number(x.buffer) === m ? 'selected' : ''}>${m ? esc(fmtDur(m)) : esc(t('none'))}</option>`).join('')}</select></label>`}
     ${routine ? `<label class="check"><input type="checkbox" name="meal" data-rerender="1" ${isMealType(x) ? 'checked' : ''}> <span>${esc(t('isMeal'))}</span></label>` : ''}`;
   const shortMore = short ? `<div class="field-label ed-more-h">${esc(t('moreSec'))}</div><div class="ed-more">
-    ${sec('when', `↻ ${esc(t('secRepeat'))}`, [x.repeat ? (slotLine || repeatText(x)) : '', x.due ? t('dueOn', relDay(x.due)) : ''].filter(Boolean).join(' · ') || '—', whenBody, false)}
+    ${sec('when', `↻ ${esc(t('secRepeat'))}`, [x.repeat ? (slotLine || repeatText(x)) : '', x.due && !x.repeat ? t('dueOn', relDay(x.due)) : ''].filter(Boolean).join(' · ') || '—', whenBody, false)}
     ${sec('needs', `🔒 ${esc(t('secNeeds'))}`, [(x.after || []).length ? `🔒 ${(x.after || []).length}` : '', cleanWindows(x.windows).length ? windowsText(cleanWindows(x.windows)) : ''].filter(Boolean).join(' · ') || '—', needsBody, false)}
     ${sec('place', `📍 ${esc(t('secPlace'))}`, x.place || (x.link ? t('link') : '—'), placeBody, false)}
     ${sec('steps', `▤ ${esc(t('steps'))}`, x.steps.length ? `${doneN ? `◐ ${doneN}/` : ''}${x.steps.length} · ${fmtDur(stepTotal)}` : '—', stepsBody, false)}
@@ -1487,7 +1536,14 @@ export function openTask(task, draft = null, opts = {}) {
     if (action.startsWith('pop:')) { const k = action.slice(4); edPop = edPop === k ? null : k; again(); return; }
     if (action.startsWith('unplan:')) {
       const b = get('blocks', action.slice(7));
-      if (b) { deleteBlock(b); if (x.planBlockId === b.id) { x.planBlockId = null; x.planDate = ''; x.planTime = null; } changed(); }
+      if (b) {
+        // (v80) a turn of a routine with fixed times comes back by itself: ✕ skips that turn, then takes it off
+        const occ = b.occ || b.date;
+        if (b.seriesId && !isNew) { x.skipped = [...new Set([...(x.skipped || []), occ])]; skipOcc(get('tasks', b.seriesId), occ); }
+        deleteBlock(b); if (x.planBlockId === b.id) { x.planBlockId = null; x.planDate = ''; x.planTime = null; }
+        changed();
+        toast(t('unplanned', relDay(b.date)), 5000, [{ label: t('undo'), run: () => { upsert('blocks', { ...b, deleted: false }, { silent: true }); if (b.seriesId) { const tk = get('tasks', b.seriesId); upsert('tasks', { ...tk, skipped: (tk.skipped || []).filter((d) => d !== occ) }, { silent: true }); x.skipped = (x.skipped || []).filter((d) => d !== occ); } changed(); } }]);
+      }
       again(); return;
     }
     if (action.startsWith('day:')) { x.planDate = action.slice(4); again(); return; }
@@ -1558,6 +1614,7 @@ export function openTask(task, draft = null, opts = {}) {
       return;
     }
     if (!x.title) { e.preventDefault(); return; }
+    if (!evMode && !helper && !classic() && x.whenMode === 'repeat' && x.repeat === 'weekly' && !(x.repeatDays || []).length) { e.preventDefault(); toast(t('qwPickDays')); modal.querySelector('.qw-days input')?.focus(); return; } // (v81)
     if (evMode) { x.due = x.planDate; x.allDay = x.planTime == null; x.eventTime = x.planTime; x.kind = 'event'; if (x.allDay) x.repeat = null; }
     const before = task ? Number(task.minutes) : null;
     const prevTask = task && get('tasks', task.id);
@@ -1869,8 +1926,8 @@ export function openBlock(block, defaults = {}) {
     <div class="es-row"><button class="btn small" value="learn-no" formnovalidate>${esc(t('lrKeep'))}</button><button class="btn small ghost" value="learn-never" formnovalidate>${esc(t('lrNever'))}</button></div></div>` : '';
   const cnt = nTimes ? (() => { const on = turnCounts(b); const n = countedOf(task); return `<div class="es-count"><span>${esc(t('countsFor', nTimes))}<small>${esc(on ? t('countsWill', n, nTimes) : t('countsStays', n, nTimes))}</small></span><button class="sw-btn${on ? ' on' : ''}" value="count-toggle" formnovalidate aria-pressed="${on}" aria-label="${esc(t('countsFor', nTimes))}"></button></div>`; })() : '';
   const esito = !esNew || isNew ? '' : `<div class="esito"><div class="es-q">${esc(t('esito'))}</div>${status === 'done' || status === 'partial'
-    ? `<div class="es-state done"><span>✓ ${esc(b.endedAt ? `${t('esDoneLine')} · ${t('realOf', fmtDur(b.minutes), fmtDur(b.plannedMinutes || b.minutes))}` : t('esDoneLine'))}</span><button class="btn small" value="reset" formnovalidate>${esc(t('undo'))}</button></div>`
-    : status === 'failed' ? `<div class="es-state fail"><span>✕ ${esc(t('esFailLine'))}</span><button class="btn small" value="reset" formnovalidate>${esc(t('undo'))}</button></div>`
+    ? `<div class="es-state done"><span>✓ ${esc(b.endedAt ? `${t('esDoneLine')} · ${t('realOf', fmtDur(b.minutes), fmtDur(b.plannedMinutes || b.minutes))}` : t('esDoneLine'))}</span><button class="btn small" value="reset" formnovalidate>${esc(t('reset'))}</button></div>`
+    : status === 'failed' ? `<div class="es-state fail"><span>✕ ${esc(t('esFailLine'))}</span><button class="btn small" value="reset" formnovalidate>${esc(t('reset'))}</button></div>`
     : running ? `<div class="es-state run"><span>⏱ ${esc(t('esRunning', Math.max(1, Math.round((Date.now() - b.startedAt) / 60000))))}</span></div><div class="es-row"><button class="btn primary" value="finish" formnovalidate>■ ${esc(t('esFinish'))}</button><button class="btn" value="fail" formnovalidate>✕ ${esc(t('esFail'))}</button></div>`
     : `<div class="es-row">${b.date === today() && !isShop ? `<button class="btn" value="block-start" formnovalidate>▶ ${esc(t(isPalestra(task) ? 'palStart' : 'esStart'))}</button>` : ''}<button class="btn primary" value="done" formnovalidate>✓ ${esc(t('esDone'))}</button><button class="btn" value="fail" formnovalidate>✕ ${esc(t('esFail'))}</button></div>`}${cnt}${learn}</div>`;
   openModal(`
@@ -1906,7 +1963,7 @@ export function openBlock(block, defaults = {}) {
     : `<button class="btn small edit-task" value="to-task" formnovalidate>▤ ${esc(t('makeTask'))}</button>`}
     ${esNew ? `<div class="bk-foot">${esito}<div class="button-row bk-row">
       <button class="btn primary" value="ok">${esc(t('save'))}</button>
-      <button class="btn" value="cancel" formnovalidate>${esc(t('cancel'))}</button>
+      <button class="btn" value="cancel" formnovalidate>${esc(t(isNew ? 'cancel' : 'close'))}</button>
       ${isNew ? '' : `<details class="bk-more"><summary class="btn" aria-label="${esc(t('options'))}">⋯</summary><div class="bk-menu"><button class="btn ghost" value="dup" formnovalidate>⧉ ${esc(t('duplicate'))}</button><button class="btn ghost danger" value="delete" formnovalidate>🗑 ${esc(t('delete'))}</button></div></details>`}
     </div></div>` : `<div class="button-row">
       <button class="btn primary" value="ok">${esc(t('save'))}</button>

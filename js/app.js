@@ -258,7 +258,7 @@ view.addEventListener('click', (e) => {
     case 'ag-choose': openChooser(); break; // (v67) the phone's Pianifica
     case 'pv-list': openPropsList(); break;
     case 'pv-go': goToProposal(id, btn.dataset.date); break;
-    case 'fd-unpick': ui.pick = null; ui.pickOcc = null; ui.pickBlock = null; render(); break;
+    case 'fd-unpick': { ui.pick = null; ui.pickOcc = null; ui.pickBlock = null; const ch = ui.chain; ui.chain = null; render(); if (ch) toast(t('chainStopped'), 7000, [{ label: t('undoAll'), run: () => { ch.undo(); changed(); toast(t('undone')); } }]); break; } // (v81)
     case 'swap-event': openDropOn('event', id); break;
     case 'box-fold': { ui.boxFold = ui.boxFold || new Set(); if (ui.boxFold.has(id)) ui.boxFold.delete(id); else ui.boxFold.add(id); render(); break; } // (v71) placing on an invitation: you won't go, it takes its slot
     case 'swap-block': openDropOn('block', id); break; // (v76) right after it, in its place, or together // (v70) placing something on a busy block: it takes that slot
@@ -375,7 +375,7 @@ view.addEventListener('click', (e) => {
     case 'open-block': { const b = get('blocks', id); if (b) openBlock(b); break; }
     case 'now-left': { const b = get('blocks', id); if (b) { setStepOutcome(b, btn.dataset.step, 'done'); toast(t('goodTrip')); changed(); } break; }
     case 'now-done': { const b = get('blocks', id); if (b && runningBlock()?.id === id) finishTimer(); else if (b) { if (trySetBlockDone(b, true)) { changed(); countToast(id); } else changed(); } break; }
-    case 'now-move': { const b = get('blocks', id); if (b) openBlock(b); break; }
+    case 'now-move': { const b = get('blocks', id); const x = b && get('tasks', b.taskId); if (b && x && !classic()) openWeekGrid(x, { block: b, onClose: () => { modal.close(); render(); } }); else if (b) openBlock(b); break; } // (v81) the same Sposta everywhere
     case 'reflow-undo': undoReflow(); break;
     case 'reflow-ok': ui.reflow = null; render(); break;
     case 'templates': openTemplatesMenu(); break;

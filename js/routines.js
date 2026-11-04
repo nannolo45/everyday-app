@@ -14,7 +14,7 @@ import { get, live, remove, upsert } from './store.js';
 import { ricetteConfigured } from './sync.js';
 import { weekStart } from './views/planner.js';
 import { dayShort, openModal, repeatText } from './widgets.js';
-import { dayLenSummary, openPlanSaved, openTask } from './editors.js';
+import { dayDiffs, openPlanSaved, openTask } from './editors.js';
 import { isPalestra, PALESTRA_APP } from './palestra.js';
 
 export const isRoutine = (x) => Boolean(x && !x.deleted && !x.done && !x.travelRole && !x.palOut && (isSaved(x) || (isTodo(x) && x.repeat)) && !isEnded(x));
@@ -92,6 +92,7 @@ function metaOf(x, ws) {
   const time = x.pickTime ? '' : x.seriesTime != null ? fmtTime(x.seriesTime) : x.defaultStart != null ? fmtTime(x.defaultStart) : x.when && x.when !== 'any' ? t(`when_${x.when}`) : '';
   if (time) bits.push(time);
   bits.push(fmtDur(x.minutes || 30));
+  const dd = dayDiffs(x); if (dd) bits.push(dd); // (v81)
   if (timesWeekly(x)) { const have = weekStates(x, ws).filter((s) => PLACED.includes(s)).length; bits.push(t('rtOfWeek', have, Math.max(1, Number(x.timesN) || 1))); }
   const p = pausedUntil(x);
   if (p !== null) bits.push(p ? t('rtPausedUntil', relDay(p)) : t('rtPausedOpen'));
@@ -188,7 +189,7 @@ export function openRoutine(id) {
     </div>
     ${x.archived ? `<p class="hint">${esc(t('palArchivedNote'))}</p>` : `<div class="field-label">${esc(t('rtRhythm'))}</div>
     <div class="rt-sets">
-      ${row('when', t('rtWhen'), [rhythmText(x) || t('wm_anytime'), x.pickTime ? t('rtPicked') : x.seriesTime != null ? fmtTime(x.seriesTime) : '', x.dayMinutes && Object.keys(x.dayMinutes).length ? dayLenSummary(x) : fmtDur(x.minutes || 30)].filter(Boolean).join(' · '))}
+      ${row('when', t('rtWhen'), [rhythmText(x) || t('wm_anytime'), x.pickTime ? t('rtPicked') : x.seriesTime != null ? fmtTime(x.seriesTime) : '', fmtDur(x.minutes || 30), dayDiffs(x)].filter(Boolean).join(' · '))}
       ${rhythm ? row('period', t('rtPeriod'), x.repeatUntil ? t('rtFromTo', from ? relDay(from) : '…', relDay(x.repeatUntil)) : from ? t('rtFromOn', relDay(from)) : '') : ''}
       ${rhythm ? row('pause', t('rtPauses'), p.length ? p.map((q) => (q.to ? t('rtFromTo', relDay(q.from), relDay(q.to)) : t('rtFromOn', relDay(q.from)))).join(', ') : t('rtNoPause')) : ''}
     </div>`}
@@ -196,7 +197,7 @@ export function openRoutine(id) {
     ${left.length ? `<div class="field-label">${esc(t('rtSkipThisWeek'))}</div>
     <div class="occ-chips">${left.map((d) => `<button class="occ-chip" value="skip:${d}" formnovalidate>${esc(relDay(d))}</button>`).join('')}</div>` : ''}
     <div class="button-row">
-      <button class="btn primary" value="cancel" formnovalidate>${esc(t('doneBtn'))}</button>
+      <button class="btn primary" value="cancel" formnovalidate>${esc(t('close'))}</button>
       ${(!rhythm || isMealType(x)) && !x.archived ? `<button class="btn" value="plan" formnovalidate>▶ ${esc(t('planIt'))}</button>` : ''}
       <button class="btn" value="more" formnovalidate>${esc(t('moreDetails'))}</button>
     </div>`, (form, action, e) => {

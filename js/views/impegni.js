@@ -34,6 +34,7 @@ export function defaultViews() {
     { id: 'shop', pin: true, shop: true, f: {} },
     { id: 'workout', pin: true, f: { cat: ['health'] }, app: 'palestra', by: 'when', dir: 1 },
     { id: 'home', pin: true, f: { cat: ['home'] }, by: 'when', dir: 1 },
+    { id: 'routine', pin: true, f: { type: ['repeat'] }, by: 'cat', dir: 1 }, // (v81) the routines' week, ready
     { id: 'toplan', pin: false, f: { state: ['toplan'] }, by: 'when', dir: 1 },
     { id: 'meals', pin: false, f: { cat: ['meals'] }, app: 'ricette', by: 'when', dir: 1 },
     { id: 'work', pin: false, f: { cat: ['work'] }, by: 'when', dir: 1 },
@@ -43,6 +44,8 @@ export function defaultViews() {
 export function viewList() {
   const list = (state.settings.views || defaultViews()).filter(Boolean);
   if (!list.some((v) => v.id === 'overview')) list.unshift(defaultViews()[0]);
+  // (v81) views saved before the Routine view existed get it once (unless you deleted it)
+  if (state.settings.views && !state.settings.rtViewGone && !list.some((v) => v.id === 'routine' || (!v.fixed && (v.f?.type || []).join() === 'repeat' && !v.f?.cat?.length))) list.push(defaultViews().find((v) => v.id === 'routine'));
   return list;
 }
 const saveViews = (list) => saveSettings({ views: list });
@@ -136,7 +139,7 @@ export function plainRow(x) {
   const meta = [dateOf(x) ? relDay(dateOf(x)) : '', x.lenSet === false ? '' : fmtDur(x.minutes || 30), ...catsOf(x).map((c) => catName(get('categories', c)))].filter(Boolean).join(' · ');
   const box = typeOf(x) === 'repeat' ? '<span class="vw-rep" aria-hidden="true">↻</span>' : `<input type="checkbox" data-action="task-done" data-id="${esc(x.id)}" ${x.done ? 'checked' : ''} aria-label="${esc(t('markDone'))}">`;
   return `<li class="vw-row${open ? ' open' : ''}${x.done ? ' done' : ''}">${box}
-    <button class="task-main" type="button" data-action="vw-row" data-id="${esc(x.id)}" aria-expanded="${open}"><span class="item-text">${esc(x.title)}${meta ? `<small>${esc(meta)}</small>` : ''}</span></button>${tag(x)}
+    <button class="task-main" type="button" data-action="${typeOf(x) === 'repeat' && !classic() ? 'routine-open' : 'vw-row'}" data-id="${esc(x.id)}" aria-expanded="${open}"><span class="item-text">${esc(x.title)}${meta ? `<small>${esc(meta)}</small>` : ''}</span></button>${tag(x)}
     ${open ? missChips(x) : ''}</li>`;
 }
 function fullRow(x, ws) {
@@ -278,7 +281,7 @@ export function openReview(ids = toPlanList().map((x) => x.id), i = 0) {
   if (!x) {
     const left = all.filter((y) => !y.done && !nextPlanned(y.id));
     openModal(`<h2>${esc(t('triDone'))}</h2><p class="hint">${esc(t('rvDoneHint', all.length - left.length, left.length))}</p>
-      <div class="button-row">${left.length ? `<button class="btn primary" value="auto">✦ ${esc(t('planBtn'))} (${left.length})</button>` : ''}<button class="btn${left.length ? '' : ' primary'}" value="cancel">${esc(t('close'))}</button></div>`, async (form, action) => {
+      <div class="button-row">${left.length ? `<button class="btn primary" value="auto">✦ ${esc(t('smartTitle'))} (${left.length})</button>` : ''}<button class="btn${left.length ? '' : ' primary'}" value="cancel">${esc(t('close'))}</button></div>`, async (form, action) => {
       if (action === 'auto') { const { openAutoPlanner } = await import('../editors.js'); location.hash = '#/plan'; setTimeout(() => openAutoPlanner(), 50); }
     }, { cls: 'sheet full tri rv' });
     return;
@@ -354,7 +357,7 @@ function openViewMenu(id) {
     <p class="hint">${esc(t('vwDelHint'))}</p>
     <div class="button-row"><button class="btn primary" value="save">${esc(t('save'))}</button><button class="btn danger" value="del">${esc(t('vwDelete'))}</button><button class="btn ghost" value="back">${esc(t('back'))}</button></div>`, (form, action) => {
     if (action === 'save' && form.name.value.trim()) patchView(id, { name: form.name.value.trim() });
-    if (action === 'del') { saveViews(viewList().filter((y) => y.id !== id)); if (curView().id === id) setView('overview'); }
+    if (action === 'del') { saveViews(viewList().filter((y) => y.id !== id)); if (id === 'routine') saveSettings({ rtViewGone: true }); if (curView().id === id) setView('overview'); }
     render(); setTimeout(openViews, 0);
   }, { cls: 'sheet' });
 }

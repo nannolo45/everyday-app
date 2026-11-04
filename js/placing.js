@@ -13,6 +13,7 @@ import { busyOn, conflictsOn, conflictText, countedOf, evSkipOf, rsvpAsks, setEv
 import { isEvent } from './kinds.js';
 import { addDays, fmtDur as fmtDurShort, fmtTime, freeSlot, isOccurrence, nowMinutes, parseDate, ruleAt, today } from './plan.js';
 import { autoHoursFor } from './planning.js';
+import { WINDOWS } from './smart.js';
 import { isRoutine } from './routines.js';
 import { changed } from './shell.js';
 import { get, live, remove, upsert } from './store.js';
@@ -42,6 +43,15 @@ const done = (made, undo, extra = {}) => {
   if (made && extra.then) extra.then(made);
   changed();
   if (!made) return;
+  // (v81) «Al posto di → Scelgo io dove»: the first move waits (no bar yet); placing the other one ends it,
+  // and one Annulla undoes both
+  if (extra.chainFor) { ui.chain = { id: extra.chainFor, undo: () => { undo(); if (extra.alsoUndo) extra.alsoUndo(); }, made: made.id }; return; }
+  if (ui.chain && ui.chain.id === made.id) {
+    const first = ui.chain; ui.chain = null;
+    const a = get('blocks', first.made); const b = get('blocks', made.id);
+    toast(t('chainDone', a ? `${a.title} ${fmtTime(a.start)}` : '', b ? `${b.title} ${fmtTime(b.start)}` : ''), 7000, [{ label: t('undoAll'), run: () => { undo(); if (extra.alsoUndo) extra.alsoUndo(); first.undo(); changed(); toast(t('undone')); } }]);
+    return;
+  }
   // (v75) one bar: where it went, and what's wrong with it (an overlap, or not enough free time)
   const b = get('blocks', made.id);
   const c = conflictsOn(b.date).find((x) => x.ids.includes(b.id) && x.type === 'overlap');
@@ -50,8 +60,8 @@ const done = (made, undo, extra = {}) => {
 };
 const undoNew = (b) => () => { if (get('blocks', b.id)) remove('blocks', b.id); };
 // Put task or routine `x` on `date` at `start` (the block's start). `occ`: the turn it was dragged as.
-export function placeItem(x, date, start, { occ = null, then = null, alsoUndo = null, short = 0 } = {}) {
-  const ex = { then, alsoUndo, short };
+export function placeItem(x, date, start, { occ = null, then = null, alsoUndo = null, short = 0, chainFor = null } = {}) {
+  const ex = { then, alsoUndo, short, chainFor };
   if (!x) return;
   if (date < today()) { toast(t('pastDay')); return; }
   const kind = rhythmOf(x);
@@ -112,17 +122,28 @@ function moveChoices(y) {
   const ff = freeStartFor(y);
   const fixedTurn = y.seriesId && !y.pickOcc;
   const back = isEvent(x) ? null : fixedTurn ? ['skip', t('mvSkip'), t('mvSkipSub')] : x && isRoutine(x) ? ['back', t('mvBackTurn'), t('mvBackTurnSub')] : ['back', t('mvBack'), t('mvBackSub')];
-  return `<button class="btn primary choose-opt" value="mv:free" ${ff == null ? 'disabled' : ''}><b>${esc(t('mvFree'))}</b><small>${esc(ff == null ? t('mvNoFree') : `${relDay(y.date)} ${fmtTime(ff)}`)}</small></button>
+  // (v81) a turn of a routine with fixed times can also go back among those to plan (as the guide says)
+  const replan = fixedTurn && x && !isEvent(x) ? `<button class="btn choose-opt" value="mv:replan"><b>${esc(t('mvBackTurn'))}</b><small>${esc(t('mvBackTurnSub'))}</small></button>` : '';
+  return `<button class="btn primary choose-opt" value="mv:free" ${ff == null ? 'disabled' : ''}><b>${esc(y.seriesId && ff != null ? t('mvFreePart', t(`when_${partOfMin(y.start)}`).toLowerCase()) : t('mvFree'))}</b><small>${esc(ff == null ? t('mvNoFree') : `${relDay(y.date)} ${fmtTime(ff)}`)}</small></button>
+    ${replan}
     <button class="btn choose-opt" value="mv:pick"><b>${esc(t('mvPick'))}</b><small>${esc(t('mvPickSub', y.title))}</small></button>
     ${back ? `<button class="btn choose-opt" value="mv:${back[0]}"><b>${esc(back[1])}</b><small>${esc(back[2])}</small></button>` : ''}`;
 }
 // The first free start that day for block `y` (not counting its own slot, nor anything taking it).
+const partOfMin = (m) => (m < WINDOWS.morning[1] ? 'morning' : m < WINDOWS.afternoon[1] ? 'afternoon' : 'evening');
 function freeStartFor(y, taken = null) {
   const s = planSettings(); const [h0, h1] = autoHoursFor(y.date);
   const from = Math.max(h0, s.dayStart, y.date === today() ? Math.ceil((nowMinutes() + 5) / 5) * 5 : 0);
   const busy = busyOn(y.date).filter((b) => !b.allowOverlap && b.id !== y.id);
   if (taken) busy.push(taken);
-  return freeSlot(busy, y.minutes || 30, { from, dayStart: from, dayEnd: Math.max(h1, from + (y.minutes || 30)), snap: s.snap || 15 });
+  const len = y.minutes || 30;
+  // (v81) a routine's turn stays in its part of the day (a dinner in the evening, not at noon)
+  if (y.seriesId) {
+    const [a, b] = WINDOWS[partOfMin(y.start)]; const f = Math.max(from, a); const end = Math.min(Math.max(b, s.dayEnd), 1440);
+    const at = freeSlot(busy, len, { from: f, dayStart: f, dayEnd: end, snap: s.snap || 15 });
+    if (at != null && at + len <= end) return at;
+  }
+  return freeSlot(busy, len, { from, dayStart: from, dayEnd: Math.max(h1, from + len), snap: s.snap || 15 });
 }
 function applyMove(y, how, taken = null) {
   const before = { ...y };
@@ -131,8 +152,9 @@ function applyMove(y, how, taken = null) {
   if (how === 'free') { const at = freeStartFor(y, taken); if (at == null) return () => {}; const m = upsert('blocks', { ...y, start: at, auto: false }, { silent: true }); followParent(m); }
   if (how === 'back') deleteBlock(y);
   if (how === 'skip') { if (x) skipOcc(x, y.occ || y.date); deleteBlock(y); }
+  if (how === 'replan') { if (x) upsert('tasks', { ...x, replan: [...new Set([...(x.replan || []).filter((d) => d >= today()), y.occ || y.date])] }, { silent: true }); deleteBlock(y); }
   if (how === 'pick') { ui.pickBlock = y.id; ui.pick = null; ui.pickOcc = null; }
-  return () => { upsert('blocks', before, { silent: true }); if (xBefore && how === 'skip') upsert('tasks', xBefore, { silent: true }); if (how === 'pick') ui.pickBlock = null; };
+  return () => { upsert('blocks', before, { silent: true }); if (xBefore && (how === 'skip' || how === 'replan')) upsert('tasks', xBefore, { silent: true }); if (how === 'pick') ui.pickBlock = null; };
 }
 // Placing something on a busy block: it takes that slot; you say where the other one goes.
 export function openSwap(yId) {
@@ -150,8 +172,9 @@ export function openSwap(yId) {
     let undoY = () => {};
     const then = () => { undoY = applyMove(get('blocks', y.id), how, slot); };
     ui.pick = null; ui.pickOcc = null; ui.pickBlock = null;
-    if (pb) moveBlockTo(pb.id, y.date, y.start, { then, alsoUndo: () => undoY() });
-    else placeItem(px, y.date, y.start, { occ, then, alsoUndo: () => undoY() });
+    const chain = how === 'pick' ? { chainFor: y.id } : {};
+    if (pb) moveBlockTo(pb.id, y.date, y.start, { then, alsoUndo: () => undoY(), ...chain });
+    else placeItem(px, y.date, y.start, { occ, then, alsoUndo: () => undoY(), ...chain });
     if (how === 'pick') { location.hash = `#/plan/${y.date}`; changed(); }
   }, { cls: 'sheet choose-sheet' });
 }
@@ -178,10 +201,9 @@ export function openDropOn(kind, id) {
     <div class="choose">
       <button class="btn primary choose-opt" value="after"><b>${esc(t('dropAfter'))}</b><small>${esc(t('dropAfterSub', span(yEnd, len), y.title))}</small></button>
       ${canSwap ? `<button class="btn choose-opt" value="swap"><b>${esc(t('dropSwap', y.title))}</b><small>${esc(t('dropSwapSub', y.title))}</small></button>` : ''}
-      ${inv ? `<button class="btn choose-opt" value="skip-ev"><b>${esc(t('invSkipPut', title))}</b><small>${esc(t('invSkipPutSub'))}</small></button>` : ''}
+      ${inv ? `<div class="choose-grp"><button class="btn choose-opt" value="skip-ev"><b>${esc(t('invSkipPut', title))}</b><small>${esc(t('invSkipPutSub'))}</small></button>${y.gcal ? `<label class="check inv-google sub"><input type="checkbox" name="google"> <span>${esc(t('invAlsoGoogle'))}<small>${esc(t('invAlsoGoogleSub', y.from || '…'))}</small></span></label>` : ''}</div>` : ''}
       <button class="btn choose-opt" value="par"><b>${esc(t('dropPar'))}</b><small>${esc(t('dropParSub', y.title))}</small></button>
     </div>
-    ${inv && y.gcal ? `<label class="check inv-google"><input type="checkbox" name="google"> <span>${esc(t('invAlsoGoogle'))}<small>${esc(t('invAlsoGoogleSub', y.from || '…'))}</small></span></label>` : ''}
     <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('cancel'))}</button></div>`, (form, action, e) => {
     if (action === 'swap') { e.preventDefault(); setTimeout(() => openSwap(y.id), 0); return; }
     if (!['after', 'skip-ev', 'par'].includes(action)) return;

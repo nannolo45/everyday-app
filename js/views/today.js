@@ -9,7 +9,8 @@ import { addDays, dayTotals, fmtDur, fmtTime, importanceOf, nowMinutes, today } 
 import { morningReflow } from '../planning.js';
 import { get } from '../store.js';
 import { MODE_ICON } from '../travel.js';
-import { loadBar, prepareDays, weekStart } from './planner.js';
+import { behindCard, loadBar, prepareDays, weekStart } from './planner.js';
+import { classic } from './impegni.js';
 
 // ---------- Today: the home tab ----------
 // "What do I do now?" first: the next move with its leave and start times. Then the day, what is
@@ -92,6 +93,7 @@ export function viewToday() {
     ${eventsOn(td).filter((e) => e.allDay).length ? `<div class="today-allday">${eventsOn(td).filter((e) => e.allDay).map((e) => `<button class="allday-chip" type="button" data-action="event" data-id="${esc(e.id)}" style="--c:${esc(e.color)}">📅 ${esc(e.title)}</button>`).join('')}</div>` : ''}
     ${ui.reflow ? `<div class="reflow"><span>${esc(t('reflowMoved', ui.reflow.moved))}</span><button class="linkish" type="button" data-action="reflow-undo">${esc(t('undo'))}</button><button class="icon" type="button" data-action="reflow-ok" aria-label="${esc(t('close'))}">✕</button></div>` : ''}
     ${nowCard}
+    ${classic() ? '' : behindCard(td)}
     <section class="today-list" aria-label="${esc(t('today'))}">
       ${items.length ? items.map(row).join('') : `<p class="empty">${esc(t('emptyDay'))}</p>`}
       ${spareLine}

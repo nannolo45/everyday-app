@@ -12,7 +12,7 @@ import { WINDOWS } from './smart.js';
 import { get, live, saveSettings, state, upsert } from './store.js';
 import { weekStart } from './views/planner.js';
 
-export const pickTasks = () => live('tasks').filter((x) => !x.done && !x.archived && (x.pickTime || x.next?.pickTime) && (isTodo(x) || isSaved(x)) && (REPEATS.includes(x.repeat) || x.repeat === 'times' || REPEATS.includes(x.next?.repeat)));
+export const pickTasks = () => live('tasks').filter((x) => !x.done && !x.archived && (x.pickTime || x.next?.pickTime || (x.replan || []).some((d) => d >= today())) && (isTodo(x) || isSaved(x)) && (REPEATS.includes(x.repeat) || x.repeat === 'times' || REPEATS.includes(x.next?.repeat)));
 // (v69) a turn placed on another day ("al posto di Mer") keeps its occurrence date in `occ`
 const hasBlock = (x, date) => live('blocks').some((b) => b.taskId === x.id && (b.date === date || b.occ === date) && b.kind !== 'prep');
 
@@ -40,16 +40,16 @@ export function toFix(from, to) {
     }
     if (isEnded(x)) continue;
     let room = x.repeatCount ? turnsLeftOf(x) - openTurnsOf(x) : Infinity; // (v69) per N volte: only the turns left
-    for (const d of occurrences(x, from, to)) if (room > 0 && d >= today() && ruleAt(x, d).pickTime && !hasBlock(x, d) && !(x.skipped || []).includes(d)) { out.push({ x, date: d }); room--; }
+    for (const d of occurrences(x, from, to)) if (room > 0 && d >= today() && (ruleAt(x, d).pickTime || (x.replan || []).includes(d)) && !hasBlock(x, d) && !(x.skipped || []).includes(d)) { out.push({ x, date: d }); room--; }
   }
   return out.sort((a, b) => ((a.date || '9') < (b.date || '9') ? -1 : 1));
 }
 
 // Free slots on a date for a task: the part of day it usually has first, then the others.
 // [{start, part, until}] (start = when the task itself starts; the lead time, e.g. getting there, is before).
-export function slotOptions(x, date, n = 3) {
+export function slotOptions(x, date, n = 3, extra = []) {
   const s = planSettings(); const lead = leadOf(x); const need = (x.minutes || 30) + lead;
-  const busy = busyOn(date).filter((b) => !b.allowOverlap && !(b.taskId === x.id && b.date === date));
+  const busy = [...busyOn(date), ...extra.filter((e) => e.date === date)].filter((b) => !b.allowOverlap && !(b.taskId === x.id && b.date === date));
   const [h0, h1] = autoHoursFor(date);
   const from0 = date === today() ? Math.ceil((nowMinutes() + 5) / 5) * 5 : 0;
   const order = [...new Set([x.when, 'evening', 'morning', 'afternoon'].filter(Boolean))];
@@ -77,12 +77,31 @@ export function fixOcc(x, date, start) {
 }
 export function skipOcc(x, date) { upsert('tasks', { ...x, skipped: [...new Set([...(x.skipped || []), date])] }); }
 // "N times a week": the planner's placements over the days left.
-export function timesPlacements(x, days) { return planPlacements([x.id], days).slice(0, timesLeft(x, days[days.length - 1])); }
+export function timesPlacements(x, days, extra = [], max = Infinity) { return planPlacements([x.id], days, extra).slice(0, Math.min(max, timesLeft(x, days[days.length - 1]))); }
 export function fixTimes(x, p) { const b = placeBlock(x, p); return upsert('blocks', { ...b, pickOcc: true, auto: false }); }
 
 // The card's rows: [{x, date, options}] and [{x, n, placements}].
 export function cardRows(from, to) {
   return toFix(from, to).map((r) => (r.date ? { ...r, options: slotOptions(r.x, r.date) } : { ...r, placements: timesPlacements(r.x, r.days) }));
+}
+// (v81) The routines' turns for a span of days you chose, planned one after another so they never overlap
+// each other; `busy` gets what they take, for the tasks planned after them.
+export function cardRowsIn(days, busy = []) {
+  const set = new Set(days); const out = [];
+  for (const r of toFix(days[0], days[days.length - 1])) {
+    if (r.date) {
+      if (!set.has(r.date)) continue;
+      const options = slotOptions(r.x, r.date, 3, busy);
+      if (options[0]) busy.push({ date: r.date, start: options[0].start - leadOf(r.x), minutes: (r.x.minutes || 30) + leadOf(r.x) });
+      out.push({ ...r, options });
+      continue;
+    }
+    const ds = r.days.filter((d) => set.has(d)); if (!ds.length) continue;
+    const placements = timesPlacements(r.x, ds, busy, ds.length);
+    for (const p of placements) busy.push({ date: p.date, start: p.start - (p.lead || 0), minutes: p.minutes + (p.lead || 0) });
+    out.push({ ...r, placements });
+  }
+  return out;
 }
 // Today: today's own occurrences always; from the weekly moment, the whole week the card is about.
 export function todayRows() {

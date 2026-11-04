@@ -12,6 +12,7 @@ import { WINDOWS } from './smart.js';
 import { get, live, upsert } from './store.js';
 import { changed } from './shell.js';
 import { dayShort, openModal } from './widgets.js';
+import { openWhen, usesWhen } from './when.js';
 
 export const PARTS = ['morning', 'afternoon', 'evening'];
 const mondayOf = (d) => addDays(d, -((weekday(d) + 6) % 7));
@@ -83,7 +84,13 @@ function current(x, ws) {
 }
 
 // The sheet. `block`: move that one block (only this time). `onClose(how)`: 'done' | 'back' | 'more' | 'quick'.
-export function openWeekGrid(task, { block = null, onClose = () => {} } = {}) {
+export function openWeekGrid(task, { block = null, onClose = () => {}, grid = false } = {}) {
+  // (v81) one «Quando» sheet for a day and a time; the grid stays for several times and routines
+  let classicUi = false; try { classicUi = localStorage.getItem('everyday-classic') === '1'; } catch { /* no storage */ }
+  if (!grid && !classicUi && usesWhen(get('tasks', task.id) || task, block)) {
+    openWhen(task, { block, onClose: (how, k) => (how === 'grid' ? openWeekGrid(task, { block, onClose, grid: true }) : onClose(how, k)) });
+    return;
+  }
   let x = get('tasks', task.id) || task;
   const moving = block ? get('blocks', block.id) : null;
   const td = today();

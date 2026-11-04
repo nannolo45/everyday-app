@@ -12,7 +12,7 @@ import { get, live, upsert } from './store.js';
 import { endedRoutines, hasRhythm, routines } from './routines.js';
 
 import { currentDate, render } from './shell.js';
-import { agendaAdd, agendaPlan, currentView, fixProps, ghostTitle, ghostWhy } from './views/planner.js';
+import { agendaAdd, agendaPlan, currentView, fixProps, ghostTitle, ghostWhy, keepFix } from './views/planner.js';
 import { modal } from './core.js';
 import { openPickSheet, openTask } from './editors.js';
 import { setWhen } from './views/impegni.js';
@@ -20,6 +20,7 @@ import { openWeekGrid } from './weekgrid.js';
 import { cardRows, fixOcc, fixTimes, skipOcc, toFix } from './weekpick.js';
 import { allItems, typeOf } from './views/impegni.js';
 import { taskHay } from './views/tasks.js';
+import { isWide } from './views/wide.js';
 import { dayShort, openModal, repeatText, searchBox } from './widgets.js';
 
 const byWhen = (a, b) => (a.date === b.date ? a.start - b.start : a.date < b.date ? -1 : 1);
@@ -67,7 +68,7 @@ function todoRows() {
   const pick = ui.pick && get('tasks', ui.pick);
   return `<p class="hint">${esc(pick ? t('pnPicked', pick.title) : t('pnPick'))}</p>${both ? `<div class="fd-day">${esc(t('fdGrpTasks'))} <small>${list.length}</small></div>` : ''}<ul class="fd-list">${list.map((x) => `<li class="fd-row${ui.pick === x.id ? ' on' : ''}" draggable="true" data-drag="task:${esc(x.id)}" data-min="${x.minutes || 30}">${bar(x)}<div class="fd-c">
     <button type="button" class="fd-t" data-action="fd-pick" data-id="${esc(x.id)}" aria-pressed="${ui.pick === x.id}">${esc(x.title)}<small>${esc([x.lenSet === false ? '' : fmtDur(x.minutes || 30), x.due ? relDay(x.due) : '', ...catsOf(x).map((c) => catName(get('categories', c)))].filter(Boolean).join(' · '))}</small></button>
-    <div class="fd-pills"><button type="button" class="fd-pill act" data-action="fd-when" data-id="${esc(x.id)}">${esc(t('whenChip'))}</button></div></div></li>`).join('')}</ul>${turnsHtml}`;
+    </div></li>`).join('')}</ul>${turnsHtml}`; // (v81) no Quando… here: tapping the row plans it
 }
 // Nel piano: the next two weeks, by day; a row jumps to its block.
 function planRows() {
@@ -84,13 +85,13 @@ function planRows() {
 // A row jumps to its place in the calendar and flashes it; ✕ drops a proposal.
 export function proposalsHtml({ buttons = true } = {}) {
   const ghosts = (ui.assign?.ghosts || []).map((g, i) => ({ fk: `g${i}`, i, date: g.date, start: g.start, minutes: g.minutes || 30, title: ghostTitle(g), why: ghostWhy(g), task: get('tasks', g.taskId) }));
-  const fixes = fixProps().map((f) => ({ fk: `f${f.taskId}~${f.date}`, date: f.date, start: f.start, minutes: f.minutes, title: f.title, why: t('agToFix', 1), task: get('tasks', f.taskId) }));
+  const fixes = fixProps().map((f) => ({ fk: `f${f.taskId}~${f.date}`, fix: true, taskId: f.taskId, date: f.date, start: f.start, minutes: f.minutes, title: f.title, why: t('propRoutine'), task: get('tasks', f.taskId) }));
   const all = [...ghosts, ...fixes].sort(byWhen);
   if (!all.length) return '';
   const days = new Map();
   for (const p of all) { if (!days.has(p.date)) days.set(p.date, []); days.get(p.date).push(p); }
   return `<div class="pv">${buttons ? `<div class="pv-h"><b>✦ ${esc(t('propsH'))} <small>${all.length}</small></b><button type="button" class="btn small" data-action="ag-cancel">${esc(t('cancel'))}</button><button type="button" class="btn small primary" data-action="ag-add">${esc(t('add'))}</button></div>` : ''}
-    ${[...days].map(([d, ps]) => `<div class="fd-day">${esc(dayLabel(d))}</div><ul class="fd-list">${ps.map((p) => `<li class="fd-row pv-row">${bar(p.task)}<div class="fd-c"><button type="button" class="fd-t" data-action="pv-go" data-id="${esc(p.fk)}" data-date="${p.date}">${esc(p.title)}<small>${esc(`${fmtTime(p.start)}–${fmtTime(p.start + p.minutes)}`)}</small>${p.why ? `<span class="pv-why">✦ ${esc(p.why)}</span>` : ''}</button></div>${p.i != null ? `<button type="button" class="icon pv-x" data-action="ghost-rm" data-i="${p.i}" aria-label="${esc(t('remove'))}">✕</button>` : ''}</li>`).join('')}</ul>`).join('')}
+    ${[...days].map(([d, ps]) => `<div class="fd-day">${esc(dayLabel(d))}</div><ul class="fd-list">${ps.map((p) => `<li class="fd-row pv-row">${bar(p.task)}<div class="fd-c"><button type="button" class="fd-t" data-action="pv-go" data-id="${esc(p.fk)}" data-date="${p.date}">${esc(p.title)}<small>${esc(`${fmtTime(p.start)}–${fmtTime(p.start + p.minutes)}`)}</small>${p.why ? `<span class="pv-why">✦ ${esc(p.why)}</span>` : ''}</button></div>${p.i != null ? `<button type="button" class="icon pv-x" data-action="ghost-rm" data-i="${p.i}" aria-label="${esc(t('remove'))}">✕</button>` : p.fix ? `<button type="button" class="icon pv-x" data-action="pv-fix-x" data-id="${esc(p.taskId)}" data-date="${p.date}" data-start="${p.start}" aria-label="${esc(t('remove'))}">✕</button>` : ''}</li>`).join('')}</ul>`).join('')}
     <p class="hint">${esc(t('propsHint'))}</p></div>`;
 }
 // A proposal tapped: its day in the Planner, and it flashes there.
@@ -133,7 +134,7 @@ function shelfRows() {
   const all = routines().filter((x) => !x.archived && !isMealType(x)).sort((a, b) => a.title.localeCompare(b.title));
   const rh = all.filter((x) => hasRhythm(x)); const any = all.filter((x) => !hasRhythm(x));
   const ended = endedRoutines().sort((a, b) => (b.repeatUntil || '').localeCompare(a.repeatUntil || ''));
-  return `<p class="hint">${esc(t('shelfHint', p.month ? t('shelfMonth') : t('shelfWeek')))}</p>
+  return `<p class="hint">${esc(t(isWide() ? 'shelfHint' : 'shelfHintTap', p.month ? t('shelfMonth') : t('shelfWeek')))}</p>
     <div class="tly-legend"><span><i class="done"></i>${esc(t('lgDone'))}</span><span><i class="pl"></i>${esc(t('lgPlan'))}</span><span><i></i>${esc(t('lgMiss'))}</span></div>
     ${rh.length ? `<div class="fd-day">${esc(t('grpRhythm'))}</div><ul class="fd-list">${rh.map((x) => shelfRow(x, p)).join('')}</ul>` : ''}
     ${any.length ? `<div class="fd-day">${esc(t('wm_anytime'))}</div><ul class="fd-list">${any.map((x) => shelfRow(x, p)).join('')}</ul>` : ''}
@@ -230,6 +231,7 @@ export function sheetClick(btn) {
     case 'fd-go': close(); goToBlock(id); return true;
     case 'pv-go': close(); goToProposal(id, btn.dataset.date); return true;
     case 'ghost-rm': ui.assign?.ghosts.splice(Number(btn.dataset.i), 1); render(); openPropsList(); return true;
+    case 'pv-fix-x': keepFix(id, btn.dataset.date, Number(btn.dataset.start), false); openPropsList(); return true; // (v81) a routine's turn too
     case 'fd-move': { const b = get('blocks', id); const x = b && get('tasks', b.taskId); if (x) openWeekGrid(x, { block: b, onClose: () => { close(); render(); } }); return true; }
     case 'fd-when': { const x = get('tasks', id); if (x) openWeekGrid(x, { onClose: (how, k) => { if (how === 'quick') setWhen(get('tasks', id), k); close(); render(); } }); return true; }
     case 'task-edit': { const x = get('tasks', id); if (x) openTask(x); return true; }

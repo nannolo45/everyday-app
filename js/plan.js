@@ -97,6 +97,48 @@ function explicitDate(w1, w2, w3, todayStr) {
   return null;
 }
 
+// (v81) A rhythm at words[i]: { days: [ISO…], used } or { times, per, used } or { monthly, used }.
+const EVERY_W = ['ogni', 'every', 'jeden', 'jede', 'jedes'];
+const ALLDAY_W = ['giorno', 'day', 'tag'];
+const WD_W = ['feriali', 'feriale', 'weekdays', 'weekday', 'werktags', 'werktag', 'wochentags'];
+const WE_W = ['weekend', 'wochenende', 'fine-settimana'];
+const MONTH_W = ['mese', 'month', 'monat'];
+const AND_W = ['e', 'and', 'und', ',', '+'];
+const TIMES_W = ['volte', 'volta', 'times', 'time', 'mal', 'x', '×'];
+const PER_W = { settimana: 'week', sett: 'week', week: 'week', woche: 'week', mese: 'month', month: 'month', monat: 'month' };
+function repeatAt(words, i) {
+  const lw = (k) => String(words[k] || '').toLowerCase().replace(/[,.]$/, '');
+  const ALL7 = [1, 2, 3, 4, 5, 6, 7];
+  // "3 volte a settimana", "3x a settimana", "3 times a week", "3 mal pro Woche", "3x/settimana"
+  let m = lw(i).match(/^(\d{1,2})(x|×)?(?:\/(\S+))?$/);
+  if (m && Number(m[1]) >= 1) {
+    let k = i + 1;
+    if (!m[2] && TIMES_W.includes(lw(k))) k++; else if (!m[2]) return null;
+    if (m[3] && PER_W[m[3]]) return { times: Number(m[1]), per: PER_W[m[3]], used: k - i };
+    if (['a', 'al', 'alla', 'per', 'pro', 'in', 'each', 'every', 'ogni', 'im', 'la', 'the'].includes(lw(k))) k++;
+    if (['a', 'the'].includes(lw(k))) k++;
+    if (PER_W[lw(k)]) return { times: Number(m[1]), per: PER_W[lw(k)], used: k - i + 1 };
+    return null;
+  }
+  if (['daily', 'täglich', 'quotidianamente'].includes(lw(i))) return { days: ALL7, used: 1 };
+  if (lw(i) === 'tutti' && lw(i + 1) === 'i' && lw(i + 2) === 'giorni') return { days: ALL7, used: 3 };
+  if (['nei', 'i'].includes(lw(i)) && WD_W.includes(lw(i + 1)) && (lw(i) === 'nei' || lw(i + 1) === 'feriali')) return null;
+  if (!EVERY_W.includes(lw(i))) return null;
+  const nx = lw(i + 1);
+  if (ALLDAY_W.includes(nx)) return WD_W.includes(lw(i + 2)) ? { days: [1, 2, 3, 4, 5], used: 3 } : { days: ALL7, used: 2 };
+  if (WD_W.includes(nx)) return { days: [1, 2, 3, 4, 5], used: 2 };
+  if (WE_W.includes(nx)) return { days: [6, 7], used: 2 };
+  if (MONTH_W.includes(nx)) return { monthly: true, used: 2 };
+  if (dayIndex(nx) < 0) return null;
+  const days = []; let k = i + 1;
+  for (;;) {
+    if (dayIndex(lw(k)) >= 0) { days.push(((dayIndex(lw(k)) + 6) % 7) + 1); k++; continue; }
+    if (AND_W.includes(lw(k)) && dayIndex(lw(k + 1)) >= 0) { k++; continue; }
+    break;
+  }
+  return { days: [...new Set(days)].sort((a, b) => a - b), used: k - i };
+}
+
 // "Dentist 1h !2 #health @Via Roma 12 fri" → title, length, importance, category, place, due.
 // Also "entro ven" / "by fri" (due), "ogni lun" / "every mon" (weekly), "domani" / "tomorrow",
 // a date ("20 mag", "20/5/2027") and a time ("21:00", "alle 21", "at 9").
@@ -116,7 +158,7 @@ export function quickAdd(text, todayStr = today()) {
   const kept = [];
   const TIME_PREP = ['alle', 'at', 'um', 'ore'];
   for (let i = 0; i < words.length; i++) {
-    const w = words[i]; let m;
+    const w = words[i]; let m; let n;
     const lw = w.toLowerCase();
     const ed = out.due ? null : explicitDate(w, words[i + 1] || '', words[i + 2] || '', todayStr);
     if (ed?.date && (kept.length || ed.used > 1 || /\D/.test(w))) { out.due = ed.date; i += ed.used - 1; }
@@ -125,7 +167,14 @@ export function quickAdd(text, todayStr = today()) {
     else if (out.minutes == null && /^\d/.test(w) && /[hm]|min/i.test(w) && parseDuration(w) != null) out.minutes = parseDuration(w);
     else if (!out.importance && (m = w.match(/^!([1-5])$/))) { out.importance = 6 - Number(m[1]); out.priority = Number(m[1]) <= 3 ? Number(m[1]) : 0; }
     else if ((m = w.match(/^#(\S+)$/))) { if (!out.category) out.category = m[1]; else (out.moreCats ||= []).push(m[1]); }
-    else if (!out.repeat && ['ogni', 'every', 'jeden'].includes(lw) && words[i + 1] && dayIndex(words[i + 1]) >= 0) { const wd = dayIndex(words[i + 1]); out.repeat = 'weekly'; out.repeatDays = [((wd + 6) % 7) + 1]; out.due = out.due || (weekday(todayStr) === wd ? todayStr : nextWeekday(todayStr, wd)); i++; }
+    else if (!out.repeat && (n = repeatAt(words, i))) {
+      // (v81) "ogni gio", "ogni mar gio", "ogni giorno", "feriali", "3 volte a settimana", "ogni mese"
+      i += n.used - 1;
+      if (n.times) { out.repeat = 'times'; out.timesN = n.times; out.timesPer = n.per; continue; }
+      out.repeat = n.monthly ? 'monthly' : 'weekly';
+      if (!n.monthly) out.repeatDays = n.days;
+      if (!n.monthly) { const first = [0, 1, 2, 3, 4, 5, 6].map((k) => addDays(todayStr, k)).find((d) => n.days.includes(((weekday(d) + 6) % 7) + 1)); out.due = out.due || first; } else out.due = out.due || todayStr;
+    }
     else if (!out.due && ['entro', 'by', 'bis'].includes(lw) && words[i + 1] && (dayIndex(words[i + 1]) >= 0 || REL_DAYS[words[i + 1].toLowerCase()] != null)) { const n = words[i + 1].toLowerCase(); out.due = REL_DAYS[n] != null ? addDays(todayStr, REL_DAYS[n]) : nextWeekday(todayStr, dayIndex(n)); i++; }
     else if (!out.due && WEEK_WORDS.includes(`${lw} ${(words[i + 1] || '').toLowerCase()}`)) { out.due = addDays(weekStartOf(todayStr), 6); i++; } // (v55) "questa settimana": by Sunday
     else if (!out.due && REL_DAYS[lw] != null) out.due = addDays(todayStr, REL_DAYS[lw]);

@@ -367,7 +367,7 @@ export function trayHtml() {
       <div class="why-list">${previewListHtml(a.ghosts)}</div>
     </details>` : ''}
     <div class="tray-actions">
-      ${all.length && !a.ghosts.length ? (sel.length ? `<button class="btn primary spread" type="button" data-action="assign-spread">✦ ${esc(t('spreadSel', spreadLabel()))}</button>` : `<button class="btn primary spread" type="button" data-action="auto">✦ ${esc(t('planBtn'))}</button>`) : ''}
+      ${all.length && !a.ghosts.length ? (sel.length ? `<button class="btn primary spread" type="button" data-action="assign-spread">✦ ${esc(t('spreadSel', spreadLabel()))}</button>` : `<button class="btn primary spread" type="button" data-action="auto">✦ ${esc(t('smartTitle'))}</button>`) : ''}
       ${a.ghosts.length && all.length ? `<button class="btn small" type="button" data-action="assign-spread">✦ ${esc(t('spreadMore'))}</button>` : ''}
       ${a.range ? `<button class="btn small ghost" type="button" data-action="assign-range-clear">${esc(t('clearRange'))}</button>` : ''}
       ${a.ghosts.length ? `<button class="btn small" type="button" data-action="assign-clear">${esc(t('cancel'))}</button>
@@ -439,8 +439,10 @@ export function keepFix(taskId, date, start, keep = true) {
 export function agendaPlan() {
   const td = today();
   if (!ui.assign) ui.assign = { sel: new Set(), ghosts: [], range: null, opts: false, open: false, q: '' };
+  // (v81) with tasks to place, the routines' turns are proposed with them, for the days you choose
+  if (trayTasks().length) { ui.assign.fix = null; ui.assign.fixWanted = true; openAutoPlanner(); return; }
   ui.assign.fix = cardRows(td, weekEndOf(td));
-  if (trayTasks().length) openAutoPlanner(); else render();
+  render();
 }
 export function agendaAdd() {
   const n = addGhostList(ui.assign?.ghosts || []) + fixAll(ui.assign?.fix || []);
@@ -465,7 +467,7 @@ export function planCard() {
   if (!wide) return `<div class="ag-card-top"><span><b>${esc(nPlan + nFix ? t('agToPlan', nPlan + nFix) : `✓ ${t('agAllPlanned')}`)}</b></span><button class="btn small primary" type="button" data-action="ag-choose">${esc(t('planChoose'))}</button></div>`;
   if (!nPlan && !nFix) return `<p class="ag-ok">✓ ${esc(t('agAllPlanned'))}</p>`;
   // (v66) one word for both: what's to plan and this week's routine turns without a time yet
-  return `<div class="ag-card-top"><span><b>${esc(t('agToPlan', nPlan + nFix))}</b></span><button class="btn small primary" type="button" data-action="ag-plan">✦ ${esc(t('planBtn'))}</button></div>`;
+  return `<div class="ag-card-top"><span><b>${esc(t('agToPlan', nPlan + nFix))}</b></span><button class="btn small primary" type="button" data-action="ag-plan">✦ ${esc(t('smartTitle'))}</button></div>`;
 }
 function agItems(date) {
   const ghosts = ghostsOn(date).map((g) => ({ k: 'ghost', g, start: g.start, minutes: g.minutes || 30 }));
@@ -483,7 +485,7 @@ function agRow(it) {
   if (it.k === 'ghost' || it.k === 'fix') {
     const g = it.g;
     const fk = it.k === 'ghost' ? `g${g.i}` : `f${g.taskId}~${g.date}`;
-    return `<li class="ag-row ghost${ui.flash === fk ? ' flash' : ''}" data-fk="${esc(fk)}" style="--c:${esc(catColor(g.category || get('tasks', g.taskId)?.category) || 'var(--accent)')}">${time}<span class="ag-c"><span class="ag-t">${esc(it.k === 'ghost' ? ghostTitle(g) : g.title)}</span><small>${esc(it.k === 'ghost' ? ghostWhy(g) : t('agToFix', 1))}</small>${lenBar(it.minutes)}</span><span class="ag-keep">${it.k === 'ghost'
+    return `<li class="ag-row ghost${ui.flash === fk ? ' flash' : ''}" data-fk="${esc(fk)}" style="--c:${esc(catColor(g.category || get('tasks', g.taskId)?.category) || 'var(--accent)')}">${time}<span class="ag-c"><span class="ag-t">${esc(it.k === 'ghost' ? ghostTitle(g) : g.title)}</span><small>${esc(it.k === 'ghost' ? ghostWhy(g) : t('propRoutine'))}</small>${lenBar(it.minutes)}</span><span class="ag-keep">${it.k === 'ghost'
       ? `<button class="icon ok" type="button" data-action="ghost-keep" data-i="${g.i}" aria-label="${esc(t('propKeep'))}" title="${esc(t('propKeep'))}">✓</button><button class="icon" type="button" data-action="ghost-rm" data-i="${g.i}" aria-label="${esc(t('remove'))}">✕</button>`
       : `<button class="icon ok" type="button" data-action="fix-keep" data-id="${esc(g.taskId)}" data-date="${g.date}" data-start="${g.start}" aria-label="${esc(t('propKeep'))}" title="${esc(t('propKeep'))}">✓</button><button class="icon" type="button" data-action="fix-drop" data-id="${esc(g.taskId)}" data-date="${g.date}" data-start="${g.start}" aria-label="${esc(t('remove'))}">✕</button>`}</span></li>`;
   }
@@ -516,7 +518,7 @@ export function planCounts() {
   const td = today();
   return { toPlan: trayTasks().length + toFix(td, weekEndOf(td)).length, behind: behindToday().length };
 }
-const behindCard = (date) => {
+export const behindCard = (date) => { // (v81) also on Oggi
   if (date !== today()) return '';
   const list = behindToday(); if (!list.length) return '';
   return `<div class="behind-card"><b>⏰ ${esc(t('behindTitle', list.length))}</b><small>${esc(t('behindSub'))}</small><ul>${list.map((b) => `<li><span><b>${esc(fmtTime(b.start))}</b> ${esc(b.title)}</span><span class="behind-acts"><button class="icon ok" type="button" data-action="behind-done" data-id="${esc(b.id)}" aria-label="${esc(t('esDone'))}" title="${esc(t('esDone'))}">✓</button><button class="icon" type="button" data-action="behind-fail" data-id="${esc(b.id)}" aria-label="${esc(t('esFail'))}" title="${esc(t('esFail'))}">✕</button><button class="btn small" type="button" data-action="behind-later" data-id="${esc(b.id)}">→ ${esc(t('behindLater'))}</button></span></li>`).join('')}</ul></div>`;

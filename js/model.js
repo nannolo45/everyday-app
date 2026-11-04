@@ -234,7 +234,8 @@ export function newBlock(fields) {
 // Put a task on a day: at `start`, or in the first free gap (from now, if it's today).
 export function planTask(task, date, start = null, extra = {}) {
   const s = planSettings();
-  const { series, ...fields } = extra;
+  const { series, ...fields0 } = extra;
+  const fields = isMealType(task) && !fields0.kind && !fields0.stepId ? { kind: 'meal', recipes: [], servings: 2, ...fields0 } : fields0; // (v80) a meal type's turn is a meal
   const minutes = fields.minutes || (fields.stepId ? task.minutes : !(task.stepsDone || []).length && task.dayMinutes && isSeries(task) ? minutesOn(task, date) : minutesLeft(task)) || 30;
   let at = start;
   if (at == null) {
@@ -316,7 +317,7 @@ export function isEnded(x, td = today()) {
 export function ensureSeries(task) {
   if (!isSeries(task) || (task.seriesTime == null && task.next?.seriesTime == null) || task.done) return;
   const td = today();
-  let want = isEnded(task) ? [] : occurrences(task, td, addDays(td, SERIES_DAYS)).filter((d) => seriesTimeOn(task, d) != null && !ruleAt(task, d).pickTime);
+  let want = isEnded(task) ? [] : occurrences(task, td, addDays(td, SERIES_DAYS)).filter((d) => seriesTimeOn(task, d) != null && !ruleAt(task, d).pickTime && !(task.replan || []).includes(d)); // (v81) a turn sent back to plan again
   // (v77) one block per turn: two devices used to make the same turn each (random ids, both kept by the
   // sync), and a turn already on the plan another way (placed by hand, a session from Palestra, a move)
   // got a second one. Series blocks now have an id made of the task and the day, and duplicates go.
@@ -337,7 +338,7 @@ export function ensureSeries(task) {
     const start = Math.max(0, seriesTimeOn(task, d) - anchorOffset(null, task));
     const b = have.get(d);
     const len = minutesOn(task, d);
-    if (!b) { if (!taken.has(d)) planTask(task, d, start, { id: seriesBlockId(task.id, d), seriesId: task.id, occ: d, auto: true, series: true, minutes: len }); continue; }
+    if (!b) { if (!taken.has(d)) planTask(task, d, start, { id: seriesBlockId(task.id, d), seriesId: task.id, occ: d, auto: true, series: true, minutes: len, ...(isMealType(task) ? { kind: 'meal', recipes: [], servings: 2 } : {}) }); /* (v80) a meal type that repeats: meal blocks */ continue; }
     if (b.auto && !outcomeOf(b) && (b.start !== start || b.minutes !== len || b.title !== task.title || (b.category || null) !== (task.category || null))) {
       upsert('blocks', { ...b, start, minutes: len, title: task.title, category: task.category || null }, { silent: true });
     }

@@ -129,11 +129,11 @@ export function undoReflow() {
   changed();
 }
 // Where the planner would put these tasks over these days (no previews involved).
-export function planPlacements(ids, dates) {
+export function planPlacements(ids, dates, extra = []) {
   const s = planSettings(); const td = today(); const now = nowMinutes();
   const tasks = ids.map((id) => get('tasks', id)).filter(Boolean);
   const { items } = planningItems(tasks, dates);
-  const dayInfo = (d) => ({ date: d, blocks: busyOn(d).filter((b) => !b.allowOverlap), from: Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((now + 5) / 5) * 5 : 0), to: autoHoursFor(d)[1] });
+  const dayInfo = (d) => ({ date: d, blocks: [...busyOn(d).filter((b) => !b.allowOverlap), ...extra.filter((e) => e.date === d)], from: Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((now + 5) / 5) * 5 : 0), to: autoHoursFor(d)[1] });
   return spreadWithSplit(items, dates.map(dayInfo), s).placed;
 }
 // Where a new task would go "as soon as possible" over the next week (nothing stored; for the + sheet).
@@ -334,13 +334,13 @@ export function spreadLabel() {
   return t(`spreadOver_${currentView()}`);
 }
 // Put tasks on days as previews: spread over several days, or one after another from a time.
-export function placeGhosts(ids, dates, minute = null) {
+export function placeGhosts(ids, dates, minute = null, { busy = [], more = 0 } = {}) {
   const s = planSettings(); const td = today(); const now = nowMinutes();
   const tasks = ids.map((id) => get('tasks', id)).filter(Boolean);
   const { items, skipped: blocked } = planningItems(tasks, dates);
   const dayInfo = (d) => ({
     date: d,
-    blocks: [...busyOn(d).filter((b) => !b.allowOverlap), ...ghostsOn(d).map((g) => ({ start: g.start - (g.lead || 0), minutes: g.minutes + (g.lead || 0) }))],
+    blocks: [...busyOn(d).filter((b) => !b.allowOverlap), ...ghostsOn(d).map((g) => ({ start: g.start - (g.lead || 0), minutes: g.minutes + (g.lead || 0) })), ...busy.filter((e) => e.date === d)], // (v81) and the routines' turns proposed with them
     from: Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((now + 5) / 5) * 5 : 0),
     to: autoHoursFor(d)[1],
   });
@@ -373,7 +373,7 @@ export function placeGhosts(ids, dates, minute = null) {
   for (const p of placed) if (!trayTasks().some((x) => x.id === p.taskId)) ui.assign.sel.delete(p.taskId);
   ui.assign.skipped = skipped;
   if (skipped.length) toast(skipNote(skipped), 6000);
-  else if (placed.length) toast(t('spreadPreview', placed.length));
+  else if (placed.length || more) toast(t('spreadPreview', placed.length + more)); // (v81) the same count as the card
   render();
   if (placed.length && minute == null) requestAnimationFrame(scrollToGhost);
 }

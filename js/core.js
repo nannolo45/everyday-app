@@ -6,7 +6,7 @@ import { addDays, fmtTime, parseDate, today } from './plan.js';
 import { get, has, live, remove, state, uid, upsert } from './store.js';
 
 // Shown under Settings; keep in step with VERSION in sw.js (a unit test checks).
-export const APP_VERSION = 'v79';
+export const APP_VERSION = 'v81';
 
 export const $ = (sel, root = document) => root.querySelector(sel);
 // Hints that were emptied in i18n (the guide explains instead) render nothing.
@@ -116,6 +116,9 @@ export function quickFields(q) {
     kind: 'todo', title: q.title, minutes: q.minutes || 30, lenSet: Boolean(q.minutes), priority: q.priority, importance: q.importance || 3,
     category: findCategory(q.category), moreCats: [...new Set((q.moreCats || []).map(findCategory).filter(Boolean))], due: q.due || null, repeat: q.repeat || null, repeatDays: q.repeatDays || undefined, seriesFrom: q.repeat ? q.due : undefined,
     place: q.place || '', notes: '', done: false,
+    // (v81) a rhythm typed in: "3 volte a settimana", or days with (or without) a time
+    ...(q.repeat === 'times' ? { timesN: q.timesN || 3, timesPer: q.timesPer || 'week', pickTime: true, seriesFrom: undefined, due: null } : {}),
+    ...(q.repeat && q.repeat !== 'times' ? { pickTime: q.time == null, whenMode: 'repeat' } : {}),
   };
 }
 export function findCategory(word) {

@@ -125,7 +125,10 @@ export function repeatText(x) {
   if (!x.repeat || x.repeat === 'times') return '';
   const n = Math.max(1, Number(x.every) || 1);
   let s = x.repeat === 'weekdays' ? t('rep_weekdays') : n === 1 ? t(`rep_${x.repeat}`) : t('everyN', n, t(`unit_${x.repeat}`, n));
-  if (x.repeat === 'weekly' && (x.repeatDays || []).length) s += ` ${t('onDays', x.repeatDays.map(dayShort).join(', '))}`;
+  const dk = [...(x.repeatDays || [])].sort().join();
+  // (v81) the seven days are "every day", Mon–Fri "weekdays", Sat–Sun "weekend"
+  if (x.repeat === 'weekly' && n === 1 && ['1,2,3,4,5,6,7', '1,2,3,4,5', '6,7'].includes(dk)) s = t(dk === '6,7' ? 'qwWe' : dk === '1,2,3,4,5' ? 'rep_weekdays' : 'rep_daily');
+  else if (x.repeat === 'weekly' && (x.repeatDays || []).length) s += ` ${t('onDays', [...x.repeatDays].sort().map(dayShort).join(', '))}`;
   if (x.repeatUntil) s += ` ${t('untilDay', relDay(x.repeatUntil))}`;
   return s;
 }
