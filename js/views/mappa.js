@@ -4,14 +4,15 @@
 // Tap a thing: its 7 ports around it (⤷ Prepara on top, 🔒 Prima serve left, ↓ Poi below, ‖ In parallelo right,
 // ✓ bottom-left, ✕ bottom-right, ⏰ top-right). Tap a port: the ghost node (a new thing or one you have);
 // drag a port onto another thing: the preview, with the guardrails.
-import { catColor, catName, categories, esc, fmtDay, planSettings, relDay, ui } from '../core.js';
+import { catColor, catName, categories, esc, fmtDay, planSettings, relDay, toast, ui } from '../core.js';
 import { t } from '../i18n.js';
-import { conflictsOn, conflictText, outcomeOf } from '../model.js';
+import { checklistOf, conflictsOn, conflictText, outcomeOf } from '../model.js';
 import { addDays, fmtDur, fmtTime, nowMinutes, parseDate, today } from '../plan.js';
 import { changed, render } from '../shell.js';
 import { get, live, saveSettings, state, upsert } from '../store.js';
 import { dropOn, ghostHtml, LT, linkPill, linksFor, lname, node, PORT_POS, PORTS, when } from '../graph.js';
-import { agItems, behindCard, conflictBanner, dayBand, ghostTitle, ghostWhy, planCard, prepareDays, weekStart } from './planner.js';
+import { agItems, behindCard, conflictBanner, currentView, dayBand, ghostTitle, ghostWhy, planCard, prepareDays, weekStart } from './planner.js';
+import { isWide } from './wide.js';
 import { moveBlockTo } from '../placing.js';
 import { dayNodes, loadMin, nodeColor, overlays, rawId } from './scaletta.js';
 
@@ -215,9 +216,18 @@ function infoHtml(v) {
   const conf = n.date ? conflictsOn(n.date).filter((c) => c.ids.includes(rawId(n))) : [];
   return `<div class="mp-info"><h4>${n.fixed ? '📅 ' : ''}${esc(n.title)}</h4><small>${esc(n.date ? `${relDay(n.date)} · ${fmtTime(n.start)}–${fmtTime(n.start + n.minutes)} · ${fmtDur(n.minutes)}` : t('gr_unplanned'))}${conf.length ? ` · ⚠ ${esc(t('nConflicts', conf.length))}` : ''}</small>
     ${links.length ? `<div class="mp-ls">${links.map((l) => { const o = node(l.a === n.id ? l.b : l.a); return o ? `<div class="mp-lk">${linkPill(l)}<span>${l.a === n.id ? '→' : '←'} ${esc(o.title)} <small>${esc(o.kind === 'pot' ? t('sc_branchSub', lname(l.t)) : when(o))}</small></span></div>` : ''; }).join('')}</div>` : ''}
-    ${n.kind === 'block' && n.x && v === 'day' ? `<p class="hint mp-hint">${esc(t('mp_portsHint'))}</p>` : ''}
-    <div class="mp-row">${v !== 'day' && n.date ? `<button type="button" class="btn small primary" data-action="view-day" data-id="${n.date}">${esc(t('mp_openDay'))} ›</button>` : ''}${n.kind === 'block' ? `<button type="button" class="btn small" data-action="open-block" data-id="${esc(n.id)}">${esc(t('sc_details'))} ›</button>` : n.kind === 'event' ? `<button type="button" class="btn small" data-action="event" data-id="${esc(n.raw)}">${esc(t('sc_details'))} ›</button>` : ''}<button type="button" class="btn small" data-action="mp-x">${esc(t('close'))}</button></div></div>`;
+    ${n.kind === 'block' ? blockExtras(n) : ''}
+    <div class="mp-row">${v !== 'day' && n.date ? `<button type="button" class="btn small primary" data-action="view-day" data-id="${n.date}">${esc(t('mp_openDay'))} ›</button>` : ''}${n.kind === 'block' ? `<button type="button" class="btn small ghost" data-action="open-block" data-id="${esc(n.id)}">${esc(t('sc_details'))} ›</button>` : n.kind === 'event' ? `<button type="button" class="btn small" data-action="event" data-id="${esc(n.raw)}">${esc(t('sc_details'))} ›</button>` : ''}<button type="button" class="btn small ghost" data-action="mp-x">${esc(t('close'))}</button></div></div>`;
 }
+// (v98) a block's details (in the side pane on a wide screen, in a sheet on the phone): checklist, the 7 ports as
+// buttons, and the Esito / Sposta
+function blockExtras(n) {
+  const b = n.b; const st = outcomeOf(b); const cl = checklistOf(b); const ck = b.checked || [];
+  return `${cl.length ? `<div class="mp-cl">${cl.map((c, i) => `<label><input type="checkbox" data-ci="${i}" data-block="${esc(b.id)}" ${ck[i] ? 'checked' : ''} ${st ? 'disabled' : ''}> <span>${esc(c)}</span></label>`).join('')}</div>` : ''}
+    ${n.x && !st ? `<div class="mp-lb">${esc(t('sc_links'))} <small>${esc(t('sc_linksHint'))}</small></div><div class="sc-ports">${PORTS.map((k) => `<button type="button" class="sc-port" data-action="gr-port" data-id="${esc(`${b.id}~${k}`)}" style="--pc:${LT[k].c}">${LT[k].i} ${esc(lname(k))}</button>`).join('')}</div>` : ''}
+    <div class="mp-row">${!st ? `<button type="button" class="btn small primary" data-action="sc-done" data-id="${esc(b.id)}">✓ ${esc(t('esDone'))}</button><button type="button" class="btn small" data-action="block-fail" data-id="${esc(b.id)}">✕ ${esc(t('esFail'))}</button><button type="button" class="btn small" data-action="now-move" data-id="${esc(b.id)}">🕒 ${esc(t('moveBtn'))}…</button>` : `<button type="button" class="btn small" data-action="block-reset" data-id="${esc(b.id)}">↺ ${esc(t('sc_undo'))}</button>`}</div>`;
+}
+export const mapPaneHtml = () => { const h = infoHtml(currentView()); return h ? `<div class="mp-pane"><div class="field-label">${esc(t('mp_selected'))}</div>${h}</div>` : ''; };
 export function viewMappa(v, date) {
   const s = S(); const ms = v === 'month' ? s.mstyle : v;
   const key = `${v}|${v === 'day' ? date : v === 'week' ? weekStart(date) : date.slice(0, 7)}|${ms}`;
@@ -230,12 +240,13 @@ export function viewMappa(v, date) {
     s.pan = { k, x:6, y:4 }; s.key = key; // (v97) from the top: the lane names show
   }
   const sub = v === 'month' ? `<div class="mp-seg">${['weeks', 'lines'].map((k) => `<button type="button" class="${s.mstyle === k ? 'on' : ''}" data-action="mp-ms" data-id="${k}">${esc(t(`mp_ms_${k}`))}</button>`).join('')}</div>`
-    : v === 'day' ? `<div class="mp-tools"><span>${esc(t('mp_laneNames'))}</span><div class="mp-seg">${['custom', 'none', 'num'].map((k) => `<button type="button" class="${laneMode() === k ? 'on' : ''}" data-action="mp-lab" data-id="${k}">${esc(t(`mp_lab_${k}`))}</button>`).join('')}</div></div>` : '';
+    : v === 'day' ? `<div class="mp-tools"><span>${esc(t('mp_laneNames'))}</span><div class="mp-seg">${['custom', 'none', 'num'].map((k) => `<button type="button" class="${laneMode() === k ? 'on' : ''}" data-action="mp-lab" data-id="${k}">${esc(t(`mp_lab_${k}`))}</button>`).join('')}</div>
+      <span class="mp-sp"></span><span>${esc(t('mp_dragging'))}</span><div class="mp-seg"><button type="button" class="${ui.mpTime ? '' : 'on'}" data-action="mp-time" data-id="0">↔ ${esc(t('mp_laneOnly'))}</button><button type="button" class="${ui.mpTime ? 'on time' : ''}" data-action="mp-time" data-id="1">⇅ ${esc(t('mp_alsoTime'))}</button></div>${isWide() ? `<small>${esc(t('mp_orCtrl'))}</small>` : ''}</div>` : '';
   return `<section class="plan-main mp-mainw">${planCard()}${v === 'day' ? behindCard(date) + conflictBanner(date) + dayBand(date) : ''}${sub}
     <div class="mp-main" id="mp-main"><div class="mp-world" id="mp-world" style="transform:translate(${s.pan.x}px,${s.pan.y}px) scale(${s.pan.k});width:${m.w}px;height:${m.h}px">${m.html}</div>
     <div class="mp-zoom"><button type="button" data-action="mp-z" data-id="1" aria-label="${esc(t('mp_zoomIn'))}">＋</button><button type="button" data-action="mp-z" data-id="-1" aria-label="${esc(t('mp_zoomOut'))}">－</button><button type="button" data-action="mp-fit" aria-label="${esc(t('mp_fit'))}" title="${esc(t('mp_fit'))} (0)">⤢</button><button type="button" data-action="mp-fs" aria-label="${esc(t(document.body.classList.contains('plan-fs') ? 'mp_fsOff' : 'mp_fs'))}" title="${esc(t(document.body.classList.contains('plan-fs') ? 'mp_fsOff' : 'mp_fs'))} (F)">${document.body.classList.contains('plan-fs') ? '✕' : '⛶'}</button><span class="mp-pct" id="mp-pct">${Math.round(s.pan.k * 100)}%</span></div>
     ${m.R && !Object.keys(m.R).length ? `<p class="mp-empty">${esc(t('agEmpty'))}</p>` : ''}</div>
-    ${infoHtml(v)}</section>${overlays()}`;
+    ${isWide() ? '' : infoHtml(v)}</section>${overlays()}`;
 }
 
 // ---------- clicks, panning, dragging a port ----------
@@ -251,6 +262,7 @@ export function mpClick(btn) {
     case 'mp-z': { const mn = document.getElementById('mp-main'); const r = mn?.getBoundingClientRect(); const cx = r ? r.width / 2 : 180, cy = r ? r.height / 2 : 200; const k0 = s.pan.k; const k = Math.max(0.3, Math.min(1.6, k0 + Number(id) * 0.12)); s.pan.x = cx - ((cx - s.pan.x) / k0) * k; s.pan.y = cy - ((cy - s.pan.y) / k0) * k; s.pan.k = k; render(); return true; }
     case 'mp-fit': s.key = `fit${s.key}`; render(); return true;
     case 'mp-fs': toggleFs(); return true;
+    case 'mp-time': ui.mpTime = id === '1'; render(); return true;
     case 'mp-lab': saveSettings({ mapLaneLabels:id }); render(); return true;
     case 'mp-ladd': saveSettings({ mapLanes:[...lanes(), ''] }); render(); return true;
     case 'mp-lrm': {
@@ -282,10 +294,14 @@ document.addEventListener('pointermove', (e) => {
     const d = drag.node; const k = S().pan.k; const dx = (e.clientX - d.sx) / k, dy = (e.clientY - d.sy) / k;
     if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 8) return;
     drag.moved = true; d.el.classList.add('dragging'); d.el.style.left = `${d.x0 + dx}px`; d.el.style.top = `${d.y0 + dy}px`;
-    const lane = Math.max(0, Math.min(geo.total - 1, Math.round((d.x0 + dx - LX0 - 8) / LW))); const start = Math.max(0, Math.round((geo.h0 + (d.y0 + dy - TOP) / PPMD) / 15) * 15);
+    // (v98) dragging moves a block between lanes and keeps its time; with Ctrl (or the «⇅ also the time» switch) the time moves too
+    const time = e.ctrlKey || e.metaKey || ui.mpTime; const b0 = get('blocks', d.id);
+    if (!time) d.el.style.top = `${d.y0}px`;
+    const lane = Math.max(0, Math.min(geo.total - 1, Math.round((d.x0 + dx - LX0 - 8) / LW))); const start = time ? Math.max(0, Math.round((geo.h0 + (d.y0 + dy - TOP) / PPMD) / 15) * 15) : b0.start;
     d.lane = lane; d.start = start;
     const w = document.getElementById('mp-world'); let g = w?.querySelector('.mp-snap'); if (w && !g) { g = document.createElement('div'); g.className = 'mp-snap'; w.appendChild(g); }
-    if (g) { Object.assign(g.style, { left:`${LX0 + lane * LW + 8}px`, top:`${geo.Y(start)}px`, width:`${LW - 16}px`, height:d.el.style.height }); g.textContent = `${fmtTime(start)} · ${lanes()[lane] || t('mp_laneN', lane + 1)}`; }
+    if (g) { g.classList.toggle('time', start !== b0.start); Object.assign(g.style, { left:`${LX0 + lane * LW + 8}px`, top:`${geo.Y(start)}px`, width:`${LW - 16}px`, height:d.el.style.height });
+      g.innerHTML = time ? `⇅ ${esc(fmtTime(start))} · ${esc(lanes()[lane] || t('mp_laneN', lane + 1))}${start !== b0.start ? `<small>${esc(t('mp_was', fmtTime(b0.start)))}</small>` : ''}` : `↔ ${esc(lanes()[lane] || t('mp_laneN', lane + 1))} · ${esc(t('mp_keeps', fmtTime(b0.start)))}<small>${esc(t('mp_ctrlHint'))}</small>`; }
     e.preventDefault(); return;
   }
   if (drag.port) {
@@ -306,7 +322,8 @@ document.addEventListener('pointerup', (e) => {
     setTimeout(() => { drag.moved = false; }, 0);
     const b = get('blocks', d.id); if (!b || d.lane == null) { render(); return; }
     if (d.lane !== b.lane) upsert('blocks', { ...b, lane:d.lane }, { silent:true });
-    if (d.start !== b.start) moveBlockTo(b.id, b.date, d.start); else changed();
+    ui.mpTime = false; // the phone's switch is for one move
+    if (d.start !== b.start) moveBlockTo(b.id, b.date, d.start); else { if (d.lane !== b.lane) toast(t('mp_laneMoved', b.title, lanes()[d.lane] || t('mp_laneN', d.lane + 1), fmtTime(b.start))); changed(); }
     return;
   }
   if (!drag.port) return;

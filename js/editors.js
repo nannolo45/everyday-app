@@ -3,7 +3,7 @@ import { isPalestra, PALESTRA_APP, palestraNote, startLink } from './palestra.js
 import { isRoutine, routines } from './routines.js';
 import { classic, curView, RICETTE_APP, setView, setWhen, viewName, viewTokens, wouldShow } from './views/impegni.js';
 import { openWeekGrid } from './weekgrid.js';
-import { upcomingOf } from './finder.js';
+import { upcomingOf, viewRange } from './finder.js';
 import { timePairHtml, wireTimePair } from './timepair.js';
 import { afterPantryChange, pantrySnap } from './lowstock.js';
 import { countToast, rejoinEvent, setCounts, skipEvent, unskipEvent } from './placing.js';
@@ -167,8 +167,14 @@ export function openAutoPlanner() {
   // The guided flow: pick the span, fill the few details the planner is missing (inline, no editor),
   // then the previews appear on the plan and the drawer asks to add them.
   const td = today();
-  const last = state.settings.autoSpan || { span: '7', n: 5 };
-  const from0 = currentDate() > td ? currentDate() : td;
+  let last = state.settings.autoSpan || { span: '7', n: 5 };
+  let from0 = currentDate() > td ? currentDate() : td;
+  // (v98) from the Planner, the period on screen: that day, the rest of that week, the rest of that month
+  if (route().name === 'plan') {
+    const r = viewRange();
+    if (r.v === 'day') last = { ...last, span: '1' };
+    else if (r.to >= td) { from0 = r.from > td ? r.from : td; if (r.v === 'month') last = { ...last, span: 'month' }; else { const n = Math.round((parseDate(r.to) - parseDate(from0)) / 864e5) + 1; last = { span: n === 7 ? '7' : 'n', n }; } }
+  }
   const all = trayTasks();
   const sel = ui.assign?.sel?.size ? all.filter((x) => ui.assign.sel.has(x.id)) : all;
   const bad = sel.filter((x) => taskIssues(x).length).slice(0, 6);

@@ -267,6 +267,7 @@ view.addEventListener('click', (e) => {
   switch (action) {
     // (v66) the Planner's task list and search (finder.js), the week grid
     case 'fd-tab': ui.fdTab = id; render(); break;
+    case 'fd-fold': ui.fdFold = { ...(ui.fdFold || {}), [id]: !ui.fdFold?.[id] }; render(); break; // (v98)
     case 'ag-choose': openChooser(); break; // (v67) the phone's Pianifica
     case 'pv-list': openPropsList(); break;
     case 'pv-go': goToProposal(id, btn.dataset.date); break;

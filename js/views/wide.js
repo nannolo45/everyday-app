@@ -16,6 +16,7 @@ import { get, live, upsert } from '../store.js';
 import { changed, currentDate, render } from '../shell.js';
 import { allItems, classic, curView, dateOf, flagCount, LENS, matches, missing, openTriage, overviewCards, setLen, setView, setWhen, toPlanList, typeOf, viewList, viewName, WHEN_PICKS, whenPickOf } from './impegni.js';
 import { finderHtml } from '../finder.js';
+import { mapPaneHtml } from './mappa.js';
 import { moveBlockTo, placeItem } from '../placing.js';
 import { openWeekGrid } from '../weekgrid.js';
 import { leaveShop, SH } from './shop.js';
@@ -83,7 +84,7 @@ function paneTask() {
 // (v66) the length it has always shows lit, also when it isn't one of the six
 const lensFor = (x) => { const m = x.lenSet !== false ? x.minutes || 30 : null; return m && !LENS.includes(m) ? [...LENS, m].sort((a, b) => a - b) : LENS; };
 // (v66) the Planner's pane: Da pianificare · Nel piano · Tutte, and the search (finder.js)
-function panePlan() { return `${planStyle() === 'hours' ? '' : paneWarnings(currentDate())}${finderHtml({ props: true })}`; } // (v67) with the proposals on top; (v97) ✦ Pianifica and the day's warnings above them
+function panePlan() { return `${planStyle() === 'hours' ? '' : paneWarnings(currentDate(), planStyle() === 'mappa' ? mapPaneHtml() : '')}${finderHtml({ props: true })}`; } // (v67) with the proposals on top; (v97) ✦ Pianifica and the day's warnings above them
 function paneEvent() {
   const items = eventItems();
   const e = items.find((y) => y.id === ui.evSel && (!ui.evDate || y.date === ui.evDate)) || items.find((y) => y.id === ui.evSel);

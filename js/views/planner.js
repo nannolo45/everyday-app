@@ -683,12 +683,13 @@ export function nowCard(date) {
     <div class="agn-row"><button class="btn small primary" type="button" data-action="now-done" data-id="${esc(cur.id)}">✓ ${esc(t('esDone'))}</button>${running ? '' : `<button class="btn small" type="button" data-action="now-start" data-id="${esc(cur.id)}">⏱ ${esc(t('agnTimer'))}</button>`}<button class="btn small" type="button" data-action="sc-ext" data-id="${esc(cur.id)}">+15 min</button><button class="btn small ghost" type="button" data-action="block-fail" data-id="${esc(cur.id)}">✕ ${esc(t('esFail'))}</button></div></div>${nx}</div>`;
 }
 // (v97) For the side pane on a wide screen (all three looks): ✦ Pianifica and this day's warnings, each with its fix.
-export function paneWarnings(date) {
+export function paneWarnings(date, extra = '') {
   const td = today(); const conflicts = conflictsOn(date); const late = date === td ? behindToday() : [];
   const cf = conflicts.map((c, i) => `<li class="pw-item red"><span>⚠ ${esc(conflictText(c))}</span><span class="pw-acts">${(c.type !== 'late' || (get('tasks', get('blocks', c.ids[0])?.taskId)?.due || '') >= td) && !(c.type === 'closed' && isEvent(get('tasks', get('blocks', c.ids[0])?.taskId))) ? `<button class="btn small primary" type="button" data-action="fix" data-date="${date}" data-i="${i}">${esc(t('fix'))}</button>` : ''}${c.type === 'overlap' || c.type === 'closed' ? `<button class="btn small" type="button" data-action="allow" data-date="${date}" data-i="${i}">${esc(t('sc_leave'))}</button>` : ''}</span></li>`).join('');
   const lt = late.map((b) => `<li class="pw-item yel"><span>⏰ ${esc(t('pwLate', b.title, fmtTime(b.start)))}</span><span class="pw-acts"><button class="btn small primary" type="button" data-action="behind-done" data-id="${esc(b.id)}">✓</button><button class="btn small" type="button" data-action="behind-fail" data-id="${esc(b.id)}">✕</button><button class="btn small" type="button" data-action="behind-tmr" data-id="${esc(b.id)}">→ ${esc(t('tomorrow'))}</button></span></li>`).join('');
   const n = conflicts.length + late.length;
-  return `<div class="pw"><button class="btn primary pw-plan" type="button" data-action="ag-plan">✦ ${esc(t('smartTitle'))}</button>
+  const v = currentView(); const per = v === 'day' ? (date === td ? t('today').toLowerCase() : relDay(date)) : t(`smartFor_${v}`);
+  return `<div class="pw"><button class="btn primary pw-plan" type="button" data-action="ag-plan">✦ ${esc(t('smartTitle'))} · ${esc(per)}</button>${extra}
     <div class="field-label">${esc(t('pwTitle'))} <small>${n || ''}</small></div>${n ? `<ul class="pw-list">${cf}${lt}</ul>` : `<p class="hint">✓ ${esc(t('pwNone'))}</p>`}</div>`;
 }
 export function agendaWeek(date) {

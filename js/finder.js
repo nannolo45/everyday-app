@@ -1,7 +1,7 @@
 // finder.js (v66): the Planner's list of tasks, in the wide pane and on the phone: Da pianificare · Nel
 // piano · Tutte, and a search over all of them. A task shows where it is on the plan as pills; a pill
 // jumps there and the block flashes. "Sposta…" opens the week grid for that one block.
-import { catColor, catName, catsOf, esc, relDay, toast, ui } from './core.js';
+import { catColor, catName, catsOf, esc, relDay, route, toast, ui } from './core.js';
 import { getLang, t } from './i18n.js';
 import { isEvent } from './kinds.js';
 import { countedOf, ensureSeries, isMealTask, leadOf, outcomeOf } from './model.js';
@@ -44,6 +44,20 @@ function itemRow(x) {
 // (v68) This week's routine turns that still need a time ("I pick it each week", "N times a week"): the same
 // rows as the card on Oggi, with free times to tap, another time, or skip. Counted with the tasks to plan.
 const routineTurns = () => cardRows(today(), weekEndOf(today()));
+// (v98) the Planner's period on screen (day / week / month), for «Da pianificare» in the pane and for ✦
+export function viewRange() {
+  const v = currentView(); const d = currentDate();
+  if (v === 'week') { const w = addDays(d, -((new Date(`${d}T12:00`).getDay() + 6) % 7)); return { v, from:w, to:addDays(w, 6) }; }
+  if (v === 'month') { const m = d.slice(0, 7); const last = new Date(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0).getDate(); return { v, from:`${m}-01`, to:`${m}-${String(last).padStart(2, '0')}` }; }
+  return { v, from:d, to:d };
+}
+const whenFor = (x) => x.onDay || x.due || null;
+function scopedTodo() {
+  const r = viewRange(); const td = today(); const list = trayTasks();
+  const inR = (x) => { const w = whenFor(x); if (!w) return false; if (w >= r.from && w <= r.to) return true; return r.from <= td && td <= r.to && w < td; }; // the period with today in it: what's overdue too
+  const turns = r.to < td ? [] : cardRows(r.from > td ? r.from : td, r.to);
+  return { r, here:list.filter(inR), nodate:list.filter((x) => !whenFor(x)), other:list.filter((x) => whenFor(x) && !inR(x)), turns };
+}
 function turnRows(rows) {
   return `<ul class="fd-list">${rows.map((r) => {
     const x = r.x;
@@ -58,7 +72,32 @@ function turnRows(rows) {
   }).join('')}</ul>`;
 }
 // Da pianificare: pick one and the free time it fits in lights up; then the routine turns of the week.
+function taskRow(x) {
+  return `<li class="fd-row${ui.pick === x.id ? ' on' : ''}" draggable="true" data-drag="task:${esc(x.id)}" data-min="${x.minutes || 30}">${bar(x)}<div class="fd-c">
+    <button type="button" class="fd-t" data-action="fd-pick" data-id="${esc(x.id)}" aria-pressed="${ui.pick === x.id}">${esc(x.title)}<small>${esc([x.lenSet === false ? '' : fmtDur(x.minutes || 30), whenFor(x) ? `${x.onDay ? '📌 ' : ''}${relDay(whenFor(x))}` : '', ...catsOf(x).map((c) => catName(get('categories', c)))].filter(Boolean).join(' · '))}</small></button>
+    </div></li>`;
+}
+// (v98) Da pianificare follows the Planner: this day (and what's overdue, on today), this week by day, this month
+// by week; below, folded, what has no date and what's for other dates.
+function scopedRows() {
+  const { r, here, nodate, other, turns } = scopedTodo();
+  const min = (xs) => xs.reduce((n, x) => n + (x.minutes || 30), 0);
+  const scope = `<p class="fd-scope">${esc(t('fdScope', t(`fdIn_${r.v}`), here.length + turns.length, fmtDur(min(here)) || '0m'))}</p>`;
+  let body = '';
+  if (r.v === 'day') body = here.length ? `<ul class="fd-list">${here.map(taskRow).join('')}</ul>` : '';
+  else {
+    const groups = new Map(); const key = (x) => { const w = whenFor(x) < r.from ? r.from : whenFor(x); if (r.v === 'week') return w; return addDays(w, -((new Date(`${w}T12:00`).getDay() + 6) % 7)); };
+    for (const x of [...here].sort((a, b) => (whenFor(a) < whenFor(b) ? -1 : 1))) { const k = key(x); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); }
+    body = [...groups].map(([k, xs]) => `<div class="fd-day">${esc(r.v === 'week' ? dayLabel(k) : t('fdWeekOf', `${Number(k.slice(8))}–${Number(addDays(k, 6).slice(8))}`))} <small>${xs.length} · ${esc(fmtDur(min(xs)))}</small></div><ul class="fd-list">${xs.map(taskRow).join('')}</ul>`).join('');
+  }
+  const turnsHtml = turns.length ? `<div class="fd-day">${esc(t('fdGrpRoutines'))} <small>${turns.length}</small></div>${turnRows(turns)}` : '';
+  const fold = (k, label, xs) => xs.length ? `<button type="button" class="fd-fold" data-action="fd-fold" data-id="${k}" aria-expanded="${Boolean(ui.fdFold?.[k])}">${ui.fdFold?.[k] ? '▾' : '▸'} ${esc(label)} · ${xs.length}</button>${ui.fdFold?.[k] ? `<ul class="fd-list">${xs.map(taskRow).join('')}</ul>` : ''}` : '';
+  const pick = ui.pick && get('tasks', ui.pick);
+  const empty = !here.length && !turns.length ? `<p class="hint fd-empty">✓ ${esc(t('fdNoneIn', t(`fdIn_${r.v}`)))}</p>` : `<p class="hint">${esc(pick ? t('pnPicked', pick.title) : t('pnPick'))}</p>`;
+  return `${scope}${empty}${body}${turnsHtml}${fold('nodate', t('fdNoDate'), nodate)}${fold('other', t('fdOther'), other)}`;
+}
 function todoRows() {
+  if (isWide() && route().name === 'plan') return scopedRows();
   const list = trayTasks();
   const turns = routineTurns();
   if (!list.length && !turns.length) return `<p class="hint fd-empty">${esc((ui.assign?.ghosts || []).length ? `✦ ${t('propsAllUp')}` : `✓ ${t('agAllPlanned')}`)}</p>`;
@@ -91,7 +130,7 @@ export function proposalsHtml({ buttons = true } = {}) {
   const days = new Map();
   for (const p of all) { if (!days.has(p.date)) days.set(p.date, []); days.get(p.date).push(p); }
   return `<div class="pv">${buttons ? `<div class="pv-h"><b>✦ ${esc(t('propsH'))} <small>${all.length}</small></b><button type="button" class="btn small" data-action="ag-cancel">${esc(t('cancel'))}</button><button type="button" class="btn small primary" data-action="ag-add">${esc(t('add'))}</button></div>` : ''}
-    ${[...days].map(([d, ps]) => `<div class="fd-day">${esc(dayLabel(d))}</div><ul class="fd-list">${ps.map((p) => `<li class="fd-row pv-row">${bar(p.task)}<div class="fd-c"><button type="button" class="fd-t" data-action="pv-go" data-id="${esc(p.fk)}" data-date="${p.date}">${esc(p.title)}<small>${esc(`${fmtTime(p.start)}–${fmtTime(p.start + p.minutes)}`)}</small>${p.why ? `<span class="pv-why">✦ ${esc(p.why)}</span>` : ''}</button></div>${p.i != null ? `<button type="button" class="icon pv-x" data-action="ghost-rm" data-i="${p.i}" aria-label="${esc(t('remove'))}">✕</button>` : p.fix ? `<button type="button" class="icon pv-x" data-action="pv-fix-x" data-id="${esc(p.taskId)}" data-date="${p.date}" data-start="${p.start}" aria-label="${esc(t('remove'))}">✕</button>` : ''}</li>`).join('')}</ul>`).join('')}
+    ${[...days].map(([d, ps]) => `<div class="fd-day">${esc(dayLabel(d))}</div><ul class="fd-list">${ps.map((p) => `<li class="fd-row pv-row">${bar(p.task)}<div class="fd-c"><button type="button" class="fd-t" data-action="pv-go" data-id="${esc(p.fk)}" data-date="${p.date}">${esc(p.title)}<small>${esc(`${fmtTime(p.start)}–${fmtTime(p.start + p.minutes)}`)}</small>${p.why ? `<span class="pv-why">✦ ${esc(p.why)}</span>` : ''}</button></div>${p.i != null ? `<button type="button" class="icon pv-ok" data-action="ghost-keep" data-i="${p.i}" aria-label="${esc(t('propKeep'))}" title="${esc(t('propKeep'))}">✓</button><button type="button" class="icon pv-x" data-action="ghost-rm" data-i="${p.i}" aria-label="${esc(t('remove'))}">✕</button>` : p.fix ? `<button type="button" class="icon pv-ok" data-action="fix-keep" data-id="${esc(p.taskId)}" data-date="${p.date}" data-start="${p.start}" aria-label="${esc(t('propKeep'))}" title="${esc(t('propKeep'))}">✓</button><button type="button" class="icon pv-x" data-action="pv-fix-x" data-id="${esc(p.taskId)}" data-date="${p.date}" data-start="${p.start}" aria-label="${esc(t('remove'))}">✕</button>` : ''}</li>`).join('')}</ul>`).join('')}
     <p class="hint">${esc(t('propsHint'))}</p></div>`;
 }
 // A proposal tapped: its day in the Planner, and it flashes there.
@@ -154,10 +193,10 @@ export function resumeRoutine(id) {
 const classicUi = () => { try { return localStorage.getItem('everyday-classic') === '1'; } catch { return false; } };
 export function finderHtml({ props = false } = {}) {
   const q = (ui.fdQ || '').trim();
-  const nTodo = trayTasks().length + routineTurns().length; // the same number as the Planner's card
+  const nTodo = isWide() && route().name === 'plan' ? (() => { const q2 = scopedTodo(); return q2.here.length + q2.turns.length; })() : trayTasks().length + routineTurns().length; // (v98) in the pane: the period on screen
   // (v82) nothing left to plan: no Da pianificare tab; the panel opens on the next one
   const tab0 = ui.fdTab || 'todo';
-  const hideTodo = !nTodo && !(ui.assign?.ghosts || []).length && !classicUi();
+  const hideTodo = !nTodo && !trayTasks().length && !(ui.assign?.ghosts || []).length && !classicUi();
   const tab = tab0 === 'todo' && hideTodo ? 'rout' : tab0;
   const items = findItems();
   let body;
@@ -231,6 +270,7 @@ export function sheetClick(btn) {
   const close = () => { modal.close(); };
   switch (action) {
     case 'fd-tab': ui.fdTab = id; redrawMine(); return true;
+    case 'fd-fold': ui.fdFold = { ...(ui.fdFold || {}), [id]: !ui.fdFold?.[id] }; render(); return true;
     case 'fd-pick': ui.pick = id; ui.pickOcc = btn.dataset.occ || null; ui.pickBlock = null; ui.view = 'day'; close(); render(); return true;
     case 'fd-go': close(); goToBlock(id); return true;
     case 'pv-go': close(); goToProposal(id, btn.dataset.date); return true;

@@ -2433,3 +2433,19 @@ body.plan-fs .mp-main { height: calc(100dvh - 330px); min-height: 380px; }
 .plc-quick { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 10px; }
 .plc-q { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: .84rem; cursor: pointer; }
 .plc-q.on { background: var(--accent-soft); border-color: var(--accent); font-weight: 600; }
+
+/* ---------- (v98) pane: ✓ on each proposal, «Da pianificare» for the period, the map's selection ---------- */
+.pv-ok { color: var(--accent-ink); background: var(--accent); border-radius: 9px; width: 34px; height: 34px; flex: none; align-self: center; margin-right: 4px; }
+.fd-scope { margin: 4px 0 6px; font-size: .8rem; color: var(--muted); background: var(--accent-soft); border-radius: 10px; padding: 6px 10px; }
+.fd-fold { display: block; width: 100%; margin-top: 8px; text-align: left; border: 1px dashed var(--line); background: transparent; color: var(--muted); border-radius: 10px; padding: 7px 10px; font: inherit; font-size: .82rem; cursor: pointer; }
+.mp-pane { margin: 10px 0 4px; } .mp-pane .mp-info { margin-top: 4px; border-color: var(--accent); }
+.mp-cl { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 2px; font-size: .88rem; } .mp-cl label { display: flex; gap: 8px; align-items: center; } .mp-cl input { width: 18px; height: 18px; accent-color: var(--accent); }
+.mp-lb { margin: 10px 0 4px; font-size: .7rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); } .mp-lb small { text-transform: none; letter-spacing: 0; }
+.mp-sp { flex: 1; }
+.mp-seg button.on.time { background: color-mix(in srgb, var(--warn) 24%, transparent); color: var(--ink); }
+.mp-snap.time { border-color: var(--warn); color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.mp-snap small { display: block; font-weight: 400; color: var(--muted); }
+/* the phone: the details come up as a sheet over the map, no scrolling */
+body:not(.is-wide) .mp-mainw > .mp-info { position: fixed; left: 0; right: 0; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); z-index: 60; margin: 0; max-height: 60vh; overflow: auto; border-radius: 20px 20px 0 0; box-shadow: 0 -12px 30px rgba(0,0,0,.35); padding-top: 14px; }
+body:not(.is-wide) .mp-mainw > .mp-info::before { content: ''; display: block; width: 44px; height: 5px; border-radius: 4px; background: var(--line); margin: -6px auto 8px; }
+body.plan-fs:not(.is-wide) .mp-mainw > .mp-info { bottom: 0; }
