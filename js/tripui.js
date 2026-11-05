@@ -30,7 +30,7 @@ export function addrLabel(addr) {
   const p = allPlaces().find((q) => placeAddress(q).trim().toLowerCase() === a || (q.name || '').toLowerCase() === a);
   return p ? placeLabel(p) : `📍 ${String(addr).split(',')[0]}`;
 }
-const endLabel = (v, step, k) => (v === 'home' ? homeLabel() : v !== 'auto' && placeById(v) ? placeLabel(placeById(v)) : step ? addrLabel(k === 'from' ? step.from : step.to) : t(k === 'from' ? 'tvAutoFrom' : 'tvAutoTo'));
+const endLabel = (v, step, k) => (v === 'home' ? homeLabel() : String(v).startsWith('addr:') ? `📍 ${v.slice(5).split(',')[0]}` : v !== 'auto' && placeById(v) ? placeLabel(placeById(v)) : step ? addrLabel(k === 'from' ? step.from : step.to) : t(k === 'from' ? 'tvAutoFrom' : 'tvAutoTo'));
 const legMin = (st, k, step) => { const f = st[LEG[k]]; return f != null ? { m: Number(f), fixed: true, known: true } : step ? { m: Number(step.minutes) || 0, known: step.known !== false } : null; };
 const minText = (lm) => (!lm ? t('tvAutoMin') : lm.known ? `${lm.m}m` : `~${lm.m}m`);
 
@@ -60,11 +60,12 @@ function editor(st, k, route, skip) {
   const all = st.all === k; // (place editor) the whole list in place of the recent three
   const places = (all ? allPlaces() : recentPlaces(8)).filter((p) => p.id !== skip && p.id !== st[k]).slice(0, all ? 200 : 3);
   const cur = st[k] !== 'auto' && st[k] !== 'home' && st[k] !== 'none' ? placeById(st[k]) : null;
+  const raw = String(st[k]).startsWith('addr:') ? st[k] : null;
   const chip = (v, label) => `<button class="pl-chip${st[k] === v ? ' on' : ''}" value="tv-end:${k}:${esc(v)}" formnovalidate>${esc(label)}</button>`;
   const lm = legMin({ ...st, [LEG[k]]: null }, k, step);
   const fixed = st[LEG[k]];
   return `<div class="tv-box"><div class="tv-bh"><b>${esc(t(k === 'from' ? 'tvFrom' : 'tvTo'))}</b><button class="pl-x" value="tv-close" formnovalidate aria-label="${esc(t('close'))}">✕</button></div>
-    <div class="pl-chips">${chip('auto', t('tvAuto', autoL.replace(/^\S+ /, '')))}${chip('home', homeLabel())}${cur ? chip(cur.id, placeLabel(cur)) : ''}${places.map((p) => chip(p.id, placeLabel(p))).join('')}${all ? '' : `<button class="pl-chip pl-all" value="tv-all:${k}" formnovalidate>☰ ${esc(t('plAll'))}</button>`}${chip('none', t(k === 'from' ? 'tvNoThere' : 'tvNoBack'))}</div>
+    <div class="pl-chips">${chip('auto', t('tvAuto', autoL.replace(/^\S+ /, '')))}${chip('home', homeLabel())}${cur ? chip(cur.id, placeLabel(cur)) : ''}${raw ? chip(raw, `📍 ${raw.slice(5).split(',')[0]}`) : ''}${places.map((p) => chip(p.id, placeLabel(p))).join('')}${all ? '' : `<button class="pl-chip pl-all" value="tv-all:${k}" formnovalidate>☰ ${esc(t('plAll'))}</button>`}${chip('none', t(k === 'from' ? 'tvNoThere' : 'tvNoBack'))}</div>
     ${st[k] === 'none' ? '' : `<div class="tv-mins"><span>${esc(t('tvLen'))}</span><button class="pl-chip${fixed == null ? ' on' : ''}" value="tv-auto:${k}" formnovalidate>${esc(lm ? t('tvCalc', minText(lm)) : t('tvCalcNone'))}</button><input class="pl-num sm" data-tvmin="${k}" inputmode="numeric" value="${fixed ?? ''}" placeholder="—" aria-label="${esc(t('tvFixedMin'))}"><small>${esc(t('tvFixedMin'))}</small></div>`}
     ${st[k] === 'auto' ? `<p class="pl-hint">${esc(t('tvAutoWhy'))}</p>` : ''}</div>`;
 }

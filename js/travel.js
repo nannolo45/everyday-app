@@ -126,6 +126,7 @@ export async function searchAddress(q, { fetchFn, near = null, lang = '' } = {})
   q = String(q || '').trim(); if (q.length < 3) return [];
   const url = `${ENDPOINTS.photon}?q=${encodeURIComponent(q)}&limit=6${near ? `&lat=${near.lat}&lon=${near.lon}` : ''}${['de', 'en', 'fr'].includes(lang) ? `&lang=${lang}` : ''}`;
   const data = await getJson(fetchFn, url, { headers: { Accept: 'application/json' } }, 8000);
+  if (!data || !Array.isArray(data.features)) return null; // (v94) not reachable: null, kept apart from «nothing found» ([])
   const out = [];
   for (const f of data?.features || []) {
     const p = f.properties || {}; const [lon, lat] = f.geometry?.coordinates || [];
@@ -140,4 +141,21 @@ export async function searchAddress(q, { fetchFn, near = null, lang = '' } = {})
     out.push({ name: named && named !== main ? named : (named || ''), main, sub, address, lat: Number(lat), lon: Number(lon), km: near ? Math.round(kmBetween(near, { lat, lon }) * 10) / 10 : null });
   }
   return out.slice(0, 5);
+}
+
+// (v94) One search on demand on OpenStreetMap's own service (Nominatim allows that, not search-as-you-type), when
+// Photon doesn't answer. Same shape as searchAddress; null when it can't be reached either.
+export async function searchOnce(q, { fetchFn, near = null } = {}) {
+  q = String(q || '').trim(); if (q.length < 3) return [];
+  const url = `${ENDPOINTS.nominatim}?format=json&limit=5&addressdetails=1&q=${encodeURIComponent(q)}`;
+  const data = await getJson(fetchFn, url, { headers: { Accept: 'application/json' } }, 10000);
+  if (!Array.isArray(data)) return null;
+  return data.map((r) => {
+    const a = r.address || {}; const lat = Number(r.lat); const lon = Number(r.lon);
+    const street = a.road ? `${a.road}${a.house_number ? ` ${a.house_number}` : ''}` : '';
+    const city = a.city || a.town || a.village || a.suburb || '';
+    const main = street || r.name || String(r.display_name || '').split(',')[0];
+    const sub = [a.postcode, city].filter(Boolean).join(' ');
+    return { name: r.name && r.name !== a.road ? r.name : '', main, sub, address: [main, sub].filter(Boolean).join(', '), lat, lon, km: near ? Math.round(kmBetween(near, { lat, lon }) * 10) / 10 : null };
+  });
 }

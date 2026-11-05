@@ -18,8 +18,9 @@ import { afterStart, openChecklist, openPalestra, doShift, finishTimer, openAddM
 import { t } from './i18n.js';
 import { isEvent } from './kinds.js';
 import { migrateMeals, syncMealBlocks, noRhythm, repairRhythms, anchorOffset, autoChecks, leadOf, checklistLeft, checkMissed, conflictsOn, eventOf, followParent, migrateBlocksToEvents, planTask, saveEvent, seedMeals, setOutcome, setStepOutcome, setTaskDone, syncEventTasks, travelTasks, trySetBlockDone, tryStep } from './model.js';
-import { fmtTime, isDate, nowMinutes, parseTime, quickAdd, today } from './plan.js';
+import { addDays, fmtTime, isDate, nowMinutes, parseTime, quickAdd, today } from './plan.js';
 import { openSections } from './views/giornata.js';
+import { openPlus } from './plus.js';
 import { addGhosts, assignDrop, autoHoursFor, fixConflict, placeGhosts, planEventTasks, planGroceryTrips, spreadDays, trayTasks, undoReflow, warnConflicts } from './planning.js';
 import { changed, currentDate, positionNow, released, render, renderIfSafe, renderShell, runSync, scheduleSync, scrollToGhost, syncScheduled, typing, updateSyncBadge } from './shell.js';
 import { placeById } from './places.js';
@@ -38,6 +39,7 @@ import { openWeekGrid } from './weekgrid.js';
 import { goToBlock, goToProposal, openChooser, openPropsList, resumeRoutine, sheetClick } from './finder.js';
 import { setLowPref } from './lowstock.js';
 import { countToast, firstFreeStart, moveBlockTo, openConflictChoice, openDropOn, placeItem, unplanToPane } from './placing.js';
+import { unmarkedToday } from './views/planner.js';
 import { agendaAdd, agendaPlan, onDayTasks, keepFix, keepGhost, openGapFits, planStyle, showSteps } from './views/planner.js';
 import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName } from './views/shop.js';
 import { openTaskTools, taskFilter } from './views/tasks.js';
@@ -156,6 +158,7 @@ view.addEventListener('change', (e) => {
   if (el.id === 'task-sort') { saveSettings({ taskSort: el.value }); render(); return; }
   if (el.id === 'tray-sort') { saveSettings({ traySort: el.value }); render(); return; }
   if (el.id === 'trip-mode') { upsert('config', { id: 'shopping', value: { ...(get('config', 'shopping')?.value || {}), tripMode: el.value } }); changed(); }
+  if (el.dataset.remind) { upsert('config', { id: 'reminders', value: { ...(get('config', 'reminders')?.value || {}), [el.dataset.remind]: el.checked } }); changed(); return; }
   if (el.id === 'remind-default') { upsert('config', { id: 'reminders', value: { ...(get('config', 'reminders')?.value || {}), default: Number(el.value) } }); changed(); }
   if (el.form?.id === 'assign-opts') {
     saveSettings({ maxLoad: Number(el.form.maxLoad.value) || 8, freeWeekends: el.form.freeWeekends.checked });
@@ -362,6 +365,20 @@ view.addEventListener('click', (e) => {
       break;
     }
     case 'behind-later': { const b = get('blocks', id); if (!b) break; const x = b.taskId && get('tasks', b.taskId); moveBlockTo(id, b.date, firstFreeStart({ ...(x || {}), minutes: b.minutes || 30 }, b.date)); break; }
+    // (v94) «domani»: tomorrow at its first free time; «Tutte fatte» / «Tutte a domani» for the whole evening list
+    case 'behind-tmr': { const b = get('blocks', id); if (!b) break; const x = b.taskId && get('tasks', b.taskId); const tm = addDays(b.date, 1); ui.giRow = null; moveBlockTo(id, tm, firstFreeStart({ ...(x || {}), minutes: b.minutes || 30 }, tm)); break; }
+    case 'behind-all-done': case 'behind-all-tmr': {
+      const list = unmarkedToday(); if (!list.length) break; const before = list.map((b) => ({ ...b }));
+      for (const b of list) {
+        if (action === 'behind-all-done') { if (!trySetBlockDone(get('blocks', b.id), true)) setOutcome(get('blocks', b.id), 'done'); }
+        else { const x = b.taskId && get('tasks', b.taskId); const tm = addDays(b.date, 1); followParent(upsert('blocks', { ...b, date: tm, start: firstFreeStart({ ...(x || {}), minutes: b.minutes || 30 }, tm), auto: false }, { silent: true })); }
+      }
+      changed(); toast(t(action === 'behind-all-done' ? 'evAllDoneToast' : 'evAllTmrToast', list.length), 6000, [{ label: t('undo'), run: () => { for (const b of before) upsert('blocks', b, { silent: true }); changed(); } }]);
+      break;
+    }
+    case 'gi-row': ui.giRow = ui.giRow === id ? null : id; render(); break;
+    case 'gi-past': ui.giPast = !ui.giPast; render(); break;
+    case 'plus-today': openPlus({ date: today(), today: true }); break;
     case 'fix-keep': keepFix(id, btn.dataset.date, Number(btn.dataset.start)); break;
     case 'fix-drop': keepFix(id, btn.dataset.date, Number(btn.dataset.start), false); break;
     case 'ag-gap': if (placePicked(btn.dataset.date, Number(btn.dataset.start), Number(btn.dataset.min))) break; openGapFits(btn.dataset.date, Number(btn.dataset.start), Number(btn.dataset.min)); break;

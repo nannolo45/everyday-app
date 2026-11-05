@@ -7,7 +7,7 @@ import { today } from './plan.js';
 import { cancelScheduledSync, render, runSync } from './shell.js';
 import { COLLECTIONS, get, live, remove, replaceCollection, resetSharedSettings, RICETTE, saveMeta, saveSettings, state, upsert } from './store.js';
 import { isConfigured, pauseSync, resumeSync, runWorkflow, testConnection } from './sync.js';
-import { remindDefault, remindLabel, REMINDS } from './views/settings.js';
+import { remindDefault, remindLabel, remindOn, REMINDS } from './views/settings.js';
 
 export function gcalSection() {
   const st = get('gcal', 'status');
@@ -25,6 +25,7 @@ export function gcalSection() {
     <label class="check"><input type="checkbox" id="show-events" ${state.settings.showEvents === false ? '' : 'checked'}> ${esc(t('showEvents'))}</label>
     <label>🔔 ${esc(t('remindDefault'))}<select id="remind-default">${REMINDS.map((m) => `<option value="${m}" ${m === remindDefault() ? 'selected' : ''}>${esc(remindLabel(m))}</option>`).join('')}</select>
       ${small('remindHint')}</label>
+    <div class="rm-kinds" role="group" aria-label="${esc(t('remindKinds'))}">${['leave', 'appt', 'rest'].map((k) => `<label class="check"><input type="checkbox" data-remind="${k}" ${remindOn(k) ? 'checked' : ''}> ${esc(t(`remind_${k}`))}</label>`).join('')}</div>
     <div class="button-row"><button class="btn small" type="button" data-action="gcal-now">${esc(t('gcalNow'))}</button>
       <button class="btn small ghost" type="button" data-action="gcal-remove">${esc(t('gcalRemove'))}</button></div>
     ${hint('gcalRemoveHint')}

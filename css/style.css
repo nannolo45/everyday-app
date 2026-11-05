@@ -1348,7 +1348,8 @@ dialog.tri .tri-go .btn { flex: 1; }
 .ag-len b { font-size: .75rem; font-weight: 600; color: var(--muted); }
 .ag-row.ghost .ag-c { border-style: dashed; border-left-style: dashed; background: color-mix(in srgb, var(--c) 6%, transparent); cursor: default; }
 .ag-row.ghost .icon { align-self: center; }
-.ag-row.is-done .ag-c, .ag-row.is-skipped .ag-c { opacity: .6; }
+.ag-row.is-done .ag-c, .ag-row.is-skipped .ag-c, .ag-row.is-failed .ag-c { opacity: .6; }
+.ag-row.is-failed .ag-t { text-decoration: line-through; }
 .ag-row.ev .ag-c { background: color-mix(in srgb, var(--c) 10%, var(--surface)); }
 .ag-gap button { width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: .85rem; cursor: pointer; text-align: left; }
 .ag-gap button > span:last-child { flex: 1; padding: 7px 12px; border: 1px dashed var(--line); border-radius: 12px; }
@@ -2161,3 +2162,27 @@ input.gi-ck { appearance: none; -webkit-appearance: none; display: grid; place-c
 .ag-stn { flex: 1; min-width: 0; } .ag-st small { color: var(--muted); font-size: .76rem; white-space: nowrap; }
 .ag-st.trv .ag-stn { color: var(--muted); } .ag-st.done .ag-stn { text-decoration: line-through; color: var(--muted); }
 .ag-st.cur { background: var(--accent-soft); border-radius: 8px; padding-left: 4px; }
+
+/* (v94) Oggi in breve: every activity (key ones bold), what's behind you folded, a row opened in place */
+.gi-row.minor .gi-x b { font-weight: 400; }
+.gi-row.key .gi-x b { font-weight: 650; }
+.gi-row.done { opacity: .6; }
+.gi-row.open { background: var(--accent-soft); border-radius: 10px 10px 0 0; padding-left: 6px; padding-right: 6px; }
+.gi-open { padding: 6px 8px 10px; margin-bottom: 4px; background: var(--accent-soft); border-radius: 0 0 10px 10px; display: flex; flex-direction: column; gap: 8px; }
+.gi-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.gi-cl { display: flex; flex-direction: column; gap: 4px; }
+.gi-cl .check { margin: 0; font-size: .9rem; }
+.gi-note { margin: 0; font-size: .86rem; color: var(--muted); white-space: pre-line; }
+.gi-past { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 8px 2px; border: 0; background: none; color: var(--muted); font: inherit; font-size: .88rem; cursor: pointer; text-align: left; }
+.gi-add { display: block; width: 100%; margin-top: 6px; padding: 8px; border: 1px dashed var(--line); border-radius: 10px; background: none; color: var(--accent); font: inherit; cursor: pointer; }
+/* In corso: the running thing's steps, checklist and notes */
+.now-detail { margin: 6px 0 8px; display: flex; flex-direction: column; gap: 6px; }
+/* Com'è andata? */
+.behind-card.evening { border-color: var(--line); background: var(--surface); }
+.behind-card.evening.all > b { color: var(--accent); }
+.ev-all { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.ev-tmr { margin: 8px 0 0; font-size: .88rem; color: var(--muted); } .ev-tmr b { color: var(--ink); }
+/* The map not answering */
+.np-down { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--warn) 8%, var(--surface)); font-size: .88rem; }
+.np-down small { color: var(--muted); } .np-down .btn { align-self: flex-start; }
+.rm-kinds { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 8px; }

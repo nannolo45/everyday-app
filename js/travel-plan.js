@@ -60,7 +60,7 @@ export function travelOf(task) {
   return { there: c.thereDefault !== 'off', back: c.backDefault !== 'off', mode: 'default', from: 'auto', to: 'auto', thereMin: null, backMin: null, ...(p?.travel || {}), ...(task?.travel || {}) };
 }
 // An end chosen by hand: its address ('' for 'auto').
-export const endAddress = (v) => (v === 'home' ? travelCfg().home : v && v !== 'auto' && v !== 'none' ? placeAddress(placeById(v)) : '');
+export const endAddress = (v) => (v === 'home' ? travelCfg().home : String(v || '').startsWith('addr:') ? v.slice(5) : v && v !== 'auto' && v !== 'none' ? placeAddress(placeById(v)) : ''); // (v94) 'addr:…' = an address not saved as a place
 export const travelAffected = (x) => x.place || x.steps?.some((y) => y.travel || y.buffer) || travelCfg().thereDefault === 'always' || travelCfg().backDefault === 'always' || bufferOf(x) > 0;
 export const travelMode = (task) => { const m = travelOf(task).mode; return TRAVEL_MODES.includes(m) ? m : travelCfg().mode; };
 export const travelCache = () => state.settings.travelCache || {};

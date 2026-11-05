@@ -17,7 +17,7 @@ import { openWeekGrid } from './weekgrid.js';
 import { changed } from './shell.js';
 import { addDays, fmtDur, fmtTime, isoDay, nowMinutes, parseDate, parseTime, quickAdd, today } from './plan.js';
 import { allPlaces, guessEmoji, hasHours, openState, parsePlaceText, PLACE_ICONS, placeAddress, placeById, placeByText, placeEmoji, quickPlace, recentPlaces, savePlace, searchPlaces } from './places.js';
-import { norm, searchAddress } from './travel.js';
+import { norm, searchAddress, searchOnce } from './travel.js';
 import { saveSettings } from './store.js';
 import { travelCache, travelCfg } from './travel-plan.js';
 import { getLang } from './i18n.js';
@@ -188,23 +188,39 @@ function placeSuggest() {
   const q = (P.pq || '').trim(); if (!q) return '';
   const pp = parsePlaceText(q);
   const hits = searchPlaces(pp.name || q, 5);
-  const map = q.length < 3 ? '' : P.geoQ !== pp.addr ? `<p class="pl-hint">${esc(t('npSearching'))}</p>` : (P.geo || []).length ? (P.geo || []).map((g, i) => `<button class="pl-sopt map" value="plc-geo:${i}" formnovalidate><span aria-hidden="true">${g.name ? esc(guessEmoji(g.name)) : '📍'}</span><span>${g.name ? `<b>${esc(g.name)}</b> · ` : ''}${esc(g.main === g.name ? '' : g.main)}<small>${esc([g.sub, g.km != null ? (g.km < 100 ? `${g.km} km` : t('npFar')) : ''].filter(Boolean).join(' · '))}</small></span></button>`).join('') : `<p class="pl-hint">${esc(t('npNoMap'))}</p>`;
   return `${pp.name ? `<div class="np-parsed">✎ ${t('npParsed', esc(pp.name), esc(pp.addr))}</div>` : ''}
     ${hits.length ? `<div class="np-grp">${esc(t('npYours'))}</div>${hits.map((p) => placeOpt(p, `plc:${esc(p.id)}`)).join('')}` : ''}
-    ${q.length >= 3 ? `<div class="np-grp">${esc(t('npOnMap'))}<small>OpenStreetMap</small></div>${map}` : ''}
-    <button class="pl-sopt new" value="plc-asis" formnovalidate>✎ ${esc(t('npAsIs', pp.addr))}<small>${esc(t('npAsIsSub'))}</small></button>`;
+    ${mapGroup()}
+    ${P.legOv ? '' : `<button class="pl-sopt new" value="plc-asis" formnovalidate>✎ ${esc(t('npAsIs', pp.addr))}<small>${esc(t('npAsIsSub'))}</small></button>`}`;
+}
+// (v94) the map's part: searching, the suggestions, «nothing found», or «the map doesn't answer» with one search on demand
+function mapGroup() {
+  const addr = parsePlaceText(P.pq || '').addr; if (addr.length < 3) return '';
+  const body = P.geoQ !== addr ? `<p class="pl-hint">${esc(t('npSearching'))}</p>`
+    : P.geoDown ? `<div class="np-down">⚠ ${esc(t(P.geoDown === 'again' ? 'npDownAgain' : 'npDown'))}<small>${esc(t('npDownSub'))}</small><button class="btn small" value="plc-once" formnovalidate>🔎 ${esc(t('npSearchOnce'))}</button></div>`
+    : (P.geo || []).length ? (P.geo || []).map((g, i) => `<button class="pl-sopt map" value="plc-geo:${i}" formnovalidate><span aria-hidden="true">${g.name ? esc(guessEmoji(g.name)) : '📍'}</span><span>${g.name ? `<b>${esc(g.name)}</b> · ` : ''}${esc(g.main === g.name ? '' : g.main)}<small>${esc([g.sub, g.km != null ? (g.km < 100 ? `${g.km} km` : t('npFar')) : ''].filter(Boolean).join(' · '))}</small></span></button>`).join('')
+    : `<p class="pl-hint">${esc(t('npNoMap'))}</p>`;
+  return `<div class="np-grp">${esc(t('npOnMap'))}<small>OpenStreetMap</small></div>${body}`;
 }
 function homePoint() { const h = travelCfg().home; const g = h && travelCache().geo?.[norm(h)]; return g?.lat != null ? { lat: g.lat, lon: g.lon } : null; }
-function lookUp(form) {
+function lookUp(form, sel = '#pl-sg-place', html = placeSuggest) {
   clearTimeout(geoTimer);
   const addr = parsePlaceText(P.pq || '').addr;
   if (addr.length < 3 || typeof fetch !== 'function') return;
   geoTimer = setTimeout(async () => {
     const res = await searchAddress(addr, { fetchFn: (u, i) => fetch(u, i), near: homePoint(), lang: getLang() });
     if (parsePlaceText(P.pq || '').addr !== addr) return; // typed on meanwhile
-    P.geo = res; P.geoQ = addr;
-    const box = form.querySelector('#pl-sg-place'); if (box) box.innerHTML = placeSuggest();
+    P.geo = res || []; P.geoQ = addr; P.geoDown = res ? false : 'down';
+    const box = form.querySelector(sel); if (box) box.innerHTML = html();
   }, 350);
+}
+// «🔎 Cerca sulla mappa»: when Photon doesn't answer, one search on OpenStreetMap's own service (allowed on demand)
+async function searchOnceNow() {
+  const addr = parsePlaceText(P.pq || '').addr;
+  const res = await searchOnce(addr, { fetchFn: (u, i) => fetch(u, i), near: homePoint() });
+  if (parsePlaceText(P.pq || '').addr !== addr) return;
+  P.geo = res || []; P.geoQ = addr; P.geoDown = res ? false : 'again';
+  for (const sel of ['#pl-sg-place', '#pl-ovmap']) { const box = document.querySelector(`dialog[open] ${sel}`); if (box) box.innerHTML = sel === '#pl-ovmap' ? mapGroup() : placeSuggest(); }
 }
 function newPlaceBox() {
   const n = P.np; const em = n.em || (n.shop ? '🛒' : guessEmoji(n.name));
@@ -243,14 +259,14 @@ function optRows() {
     : row('steps', t('steps'), P.steps.length ? String(P.steps.length) : '', `${P.steps.map((s, i) => `<div class="pl-srow"><span>${i + 1}. ${esc(s)}</span><button class="pl-x" value="step-rm:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></div>`).join('')}<input id="pl-step" class="pl-in" placeholder="${esc(t('plStepPh'))}" autocomplete="off">`),
     row('after', t('needsFirst'), nm(P.after), `${listEd('after', t('plSearchPh'))}<p class="pl-hint">${esc(t('plAfterHint'))}</p>`),
     row('rules', t('plRules'), [P.ok.length && t('plOkN', P.ok.length), P.ko.length && t('plKoN', P.ko.length)].filter(Boolean).join(' · '), `<div class="pl-lbl">${esc(t('plIfDone'))}</div>${listEd('ok', t('plSearchPh'))}<div class="pl-lbl">${esc(t('plIfFail'))}</div>${listEd('ko', t('plSearchPh'))}<p class="pl-hint">${esc(t('plRulesHint'))}</p>`),
-    P.edit ? row('check', t('checklist'), P.checklist.length ? String(P.checklist.length) : '', `${P.checklist.map((c, i) => `<div class="pl-srow"><span>☐ ${esc(c)}</span><button class="pl-x" value="cl-rm:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></div>`).join('')}<input id="pl-cl" class="pl-in" placeholder="${esc(t('plCheckPh'))}" autocomplete="off">`) : '',
+    row('check', t('checklist'), P.checklist.length ? String(P.checklist.length) : '', `${P.checklist.map((c, i) => `<div class="pl-srow"><span>☐ ${esc(c)}</span><button class="pl-x" value="cl-rm:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></div>`).join('')}<input id="pl-cl" class="pl-in" placeholder="${esc(t('plCheckPh'))}" autocomplete="off">`),
     P.edit ? row('buffer', t('bufferAfter'), P.buffer === '' ? t('bufferDefault', Number(state.settings.taskBuffer) || 0) : Number(P.buffer) ? fmtDur(Number(P.buffer)) : t('none'), `<div class="pl-chips">${['', 0, 5, 10, 15, 30, 60].map((m) => `<button class="pl-chip${String(P.buffer) === String(m) ? ' on' : ''}" value="buf:${m}" formnovalidate>${esc(m === '' ? t('bufferDefault', Number(state.settings.taskBuffer) || 0) : m ? fmtDur(m) : t('none'))}</button>`).join('')}</div>`) : '',
     P.edit && P.appt ? row('evt', t('secEventTasks'), eventTasksOf(P.edit).length ? String(eventTasksOf(P.edit).length) : '', `${eventTasksOf(P.edit).map((y) => `<button class="pl-sopt" value="evt:${esc(y.id)}" formnovalidate>${y.done ? '✓ ' : ''}${esc(y.title)}<small>${esc(y.due ? relDay(y.due) : '')}</small></button>`).join('')}<button class="pl-chip" value="evt-add" formnovalidate>+ ${esc(t('addEventTask'))}</button>`) : '',
     catFlag(P.cat, 'meal') ? row('ppl', t('mealPeople'), String(P.people), `<div class="pl-chips">${[1, 2, 3, 4, 5, 6].map((n) => `<button class="pl-chip${P.people === n ? ' on' : ''}" value="ppl:${n}" formnovalidate>${n}</button>`).join('')}</div><p class="pl-hint">${esc(t('mealPeopleHint'))}</p>`) : '', // (v87) a meal: for how many, by default
     row('notes', t('notes'), P.notes ? '✎' : '', `<textarea id="pl-notes" class="pl-in" rows="3">${esc(P.notes)}</textarea>`),
   ].join('');
 }
-const optSummary = () => [P.imp !== 3 && '★'.repeat(P.imp), P.due && t('dueOn', relDay(P.due)), P.place && placeLabel(), P.steps.length && t('plStepsN', P.steps.length), P.after.length && `🔒 ${P.after.length}`, (P.ok.length + P.ko.length) && t('plRulesN', P.ok.length + P.ko.length), P.notes && '✎'].filter(Boolean).join(' · ');
+const optSummary = () => [P.imp !== 3 && '★'.repeat(P.imp), P.due && t('dueOn', relDay(P.due)), P.place && placeLabel(), P.steps.length && t('plStepsN', P.steps.length), P.after.length && `🔒 ${P.after.length}`, (P.ok.length + P.ko.length) && t('plRulesN', P.ok.length + P.ko.length), P.notes && '✎', P.checklist.length && `☑ ${P.checklist.length}`].filter(Boolean).join(' · ');
 // what the name says by itself ("Cena ogni giorno 20:30", "Dentista ven 10:00"), while Quando is untouched
 function typedWhen() {
   if (P.wc !== undefined) return null;
@@ -299,6 +315,7 @@ function placePickerHtml() {
     <p class="pl-hint">${esc(t('plcPickHint'))}</p>
     <input id="pl-ovq" class="pl-in" placeholder="${esc(t('plcSearchPh'))}" autocomplete="off">
     <button class="pl-sopt new" id="pl-ovnew" value="ov-new:place:" formnovalidate hidden></button>
+    <div class="pl-sugg" id="pl-ovmap"></div>
     ${ctabs(lists.map(([k, l, ps]) => [k, k === 'recent' ? t('plcRecentTab') : l, k === 'recent' ? null : ps.length]), 'four')}
     ${lists.map(([k, l, ps]) => grp(k, l, ps.length ? ps.map(item).join('') : `<p class="pl-hint">${esc(t('plcNone'))}</p>`, k === 'all' ? 'data-all="1"' : '')).join('')}
     <div class="pl-ovf"><button class="btn" value="ov-close" formnovalidate>${esc(t('close'))}</button></div></div></div>`;
@@ -391,7 +408,13 @@ function onSubmit(form, action, e) {
   else if (a === 'ovt') { P.ovt = b; P.ovq = ''; }
   else if (a === 'plc' && P.legOv) { if (placeById(b)) { P.tv[P.legOv] = b; P.tvOwn = true; } P.legOv = null; P.ov = null; P.ovq = ''; }
   else if (a === 'plc') { const p = placeById(b); if (p) { P.placeId = p.id; P.place = placeAddress(p); placeChosen(); } P.ov = null; P.ovq = ''; }
-  else if (a === 'plc-geo') { const g = (P.geo || [])[Number(b)]; if (g) startNew(P.pq || '', true, { addr: g.address, lat: g.lat, lon: g.lon, name: parsePlaceText(P.pq || '').name || g.name || '' }); focus = '#pl-npname'; }
+  else if (a === 'plc-geo') {
+    const g = (P.geo || [])[Number(b)];
+    if (g && P.legOv) { P.tv[P.legOv] = `addr:${g.address}`; P.tvOwn = true; P.legOv = null; } // (v94) a trip's end: any address, not only a saved place
+    else if (g) { startNew(P.pq || '', true, { addr: g.address, lat: g.lat, lon: g.lon, name: parsePlaceText(P.pq || '').name || g.name || '' }); focus = '#pl-npname'; }
+    P.ov = null; P.ovq = '';
+  }
+  else if (a === 'plc-once') { searchOnceNow(); return; }
   else if (a === 'plc-asis') { startNew(P.pq || ''); focus = '#pl-npname'; }
   else if (a === 'plc-np-back') { P.np = null; focus = '#pl-place'; }
   else if (a === 'plc-np-emo') P.np.emOpen = !P.np.emOpen;
@@ -491,7 +514,8 @@ function wire() {
       form.querySelectorAll('.pl-pick').forEach((el) => { const hit = !q || el.dataset.hay.includes(q); el.hidden = !hit; if ((el.dataset.name ?? el.dataset.hay) === q) exact = true; });
       form.querySelectorAll('.pl-pgrp').forEach((g) => { g.hidden = q ? !g.dataset.all || ![...g.querySelectorAll('.pl-pick')].some((el) => !el.hidden) : g.dataset.tab !== P.ovt; });
       form.querySelector('.pl-ctabs')?.classList.toggle('dim', Boolean(q));
-      nb.hidden = !q || exact; nb.value = `ov-new:${P.ov}:${encodeURIComponent(oq.value.trim())}`;
+      nb.hidden = !q || exact || Boolean(P.legOv); nb.value = `ov-new:${P.ov}:${encodeURIComponent(oq.value.trim())}`;
+      if (P.ov === 'place') { P.pq = oq.value; const mb = form.querySelector('#pl-ovmap'); if (mb) mb.innerHTML = mapGroup(); lookUp(form, '#pl-ovmap', mapGroup); } // (v94) the map here too
       nb.innerHTML = P.ov === 'place' ? `☆ ${esc(t('plcSaveNew', oq.value.trim()))}<small>${esc(t('plcSaveNewSub'))}</small>` : `✚ ${esc(t('plNew', oq.value.trim()))}<small>${esc(t('plNewSub'))}</small>`;
     });
     oq.addEventListener('keydown', (ev) => {
@@ -571,7 +595,7 @@ function save() {
     id: uid(), createdAt: Date.now(), kind: P.save || P.wc === 'pick' && !P.once ? 'saved' : 'todo', title, minutes: steps.length && !P.steps.length ? steps.reduce((n, y) => n + y.minutes, 0) : L,
     lenSet: P.lenSet || P.unknown ? !P.unknown : Boolean(P.touched.len), lenUnknown: P.unknown || undefined, importance: P.imp !== 3 ? P.imp : q.importance || 3, priority: q.priority || 0,
     category: cat, moreCats: [], due: P.due || (P.wc === undefined ? q.due : null) || null, place: P.place || qPlace?.addr || '', placeId: P.placeId || qPlace?.id || null, ...(catFlag(cat, 'meal') ? { people: P.people } : {}), notes: P.notes, done: false, checklist: [],
-    steps, splitSteps: steps.length > 1 && !P.steps.length, after: newIds(P.after), allRules: rules, windows: [],
+    steps, splitSteps: steps.length > 1 && !P.steps.length, after: newIds(P.after), allRules: rules, windows: [], checklist: [...P.checklist],
     ...((P.place || qPlace) && tvFor(P.placeId || qPlace?.id) ? { travel: tvFor(P.placeId || qPlace?.id) } : {}),
   };
   ui.justAdded ||= new Set();
@@ -777,11 +801,12 @@ export function openPlusEdit(task) {
   draw();
 }
 
-export function openPlus({ text = '', cat = null, save = false, appt = false, date = null } = {}) {
+export function openPlus({ text = '', cat = null, save = false, appt = false, date = null, today: forToday = false } = {}) {
   P = fresh(text || '');
   if (cat) P.cat = cat;
   if (save) P.save = true;
   if (date) P.date = date;
+  if (forToday) Object.assign(P, { wc: 'pick', once: true, mode: 'first', touched: { ...P.touched, when: true } }); // (v94) «＋ Per oggi…»: Quando = today
   if (appt) Object.assign(P, { appt: true, wc: 'pick', once: true, mode: 'at', pop: 'when' }); // (v83) an appointment: the + with the toggle on
   draw('#pl-name');
 }

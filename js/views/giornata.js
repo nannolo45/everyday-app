@@ -14,6 +14,8 @@ import { get, live, saveSettings, state } from '../store.js';
 import { todayRows, todayStripHtml } from '../weekpick.js';
 import { openModal } from '../widgets.js';
 import { SH } from './shop.js';
+import { agSteps } from './planner.js';
+import { runningBlock } from '../timer.js';
 
 export const SECTIONS = ['brief', 'prep', 'due', 'free', 'rout', 'shop', 'tmr'];
 const OFF_BY_DEFAULT = ['shop'];
@@ -91,22 +93,62 @@ function section(id, { count = '', summary = '', body = '' }) {
   const open = ui.giOpen?.[id] ?? def;
   return `<section class="card gi-sec${open ? ' open' : ''}" data-sec="${id}"><button type="button" class="gi-sh" data-action="gi-sec" data-id="${id}" aria-expanded="${open}"><span>${esc(secName(id))}</span><span class="gi-cnt">${count}</span><span class="gi-chev" aria-hidden="true">${open ? '▾' : '›'}</span></button>${open ? `<div class="gi-sb">${body}</div>` : `<p class="gi-sum">${summary}</p>`}</section>`;
 }
+// (v94) Every activity of the day, the key ones in bold; what's behind you folds into one line (tap to see it,
+// greyed and struck); tap a row to open it right here: its steps, its checklist and what you can do with it.
+const asItem = (b) => { const x = b.taskId ? get('tasks', b.taskId) : null; const out = outcomeOf(b); return { id: b.id, b, x, start: b.start, end: b.start + (b.minutes || 0), leave: null, title: b.title, ic: b.kind === 'meal' ? '🍽' : b.kind === 'groceries' ? '🛒' : '', sub: '', done: Boolean(out), failed: out === 'failed', noOut: false, minor: true }; };
+export function dayItems(td, now, keys, others) {
+  const all = [...keys, ...others.map(asItem)].sort((a, b) => (a.leave ?? a.start) - (b.leave ?? b.start));
+  for (const k of all) if (!k.ev && !k.done && k.end <= now) k.noOut = true;
+  return all;
+}
+const isPast = (k, now) => k.done || (k.ev && k.end <= now);
+// What a block can show when opened (also on the running card): steps, checklist, notes.
+export function blockDetail(b, { notes = true } = {}) {
+  const x = b.taskId ? get('tasks', b.taskId) : null; const out = outcomeOf(b);
+  const steps = agSteps(b, out);
+  const cl = checklistOf(b);
+  const list = cl.length ? `<div class="gi-cl">${cl.map((c, i) => `<label class="check"><input type="checkbox" data-ci="${i}" data-block="${esc(b.id)}" ${(b.checked || [])[i] ? 'checked' : ''} ${out ? 'disabled' : ''}><span>${esc(c)}</span></label>`).join('')}</div>` : '';
+  const note = notes ? (b.notes || x?.notes || '') : '';
+  return `${steps}${list}${note ? `<p class="gi-note">📝 ${esc(note)}</p>` : ''}`;
+}
+function openRowHtml(k, now) {
+  const b = k.b; const out = outcomeOf(b); const run = runningBlock()?.id === b.id;
+  const btn = (action, label, cls = '') => `<button type="button" class="btn small${cls}" data-action="${action}" data-id="${esc(b.id)}">${label}</button>`;
+  const acts = out ? `${btn('block-reset', `↺ ${esc(t('giUndoOutcome'))}`)}${btn('open-block', `${esc(t('giOpen'))} ›`, ' ghost')}`
+    : `${btn('now-done', `✓ ${esc(t('markDone'))}`, ' primary')}${run || b.startedAt ? '' : btn('now-start', `▶ ${esc(t('startNow'))}`)}${btn('behind-later', `→ ${esc(t('behindLater'))}`)}${btn('behind-tmr', esc(t('tomorrow')))}${btn('block-fail', `✕ ${esc(t('giSkip'))}`)}${btn('open-block', `${esc(t('giOpen'))} ›`, ' ghost')}`;
+  return `<div class="gi-open">${blockDetail(b)}<div class="gi-acts">${acts}</div></div>`;
+}
+function itemRows(k, now, past = false) {
+  const rows = [];
+  if (k.leave != null) rows.push(row(fmtTime(k.leave), '🚶', esc(t('giLeave', k.title)), '', { cls: `gl${now >= k.leave || k.done ? ' done' : ''}` }));
+  const sub = [k.noOut ? `<span class="gi-warn">${esc(t('giNoOutcome'))}</span>` : '', k.failed ? esc(t('couldnt')) : '', esc(k.sub)].filter(Boolean).join(' · ');
+  const open = !k.ev && ui.giRow === k.id;
+  rows.push(row(fmtTime(k.start), k.ic, esc(k.title), sub, { cls: `${k.minor ? 'minor' : 'key'}${past || k.done ? ' done' : ''}${k.failed ? ' failed' : ''}${!k.done && k.start <= now && now < k.end ? ' cur' : ''}${open ? ' open' : ''}`, right: k.done ? (k.failed ? '✕' : '✓') : fmtDur(k.end - k.start), action: k.ev ? 'event' : 'gi-row', id: k.id }));
+  if (open) rows.push(openRowHtml(k, now));
+  return rows;
+}
 function briefSec(td, now, keys, others) {
+  const all = dayItems(td, now, keys, others);
+  const past = all.filter((k) => isPast(k, now)); const rest = all.filter((k) => !isPast(k, now));
   const rows = []; let lined = false;
-  for (const k of keys) {
+  if (past.length) {
+    const nF = past.filter((k) => k.failed).length; const nD = past.length - nF;
+    const span = `${fmtTime(Math.min(...past.map((k) => k.leave ?? k.start)))}–${fmtTime(Math.max(...past.map((k) => k.end)))}`;
+    rows.push(`<button type="button" class="gi-past" data-action="gi-past" aria-expanded="${Boolean(ui.giPast)}"><span>✓ ${esc([t('giPastDone', nD), nF ? t('giPastSkip', nF) : ''].filter(Boolean).join(' · '))} · ${span}</span><span aria-hidden="true">${ui.giPast ? '▾' : '›'}</span></button>`);
+    if (ui.giPast) for (const k of past) rows.push(...itemRows(k, now, true));
+  }
+  for (const k of rest) {
     if (!lined && (k.leave ?? k.start) > now) { rows.push(nowLine(now)); lined = true; }
-    if (k.leave != null) rows.push(row(fmtTime(k.leave), '🚶', esc(t('giLeave', k.title)), '', { cls: `gl${now >= k.leave || k.done ? ' done' : ''}` }));
-    const sub = [k.noOut ? `<span class="gi-warn">${esc(t('giNoOutcome'))}</span>` : '', k.failed ? esc(t('couldnt')) : '', esc(k.sub)].filter(Boolean).join(' · ');
-    rows.push(row(fmtTime(k.start), k.ic, esc(k.title), sub, { cls: `${k.done ? 'done' : ''}${!k.done && k.start <= now && now < k.end ? ' cur' : ''}`, right: k.done ? '✓' : fmtDur(k.end - k.start), action: k.ev ? 'event' : 'open-block', id: k.id }));
+    rows.push(...itemRows(k, now));
   }
   if (!lined) rows.push(nowLine(now));
-  const oDone = others.filter((b) => outcomeOf(b)).length;
   // (v92) what's left from now: a long block already running counts only its rest
-  const rest = (a, z) => Math.max(0, z - Math.max(a, now));
-  const left = [...keys.filter((k) => !k.done && !k.ev).map((k) => rest(k.start, k.end)), ...others.filter((b) => !outcomeOf(b)).map((b) => rest(b.start, b.start + (b.minutes || 0)))].reduce((a, b) => a + b, 0);
-  rows.push(row('', '⏳', esc(left ? t('giLeft', fmtDur(left)) : t('giNothingLeft')), `${others.length ? `${esc(t('giOthersDone', oDone, others.length))} · ` : ''}<a href="#/plan">${esc(t('tabPlan'))} ›</a>`, { cls: 'sum' }));
-  const nx = keys.find((k) => !k.done && (k.leave ?? k.start) > now) || keys.find((k) => !k.done);
-  return section('brief', { count: keys.length ? `${keys.filter((k) => k.done).length}/${keys.length}` : '', summary: nx ? `${esc(t('giNext'))} <b>${fmtTime(nx.start)} ${esc(nx.title)}</b>${nx.leave != null && now < nx.leave ? ` · <span class="leave">${esc(t('leaveAt', fmtTime(nx.leave)))}</span>` : ''}` : esc(keys.length ? t('giAllDone') : t('giNoKey')), body: rows.join('') });
+  const restMin = (a, z) => Math.max(0, z - Math.max(a, now));
+  const left = all.filter((k) => !k.done && !k.ev).map((k) => restMin(k.start, k.end)).reduce((a, b) => a + b, 0);
+  rows.push(row('', '⏳', esc(left ? t('giLeft', fmtDur(left)) : t('giNothingLeft')), `<a href="#/plan">${esc(t('tabPlan'))} ›</a>`, { cls: 'sum' }));
+  rows.push(`<button type="button" class="gi-add" data-action="plus-today">＋ ${esc(t('giForToday'))}</button>`);
+  const nx = rest.find((k) => !k.done && !k.minor && (k.leave ?? k.start) > now) || rest.find((k) => !k.done);
+  return section('brief', { count: all.length ? `${all.filter((k) => isPast(k, now)).length}/${all.length}` : '', summary: nx ? `${esc(t('giNext'))} <b>${fmtTime(nx.start)} ${esc(nx.title)}</b>${nx.leave != null && now < nx.leave ? ` · <span class="leave">${esc(t('leaveAt', fmtTime(nx.leave)))}</span>` : ''}` : esc(all.length ? t('giAllDone') : t('giNoKey')), body: rows.join('') });
 }
 function prepSec(now, preps) {
   if (!preps.length) return '';

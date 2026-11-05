@@ -991,7 +991,8 @@ export function autoApply(date) {
 // ---------- conflicts ----------
 
 export function conflictsOn(date) {
-  return findConflicts([...blocksOn(date), ...timedEventsOn(date).filter((e) => e.busy !== false)], {
+  // (v94) a block marked «couldn't do it» (e.g. «Non ci sono andato») and an event you skip take no time any more
+  return findConflicts([...blocksOn(date).filter((b) => outcomeOf(b) !== 'failed'), ...timedEventsOn(date).filter((e) => e.busy !== false && !e.skipped)], {
     getBlock: (id) => get('blocks', id), getTask: (id) => get('tasks', id),
     blocksOfTask: (id) => live('blocks').filter((b) => b.taskId === id && b.kind !== 'prep' && !outcomeOf(b)),
     closedOf: (b) => (b.taskId && !outcomeOf(b) ? closedIssue(b) : null),

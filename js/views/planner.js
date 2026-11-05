@@ -516,7 +516,7 @@ export function autoStepsBlock(date) {
   const n = new Date(); const now = n.getHours() * 60 + n.getMinutes();
   return blocksOn(date).filter((b) => !outcomeOf(b) && !b.stepId && b.start + (b.minutes || 0) > now && stepTimes(b).length > 1).sort((a, b) => a.start - b.start)[0]?.id || null;
 }
-function agSteps(b, st) {
+export function agSteps(b, st) {
   const ys = stepTimes(b); if (ys.length < 2) return '';
   const n = new Date(); const now = b.date === today() ? n.getHours() * 60 + n.getMinutes() : -1;
   const done = (y) => st === 'done' || y.state === 'done';
@@ -547,8 +547,29 @@ export function planCounts() {
   let conflicts = 0; for (let d = td; d <= weekEndOf(td); d = addDays(d, 1)) conflicts += conflictsOn(d).length;
   return { toPlan: trayTasks().length + toFix(td, weekEndOf(td)).length, behind: behindToday().length, conflicts };
 }
+// (v94) «Com'è andata?»: from 21:00, or once the last thing of the day is over, every block of today without an
+// Esito (✓ / ✕ / domani, or all at once); once all are marked, «Tutto segnato» and what's tomorrow.
+export function eveningMode(date = today()) {
+  if (date !== today()) return false;
+  const n = new Date(); const now = n.getHours() * 60 + n.getMinutes();
+  const bl = blocksOn(date).filter((b) => !b.stepId && !(b.kind === 'prep' && b.parentId));
+  if (!bl.length) return false;
+  if (now >= 21 * 60) return true;
+  return ![...bl, ...timedEventsOn(date).filter((e) => !e.skipped)].some((x) => x.start + (x.minutes || 0) > now);
+}
+export const unmarkedToday = () => blocksOn(today()).filter((b) => !outcomeOf(b) && !b.stepId && !(b.kind === 'prep' && b.parentId) && !(b.startedAt && !b.endedAt)).sort((a, b) => a.start - b.start);
+function eveningCard(date) {
+  const list = unmarkedToday();
+  const tm = addDays(date, 1);
+  const tmr = [...blocksOn(tm).filter((b) => !b.stepId && !(b.kind === 'prep' && b.parentId)), ...timedEventsOn(tm).filter((e) => !e.skipped)].sort((a, b) => a.start - b.start);
+  const tLine = `<p class="ev-tmr">🌙 ${esc(t('evTomorrow'))} ${tmr.length ? `<b>${esc(fmtTime(tmr[0].start))} ${esc(tmr[0].title)}</b>${tmr.length > 1 ? ` · ${esc(t('evMore', tmr.length - 1))}` : ''}` : esc(t('evTmrFree'))}</p>`;
+  if (!list.length) return `<div class="behind-card evening all"><b>✓ ${esc(t('evAllMarked'))}</b>${tLine}</div>`;
+  return `<div class="behind-card evening"><b>🌙 ${esc(t('evTitle'))}</b><small>${esc(t('evSub', list.length))}</small><ul>${list.map((b) => `<li><span><b>${esc(fmtTime(b.start))}</b> ${esc(b.title)}</span><span class="behind-acts"><button class="icon ok" type="button" data-action="behind-done" data-id="${esc(b.id)}" aria-label="${esc(t('esDone'))}" title="${esc(t('esDone'))}">✓</button><button class="icon" type="button" data-action="behind-fail" data-id="${esc(b.id)}" aria-label="${esc(t('esFail'))}" title="${esc(t('esFail'))}">✕</button><button class="btn small" type="button" data-action="behind-tmr" data-id="${esc(b.id)}">→ ${esc(t('tomorrow'))}</button></span></li>`).join('')}</ul>
+    <div class="ev-all"><button class="btn small" type="button" data-action="behind-all-done">✓ ${esc(t('evAllDone'))}</button><button class="btn small" type="button" data-action="behind-all-tmr">→ ${esc(t('evAllTmr'))}</button></div>${tLine}</div>`;
+}
 export const behindCard = (date) => { // (v81) also on Oggi
   if (date !== today()) return '';
+  if (eveningMode(date)) return eveningCard(date);
   const list = behindToday(); if (!list.length) return '';
   return `<div class="behind-card"><b>⏰ ${esc(t('behindTitle', list.length))}</b><small>${esc(t('behindSub'))}</small><ul>${list.map((b) => `<li><span><b>${esc(fmtTime(b.start))}</b> ${esc(b.title)}</span><span class="behind-acts"><button class="icon ok" type="button" data-action="behind-done" data-id="${esc(b.id)}" aria-label="${esc(t('esDone'))}" title="${esc(t('esDone'))}">✓</button><button class="icon" type="button" data-action="behind-fail" data-id="${esc(b.id)}" aria-label="${esc(t('esFail'))}" title="${esc(t('esFail'))}">✕</button><button class="btn small" type="button" data-action="behind-later" data-id="${esc(b.id)}">→ ${esc(t('behindLater'))}</button></span></li>`).join('')}</ul></div>`;
 };

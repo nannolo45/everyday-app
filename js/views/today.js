@@ -8,9 +8,9 @@ import { blocksOn, isApptLike, eventsOn, ISSUE_SEC, issueText, legTimes, openTas
 import { addDays, dayTotals, fmtDur, fmtTime, importanceOf, nowMinutes, today } from '../plan.js';
 import { morningReflow } from '../planning.js';
 import { get, state } from '../store.js';
-import { giornataHtml } from './giornata.js';
+import { blockDetail, giornataHtml } from './giornata.js';
 import { MODE_ICON } from '../travel.js';
-import { behindCard, loadBar, prepareDays, weekStart } from './planner.js';
+import { eveningMode, behindCard, loadBar, prepareDays, weekStart } from './planner.js';
 import { classic } from './impegni.js';
 
 // ---------- Today: the home tab ----------
@@ -51,6 +51,9 @@ export function viewToday() {
   const running = classic() ? null : curBlock || current;
   const card = running && next && next !== running ? next : old;
   const runLine = running && card !== running ? `<div class="now-run"><span class="now-dot" aria-hidden="true"></span><span><b>${esc(t('inProgress'))}:</b> ${esc(running.title)} · ${esc(t('untilTime', fmtTime(running.start + running.minutes)))}</span>${running.isEvent ? '' : `<button class="btn small ghost" type="button" data-action="now-done" data-id="${esc(running.id)}">${esc(t('markDone'))}</button>`}</div>` : '';
+  // (v94) what's running shows its steps (the current one), its checklist to tick and its notes
+  const liveB = classic() ? null : running && !running.isEvent ? running : card && !card.isEvent && card.start <= now ? card : null;
+  const liveDetail = liveB ? blockDetail(liveB) : '';
   const lg = card && !card.isEvent ? legTimes(card) : null;
   const task = card && !card.isEvent && card.taskId ? get('tasks', card.taskId) : null;
   const place = task?.place || '';
@@ -65,12 +68,13 @@ export function viewToday() {
         <button class="btn" type="button" data-action="now-move" data-id="${esc(card.id)}">${esc(t('move'))}</button>
         ${place ? `<a class="btn icon-btn" href="${esc(mapsHref(task))}" target="_blank" rel="noopener" aria-label="${esc(t('openMaps'))}">📍</a>` : ''}
       </div>`;
-    nowCard = `<section class="now-card${started ? ' live' : ''}" aria-label="${esc(t('nextMove'))}">${runLine}
+    nowCard = `<section class="now-card${started ? ' live' : ''}" aria-label="${esc(t('nextMove'))}">${runLine}${runLine && liveDetail ? `<div class="now-detail">${liveDetail}</div>` : ''}
       <div class="now-head"><span>${esc(started ? t('inProgress') : t('nextMove'))}</span><b class="${inMin <= 15 && !started ? 'soon' : ''}">${esc(status)}</b></div>
       <div class="now-main">
         ${lg && lg.trip > 0 ? `<div class="now-time"><b class="leave">${fmtTime(lg.leave)}</b><small>${esc(t('leaveWord'))}</small></div><span class="now-arrow" aria-hidden="true">→</span><div class="now-time"><b>${fmtTime(lg.start)}</b><small>${esc(t('startWord'))}</small></div>` : `<div class="now-time"><b>${fmtTime(card.start)}</b><small>${esc(t('startWord'))}</small></div>`}
         <div class="now-text"><div class="now-title">${isApptLike(task) ? '📅 ' : ''}${esc(card.title)}</div><small>${esc([place, lg && lg.trip > 0 ? `${MODE_ICON[lg.step.mode] || '🚌'} ${fmtDur(lg.trip)}` : '', t('untilTime', fmtTime(card.start + card.minutes)), isEvent(task) ? readinessText(task.id) : ''].filter(Boolean).join(' · '))}</small>${isPalestra(task) && state.meta.palestraSynced ? `<small class="pal-heard">🏋 ${esc(t('palHeard', clock(state.meta.palestraSynced)))}</small>` : ''}</div>
       </div>
+      ${!runLine && liveDetail && liveB === card ? `<div class="now-detail">${liveDetail}</div>` : ''}
       ${main}
     </section>`;
   } else nowCard = `<section class="now-card empty"><div class="now-head"><span>${esc(t('nextMove'))}</span></div><p>${esc(open.length || items.length ? t('dayDone') : t('nothingToday'))}</p><div class="now-actions"><a class="btn" href="#/plan">${esc(t('openPlanner'))}</a></div></section>`;
@@ -93,7 +97,7 @@ export function viewToday() {
   };
   // (v92) one page: what's running and what's next, then the day (views/giornata.js)
   if (!classic()) {
-    const body = `${nowCard}${behindCard(td)}${giornataHtml(td)}`;
+    const body = eveningMode(td) ? `${behindCard(td)}${nowCard}${giornataHtml(td)}` : `${nowCard}${behindCard(td)}${giornataHtml(td)}`; // (v94) «Com'è andata?» on top in the evening
     return `<div class="today">
       <div class="today-head"><h1>${esc(fmtDay(td))}</h1><small>${esc(totals.planned ? t('plannedSum', fmtDur(totals.planned)) : t('nothingPlanned'))}${items.filter((b) => b.isEvent).length ? ` · ${esc(t('nEvents', items.filter((b) => b.isEvent).length))}` : ''}</small></div>
       ${eventsOn(td).filter((e) => e.allDay).length ? `<div class="today-allday">${eventsOn(td).filter((e) => e.allDay).map((e) => `<button class="allday-chip" type="button" data-action="event" data-id="${esc(e.id)}" style="--c:${esc(e.color)}">📅 ${esc(e.title)}</button>`).join('')}</div>` : ''}

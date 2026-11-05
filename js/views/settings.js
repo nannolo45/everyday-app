@@ -315,6 +315,7 @@ export function currentViewDefault() { const v = state.settings.defaultView || '
 // everything (shared through the data repo, read by the sync), and each task can have its own.
 export const REMINDS = [-1, 0, 5, 10, 15, 30, 60, 120, 1440];
 export function remindDefault() { const v = get('config', 'reminders')?.value?.default; return v == null ? 10 : Number(v); }
+export const remindOn = (k) => get('config', 'reminders')?.value?.[k] !== false; // (v94) 🚶 leave / 📅 appointments / the rest
 export function remindLabel(m) { return m < 0 ? t('remindNone') : m === 0 ? t('remindAtStart') : m === 1440 ? t('remindDayBefore') : t('remindBefore', fmtDur(m)); }
 
 export function daysLabel(days) {
