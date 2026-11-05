@@ -4,7 +4,7 @@ import { isPalestra } from '../palestra.js';
 import { catColor, esc, fmtDay, planSettings, relDay, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { isEvent } from '../kinds.js';
-import { blocksOn, isApptLike, eventsOn, ISSUE_SEC, issueText, legTimes, openTasks, outcomeOf, plannedTaskIds, readinessText, taskIssues, timedEventsOn } from '../model.js';
+import { blocksOn, roomy, isApptLike, eventsOn, ISSUE_SEC, issueText, legTimes, openTasks, outcomeOf, plannedTaskIds, readinessText, taskIssues, timedEventsOn } from '../model.js';
 import { addDays, dayTotals, fmtDur, fmtTime, importanceOf, nowMinutes, today } from '../plan.js';
 import { morningReflow } from '../planning.js';
 import { get, state } from '../store.js';
@@ -36,7 +36,7 @@ export function viewToday() {
   prepareDays([td]);
   morningReflow();
   const items = todayItems(td);
-  const totals = dayTotals(blocksOn(td));
+  const totals = dayTotals(blocksOn(td).filter((b) => !roomy(b)));
   const open = items.filter((b) => !b.isEvent && !outcomeOf(b));
   const upcoming = items.filter((b) => (b.isEvent && !b.skipped) || (!b.isEvent && !outcomeOf(b))); // blocks and appointments alike, in time order
   const current = upcoming.find((b) => b.start <= now && b.start + b.minutes > now);

@@ -42,14 +42,25 @@ function branch() { return state.settings.branch || 'main'; }
 export function palestraConfigured() { return isConfigured() && Boolean(state.settings.palestraRepo?.trim()); }
 export function ricetteConfigured() { return isConfigured() && Boolean(state.settings.ricetteRepo?.trim()); }
 
-function api(path, init = {}, repo = state.settings.repo) {
-  const s = state.settings;
-  const url = `https://api.github.com/repos/${encodeURIComponent(s.owner.trim())}/${encodeURIComponent(repo.trim())}${path ? '/' + path : ''}`;
+// (v95) Ricette's and Palestra's repositories may belong to another GitHub account: written «owner/repo»,
+// with a token of their own (`ricetteToken` / `palestraToken`, kept on this device; empty = the main token).
+export function repoTarget(repo = state.settings.repo, token = null) {
+  const s = state.settings; const r = String(repo || '').trim();
+  const [owner, name] = r.includes('/') ? r.split('/', 2).map((x) => x.trim()) : [String(s.owner || '').trim(), r];
+  const own = r && r === String(s.ricetteRepo || '').trim() ? s.ricetteToken : r && r === String(s.palestraRepo || '').trim() ? s.palestraToken : '';
+  return { owner, repo: name, token: String(token || own || s.token || '').trim() };
+}
+// «owner/repo» for showing a connection.
+export function repoLabel(repo) { const x = repoTarget(repo); return `${x.owner}/${x.repo}`; }
+
+function api(path, init = {}, repo = state.settings.repo, token = null) {
+  const x = repoTarget(repo, token);
+  const url = `https://api.github.com/repos/${encodeURIComponent(x.owner)}/${encodeURIComponent(x.repo)}${path ? '/' + path : ''}`;
   return fetch(url, {
     ...init,
     cache: 'no-store',
     headers: {
-      Authorization: `Bearer ${s.token.trim()}`,
+      Authorization: `Bearer ${x.token}`,
       Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
       ...(init.headers || {}),
@@ -300,10 +311,10 @@ export async function removeCalendarData() {
   return files.length;
 }
 
-export async function testConnection(repo = state.settings.repo) {
+export async function testConnection(repo = state.settings.repo, token = null) {
   if (!isConfigured()) return { error: 'missing' };
   try {
-    const res = await api('', {}, repo);
+    const res = await api('', {}, repo, token);
     if (!res.ok) return { error: fail(res).code };
     const info = await res.json();
     if (!info.permissions?.push) return { error: 'readonly' };

@@ -83,7 +83,7 @@ export const state = {
   tasks: [], blocks: [], templates: [], categories: [], events: [], gcal: [], shopping: [], shops: [], config: [], r_recipes: [], r_folders: [], r_tagdefs: [], r_prefs: [], r_pantry: [], r_shopping: [], r_shops: [], r_foods: [],
   settings: {
     lang: '', owner: '', repo: '', branch: 'main', token: '',
-    dayStart: 6, dayEnd: 23, snap: 15, buffer: 5, maxLoad: 8, splitOver: 4, ricetteRepo: '', palestraRepo: '',
+    dayStart: 6, dayEnd: 23, snap: 15, buffer: 5, maxLoad: 8, splitOver: 4, ricetteRepo: '', palestraRepo: '', ricetteToken: '', palestraToken: '',
   },
   // dirtyShards: {"blocks/2026-10": stamp} = months edited here and not yet uploaded
   // syncedShards: {"blocks/2026-10": time} = months this device has downloaded at least once

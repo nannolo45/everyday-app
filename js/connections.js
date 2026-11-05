@@ -89,13 +89,25 @@ export async function saveGithub(form, { fresh = null } = {}) {
   }
 }
 
+// (v95) The repository a Ricette / Palestra form names: «repo», «owner/repo», or the owner typed under
+// «Di un altro account GitHub»; and the token for it (empty = the one already saved for it, else the main one).
+function extRepo(form, key, tokenKey) {
+  let repo = form[key].value.trim().replace(/^https?:\/\/github\.com\//, '').replace(/\.git$|\/$/g, '');
+  const owner = form[`${key}Owner`]?.value.trim() || '';
+  if (owner && !repo.includes('/') && owner !== String(state.settings.owner || '').trim()) repo = `${owner}/${repo}`;
+  const typed = form[`${key}Token`]?.value.trim() || '';
+  const own = repo.includes('/') && repo.split('/')[0].trim() !== String(state.settings.owner || '').trim();
+  const token = typed || (own ? state.settings[tokenKey] || '' : '');
+  return { repo, token };
+}
+
 export async function saveRicette(form) {
-  const repo = form.ricetteRepo.value.trim();
+  const { repo, token } = extRepo(form, 'ricetteRepo', 'ricetteToken');
   if (!repo) return;
-  const res = await testConnection(repo);
+  const res = await testConnection(repo, token || null);
   ui.ricMsg = res.ok ? 'connected' : `err_${res.error}`;
   if (res.ok) {
-    await saveSettings({ ricetteRepo: repo });
+    await saveSettings({ ricetteRepo: repo, ricetteToken: token });
     await runSync();
     // Items added to Everyday's own list before connecting move to Ricette's list.
     const own = live('shopping');
@@ -108,14 +120,14 @@ export async function saveRicette(form) {
   render();
 }
 
-// (v54) Palestra: the data repository's name; same user and token.
+// (v54) Palestra: the data repository's name (v95: or another account's, see extRepo).
 export async function savePalestra(form) {
-  const repo = form.palestraRepo.value.trim();
+  const { repo, token } = extRepo(form, 'palestraRepo', 'palestraToken');
   if (!repo) return;
-  const res = await testConnection(repo);
+  const res = await testConnection(repo, token || null);
   ui.palMsg = res.ok ? 'connected' : `err_${res.error}`;
   if (res.ok) {
-    await saveSettings({ palestraRepo: repo });
+    await saveSettings({ palestraRepo: repo, palestraToken: token });
     await runSync();
     if (state.meta.lastError) ui.palMsg = `err_${state.meta.lastError}`;
   }

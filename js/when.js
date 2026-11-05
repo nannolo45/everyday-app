@@ -6,7 +6,7 @@
 // The old week grid (several times, every week with a time per day) is one tap away.
 import { esc, planSettings, relDay, toast } from './core.js';
 import { t } from './i18n.js';
-import { busyOn, followParent, isSeries, leadOf, outcomeOf, planTask } from './model.js';
+import { busyOn, planBusy, followParent, isSeries, leadOf, outcomeOf, planTask } from './model.js';
 import { addDays, fmtDur, fmtTime, freeSlot, isDate, isoDay, nowMinutes, parseDate, parseTime, today } from './plan.js';
 import { warnConflicts } from './planning.js';
 import { get, live, upsert } from './store.js';
@@ -19,7 +19,7 @@ const dayName = (d) => (d === today() ? t('today') : d === addDays(today(), 1) ?
 
 // What's busy that day for this task (its own block, the one being moved, doesn't count).
 function busyFor(x, date, skipId) {
-  return busyOn(date).filter((b) => !b.allowOverlap && b.id !== skipId && !(b.taskId === x.id && !b.seriesId && !skipId))
+  return planBusy(date, (b) => b.id !== skipId && !(b.taskId === x.id && !b.seriesId && !skipId))
     .map((b) => ({ start: b.start, minutes: b.minutes || 0, title: b.title || '' }));
 }
 // The day's free stretches long enough for `need` minutes: [{a, z, starts: [six starts at most]}].

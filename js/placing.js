@@ -9,7 +9,7 @@
 // Every placement can be undone from the bar at the bottom.
 import { esc, planSettings, relDay, toast, ui } from './core.js';
 import { t } from './i18n.js';
-import { busyOn, conflictsOn, conflictText, countedOf, evSkipOf, rsvpAsks, setEvSkip, setRsvpAsks, deleteBlock, ensureSeries, followParent, isEnded, isSeries, itemById, leadOf, outcomeOf, planTask, timesLeft, turnCounts } from './model.js';
+import { busyOn, planBusy, conflictsOn, conflictText, countedOf, evSkipOf, rsvpAsks, setEvSkip, setRsvpAsks, deleteBlock, ensureSeries, followParent, isEnded, isSeries, itemById, leadOf, outcomeOf, planTask, timesLeft, turnCounts } from './model.js';
 import { isEvent } from './kinds.js';
 import { addDays, fmtDur as fmtDurShort, fmtTime, freeSlot, isOccurrence, nowMinutes, parseDate, ruleAt, today } from './plan.js';
 import { autoHoursFor } from './planning.js';
@@ -34,7 +34,7 @@ export function firstFreeStart(x, date) {
   const s = planSettings(); const [h0, h1] = autoHoursFor(date);
   const lead = leadOf(x); const need = (x.minutes || 30) + lead;
   const from = Math.max(h0, s.dayStart, date === today() ? Math.ceil((nowMinutes() + 5) / 5) * 5 : 0);
-  const at = freeSlot(busyOn(date).filter((b) => !b.allowOverlap), need, { from, dayStart: from, dayEnd: Math.max(h1, from + need), snap: s.snap || 15 });
+  const at = freeSlot(planBusy(date), need, { from, dayStart: from, dayEnd: Math.max(h1, from + need), snap: s.snap || 15 });
   return at ?? from;
 }
 const openBlocks = (x) => live('blocks').filter((b) => b.taskId === x.id && !outcomeOf(b) && b.kind !== 'prep' && !b.stepId);
@@ -134,7 +134,7 @@ const partOfMin = (m) => (m < WINDOWS.morning[1] ? 'morning' : m < WINDOWS.after
 function freeStartFor(y, taken = null) {
   const s = planSettings(); const [h0, h1] = autoHoursFor(y.date);
   const from = Math.max(h0, s.dayStart, y.date === today() ? Math.ceil((nowMinutes() + 5) / 5) * 5 : 0);
-  const busy = busyOn(y.date).filter((b) => !b.allowOverlap && b.id !== y.id);
+  const busy = planBusy(y.date, (b) => b.id !== y.id);
   if (taken) busy.push(taken);
   const len = y.minutes || 30;
   // (v81) a routine's turn stays in its part of the day (a dinner in the evening, not at noon)

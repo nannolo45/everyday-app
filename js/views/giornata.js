@@ -7,7 +7,7 @@
 import { esc, planSettings, relDay, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { isEvent } from '../kinds.js';
-import { blocksOn, checklistLeft, checklistOf, eventTasksOf, isApptLike, legTimes, mealRecipes, missingForMeal, openTasks, outcomeOf, plannedTaskIds, timedEventsOn, busyOn } from '../model.js';
+import { blocksOn, checklistLeft, checklistOf, eventTasksOf, isApptLike, legTimes, mealRecipes, missingForMeal, openTasks, outcomeOf, plannedTaskIds, timedEventsOn, busyOn, planBusy, roomy } from '../model.js';
 import { isPalestra } from '../palestra.js';
 import { addDays, fmtDur, fmtTime, nowMinutes, today } from '../plan.js';
 import { get, live, saveSettings, state } from '../store.js';
@@ -76,7 +76,7 @@ function dueItems(td, skip = new Set()) {
 // The free gaps left today (15 minutes or more).
 function freeGaps(td, now) {
   const s = planSettings(); let from = Math.max(s.dayStart, Math.ceil(now / 5) * 5); const out = [];
-  const busy = busyOn(td).map((b) => [b.start, b.start + (b.minutes || 0)]).sort((a, b) => a[0] - b[0]);
+  const busy = planBusy(td).map((b) => [b.start, b.start + (b.minutes || 0)]).sort((a, b) => a[0] - b[0]);
   for (const [a, z] of busy) { if (a - from >= 15) out.push([from, a]); from = Math.max(from, z); }
   if (s.dayEnd - from >= 15) out.push([from, s.dayEnd]);
   return out;
@@ -144,7 +144,7 @@ function briefSec(td, now, keys, others) {
   if (!lined) rows.push(nowLine(now));
   // (v92) what's left from now: a long block already running counts only its rest
   const restMin = (a, z) => Math.max(0, z - Math.max(a, now));
-  const left = all.filter((k) => !k.done && !k.ev).map((k) => restMin(k.start, k.end)).reduce((a, b) => a + b, 0);
+  const left = all.filter((k) => !k.done && !k.ev && !(k.b && roomy(k.b))).map((k) => restMin(k.start, k.end)).reduce((a, b) => a + b, 0);
   rows.push(row('', '⏳', esc(left ? t('giLeft', fmtDur(left)) : t('giNothingLeft')), `<a href="#/plan">${esc(t('tabPlan'))} ›</a>`, { cls: 'sum' }));
   rows.push(`<button type="button" class="gi-add" data-action="plus-today">＋ ${esc(t('giForToday'))}</button>`);
   const nx = rest.find((k) => !k.done && !k.minor && (k.leave ?? k.start) > now) || rest.find((k) => !k.done);

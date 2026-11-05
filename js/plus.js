@@ -72,7 +72,7 @@ function fresh(text = '') {
     n: 1, per: 'settimana', days: [], until: 'always', times: [],
     cat: null, more: false, open: null, imp: 3, due: '', place: '', placeId: null, people: 2, tv: tvState(), tvOwn: false, legOv: null, steps: [], after: [], ok: [], ko: [], notes: '',
     // (v84) editing a task: its id, the Quando it had (to know if it changed), its steps, checklist, margin, other rules
-    edit: null, orig: null, stepObjs: null, checklist: [], buffer: '', keepRules: [], ov: null, rk: 'ok', untilKeep: null, ovt: 'recent',
+    edit: null, orig: null, stepObjs: null, checklist: [], buffer: '', room: null, keepRules: [], ov: null, rk: 'ok', untilKeep: null, ovt: 'recent',
   };
 }
 let P = fresh();
@@ -244,6 +244,15 @@ const openText = (p) => {
   return !o ? (p.shop ? t('alwaysOpen') : '') : o.k === 'open' ? t('plcOpenTo', fmtTime(o.to)) : o.k === 'later' ? t('plcOpensAt', fmtTime(o.from)) : o.k === 'next' ? t('plcOpensOn', relDay(o.date), fmtTime(o.from)) : t('plcClosed');
 };
 const placeOpt = (p, value) => `<button class="pl-sopt" value="${value}" formnovalidate>${esc(placeEmoji(p))} ${esc(p.name)}<small>${esc(openText(p) || p.place || '')}</small></button>`;
+// (v95) «Altre cose possono starci dentro»: on/off, and how much of other things at most (0 = no limit).
+const ROOM_DEFAULT = 180;
+const roomVal = () => (!P.room ? '' : P.room.max ? t('roomUpTo', fmtDur(P.room.max)) : t('roomNoLimit'));
+function roomBody() {
+  const on = Boolean(P.room); const max = P.room?.max || 0;
+  return `<button class="pl-tog${on ? ' on' : ''}" value="room" formnovalidate role="switch" aria-checked="${on}"><span>${esc(t(on ? 'roomOnHint' : 'roomOffHint'))}</span><i></i></button>
+    ${on ? `<div class="pl-lbl">${esc(t('roomMax'))}</div><div class="pl-row pl-roommax"><span class="pl-step"><button class="pl-chip" value="room-max:-30" formnovalidate aria-label="−30 min" ${max && max > 30 ? '' : 'disabled'}>−</button><b>${esc(max ? fmtDur(max) : t('roomNoLimit'))}</b><button class="pl-chip" value="room-max:30" formnovalidate aria-label="+30 min">+</button></span>
+      <button class="pl-chip${max ? '' : ' on'}" value="room-max:0" formnovalidate>${esc(t('roomNoLimit'))}</button></div><p class="pl-hint">${esc(t('roomMaxHint'))}</p>` : ''}`;
+}
 // Altre opzioni: rows that open in place
 const candidates = () => live('tasks').filter((x) => !x.done && !x.deleted && (isTodo(x) || isSaved(x)) && !x.travelRole);
 const listEd = (key, ph) => `<div class="pl-chips">${P[key].map((a, i) => `<span class="pl-chip on">${a.isNew ? '✚ ' : ''}${esc(a.title)}<button class="pl-x" value="li-rm:${key}:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></span>`).join('')}</div>
@@ -255,6 +264,7 @@ function optRows() {
     row('imp', t('importance'), '★'.repeat(P.imp), `<div class="pl-stars">${[1, 2, 3, 4, 5].map((i) => `<button class="${i <= P.imp ? 'on' : ''}" value="imp:${i}" formnovalidate aria-label="${i}">★</button>`).join('')}</div><p class="pl-hint">${esc(t(`imp_${P.imp}`))}</p>`),
     row('due', t('due'), P.due ? relDay(P.due) : '', `<div class="pl-row"><label class="pl-date">📅 ${dateBox(`<input id="pl-due" type="date" value="${esc(P.due)}">`, P.due)}</label>${P.due ? `<button class="pl-chip" value="due:" formnovalidate>${esc(t('none'))}</button>` : ''}</div>`),
     row('place', t('plPlace'), placeLabel(), placeBody()),
+    row('room', t('roomL'), roomVal(), roomBody()), // (v95) other things may go inside it
     P.stepObjs ? row('steps', t('steps'), P.stepObjs.length ? `${P.stepObjs.length} · ${fmtDur(stepSum())}` : '', `${P.stepObjs.map((y, i) => `<div class="pl-srow"><span>${i + 1}. ${esc(y.title)}</span><input id="pl-sm${i}" class="pl-num sm" data-sm="${i}" inputmode="numeric" value="${Number(y.minutes) || 10}" aria-label="${esc(t('duration'))}"><span class="pl-mid">min</span><button class="pl-x" value="step-rm:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></div>`).join('')}<input id="pl-step" class="pl-in" placeholder="${esc(t('plStepPh'))}" autocomplete="off">${P.stepObjs.length ? `<p class="pl-hint">${esc(t('plStepsLen'))}</p>` : ''}`)
     : row('steps', t('steps'), P.steps.length ? String(P.steps.length) : '', `${P.steps.map((s, i) => `<div class="pl-srow"><span>${i + 1}. ${esc(s)}</span><button class="pl-x" value="step-rm:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></div>`).join('')}<input id="pl-step" class="pl-in" placeholder="${esc(t('plStepPh'))}" autocomplete="off">`),
     row('after', t('needsFirst'), nm(P.after), `${listEd('after', t('plSearchPh'))}<p class="pl-hint">${esc(t('plAfterHint'))}</p>`),
@@ -266,7 +276,7 @@ function optRows() {
     row('notes', t('notes'), P.notes ? '✎' : '', `<textarea id="pl-notes" class="pl-in" rows="3">${esc(P.notes)}</textarea>`),
   ].join('');
 }
-const optSummary = () => [P.imp !== 3 && '★'.repeat(P.imp), P.due && t('dueOn', relDay(P.due)), P.place && placeLabel(), P.steps.length && t('plStepsN', P.steps.length), P.after.length && `🔒 ${P.after.length}`, (P.ok.length + P.ko.length) && t('plRulesN', P.ok.length + P.ko.length), P.notes && '✎', P.checklist.length && `☑ ${P.checklist.length}`].filter(Boolean).join(' · ');
+const optSummary = () => [P.imp !== 3 && '★'.repeat(P.imp), P.due && t('dueOn', relDay(P.due)), P.place && placeLabel(), P.steps.length && t('plStepsN', P.steps.length), P.after.length && `🔒 ${P.after.length}`, (P.ok.length + P.ko.length) && t('plRulesN', P.ok.length + P.ko.length), P.notes && '✎', P.checklist.length && `☑ ${P.checklist.length}`, P.room && `⊕ ${roomVal()}`].filter(Boolean).join(' · ');
 // what the name says by itself ("Cena ogni giorno 20:30", "Dentista ven 10:00"), while Quando is untouched
 function typedWhen() {
   if (P.wc !== undefined) return null;
@@ -437,6 +447,8 @@ function onSubmit(form, action, e) {
   else if (a === 'ov-new') { const n = decodeURIComponent(action.slice(`ov-new:${b}:`.length)).trim(); if (n) P[b].push({ title: n, isNew: true }); P.ovq = ''; focus = '#pl-ovq'; }
   else if (a === 'cl-rm') P.checklist.splice(Number(b), 1);
   else if (a === 'buf') P.buffer = b === '' ? '' : Number(b);
+  else if (a === 'room') P.room = P.room ? null : { max: ROOM_DEFAULT };
+  else if (a === 'room-max' && P.room) P.room = { max: b === '0' ? 0 : Math.min(720, Math.max(30, (P.room.max || ROOM_DEFAULT) + Number(b))) };
   else if (a === 'imp') P.imp = Number(b);
   else if (a === 'ppl') P.people = Number(b);
   else if (a === 'due') P.due = '';
@@ -595,7 +607,7 @@ function save() {
     id: uid(), createdAt: Date.now(), kind: P.save || P.wc === 'pick' && !P.once ? 'saved' : 'todo', title, minutes: steps.length && !P.steps.length ? steps.reduce((n, y) => n + y.minutes, 0) : L,
     lenSet: P.lenSet || P.unknown ? !P.unknown : Boolean(P.touched.len), lenUnknown: P.unknown || undefined, importance: P.imp !== 3 ? P.imp : q.importance || 3, priority: q.priority || 0,
     category: cat, moreCats: [], due: P.due || (P.wc === undefined ? q.due : null) || null, place: P.place || qPlace?.addr || '', placeId: P.placeId || qPlace?.id || null, ...(catFlag(cat, 'meal') ? { people: P.people } : {}), notes: P.notes, done: false, checklist: [],
-    steps, splitSteps: steps.length > 1 && !P.steps.length, after: newIds(P.after), allRules: rules, windows: [], checklist: [...P.checklist],
+    steps, splitSteps: steps.length > 1 && !P.steps.length, after: newIds(P.after), allRules: rules, windows: [], checklist: [...P.checklist], room: P.room || null,
     ...((P.place || qPlace) && tvFor(P.placeId || qPlace?.id) ? { travel: tvFor(P.placeId || qPlace?.id) } : {}),
   };
   ui.justAdded ||= new Set();
@@ -670,7 +682,7 @@ function fromTask(x) {
   Object.assign(p, {
     edit: x.id, save: isSaved(x), appt: isEvent(x), len: ownMinutes(x), lenSet: x.lenSet !== false, unknown: Boolean(x.lenUnknown),
     cat: x.category || null, imp: x.importance || 3, people: x.people || 2, place: x.place || '', placeId: placeById(x.placeId) ? x.placeId : null, tv: tvState(travelOf(x)), tvOwn: Boolean(x.travel && ('from' in x.travel || !placeById(x.placeId)?.travel)), notes: x.notes || '',
-    stepObjs: realSteps(x).map((y) => ({ ...y })), checklist: [...(x.checklist || [])], buffer: x.buffer == null ? '' : x.buffer,
+    stepObjs: realSteps(x).map((y) => ({ ...y })), checklist: [...(x.checklist || [])], buffer: x.buffer == null ? '' : x.buffer, room: x.room && typeof x.room === 'object' ? { ...x.room } : null,
     after: (x.after || []).map((id) => get('tasks', id)).filter(Boolean).map((y) => ({ id: y.id, title: y.title })),
     touched: { len: true, when: true, cat: true }, more: true,
   });
@@ -746,7 +758,7 @@ function saveEdit({ stay = false } = {}) {
   const rule = (a, when) => (a.rule ? { ...a.rule, when } : { id: uid(), when, then: 'task', taskId: a.id || null, title: a.title, minutes: 30, place: 'pool', stepId: null });
   const x = {
     ...x0, title, minutes: L, lenSet: !P.unknown, lenUnknown: P.unknown || undefined, category: P.cat, importance: P.imp,
-    place: P.place, placeId: P.placeId || null, ...(catFlag(P.cat, 'meal') ? { people: P.people } : {}), travel: P.place ? tvFor() && { ...tvFor(), mode: travelOf(x0).mode } : x0.travel ?? null, notes: P.notes, checklist: P.checklist, buffer: P.buffer === '' ? null : Number(P.buffer),
+    place: P.place, placeId: P.placeId || null, ...(catFlag(P.cat, 'meal') ? { people: P.people } : {}), travel: P.place ? tvFor() && { ...tvFor(), mode: travelOf(x0).mode } : x0.travel ?? null, notes: P.notes, checklist: P.checklist, buffer: P.buffer === '' ? null : Number(P.buffer), room: P.room || null,
     steps: (P.stepObjs || []).filter((y) => y.title), after: newIds(P.after),
     allRules: [...P.keepRules, ...P.ok.map((a) => rule(a, 'done')), ...P.ko.map((a) => rule(a, 'failed'))],
     kind: P.appt ? 'event' : P.save || routine ? 'saved' : isEvent(x0) || isSaved(x0) ? 'todo' : x0.kind,

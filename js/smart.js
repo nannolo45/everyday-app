@@ -49,7 +49,7 @@ export function candidates(tasks, plannedTaskIds, date) {
 // Free intervals [start, end] in a day, keeping `buffer` minutes around existing blocks.
 export function freeIntervals(blocks, { from = 0, dayStart = 0, dayEnd = 1440, buffer = 0 } = {}) {
   const lo = Math.max(from, dayStart);
-  const busy = blocks.map((b) => [b.start - buffer, b.start + b.minutes + buffer]).sort((a, b) => a[0] - b[0]);
+  const busy = blocks.map((b) => { const g = b.noLoad ? 0 : buffer; return [b.start - g, b.start + b.minutes + g]; }).sort((a, b) => a[0] - b[0]); // (v95) no gap around a full roomy block's pieces
   const out = []; let cur = lo;
   for (const [s, e] of busy) {
     if (e <= cur) continue;
@@ -99,7 +99,7 @@ export function nearestSlot(blocks, minutes, target, { from = 0, dayStart = 0, d
 
 export function suggestDay({ tasks, blocks, date, from, settings, leadOf = () => 0, now = Date.now() }) {
   const s = { dayStart: 360, dayEnd: 1380, snap: 15, buffer: 5, maxLoad: 480, ...settings };
-  let load = blocks.reduce((sum, b) => sum + b.minutes, 0);
+  let load = blocks.reduce((sum, b) => sum + (b.noLoad ? 0 : b.minutes), 0); // (v95) a full roomy block's pieces: busy, but no load
   const busy = [...blocks];
   const ranked = tasks.map((t) => ({ t, ...scoreTask(t, date, now) })).sort((a, b) => b.score - a.score || (a.t.minutes || 30) - (b.t.minutes || 30));
   const placed = []; const skipped = [];
@@ -288,7 +288,7 @@ export function spreadTasks({ tasks, days, settings, leadOf = () => 0, now = Dat
   const out = (t) => t.taskId ?? t.id;
   if (!days.length) return { placed: [], skipped: tasks.map((t) => ({ taskId: out(t), key: t.id, why: 'nodays' })) };
   const busy = new Map(days.map((d) => [d.date, [...d.blocks]]));
-  const load = new Map(days.map((d) => [d.date, d.blocks.reduce((n, b) => n + (b.minutes || 0), 0)]));
+  const load = new Map(days.map((d) => [d.date, d.blocks.reduce((n, b) => n + (b.noLoad ? 0 : b.minutes || 0), 0)]));
   const first = days[0].date;
   const ranked = tasks.map((t) => ({ t, ...scoreTask(t, first, now) }))
     .sort((a, b) => b.score - a.score || (b.t.minutes || 30) - (a.t.minutes || 30) || String(a.t.id).localeCompare(String(b.t.id)));

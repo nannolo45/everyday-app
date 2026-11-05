@@ -10,7 +10,7 @@ import { countToast, rejoinEvent, setCounts, skipEvent, unskipEvent } from './pl
 import { GROCERY_MINUTES, advancedOn, catChips, catChipsMulti, catColor, catName, catsOf, categories, readCats, esc, findCategory, fmtDay, hint, kitchen, modal, PALETTE, planSettings, quickFields, range, reasonText, relDay, route, small, toast, ui, weekdayNames } from './core.js';
 import { _dict, getLang, t } from './i18n.js';
 import { isEvent, isSaved, isStep, withKind } from './kinds.js';
-import { alreadyPlanned, hasDayLen, learnHint, minutesOn, setDayMinutes, evSkipOf, isInvite, setEvSkip, countedOf, turnCounts, anchorIndex, anchorOffset, anchorTitle, applyTemplate, blocksOn, busyOn, checklistLeft, closedIssue, checklistOf, checkMealNow, deleteBlock, endSeries, ensureSeries, eventBlockOf, eventDate, eventOf, eventTasksOf, followParent, isCheckStep, isSeries, leadOf, catFlag, isApptLike, isMealTask, mealRecipes, mealTasks, mealTitle, missingForMeal, newBlock, syncMealBlocks, nextBlockOf, nextPlanned, offsetDue, offsetText, openTasks, outcomeOf, plannedTaskIds, plannedWhen, planTask, PREP_PLACES, qtyText, readinessText, recipeOf, recipes, RULE_PLACES, RULE_WHEN, rulesOf, savedGroups, savedInfo, savedStart, saveEvent, savedTasks, seriesBlocks, setBlockDone, setOutcome, setStepOutcome, setTaskDone, shoppingItems, splitSeries, stepLen, stepsDoneOf, stepsOf, stepTimes, syncEventTasks, taskIssues, taskSpan, templates, travelTasks, trySetBlockDone, tryStep } from './model.js';
+import { roomOf, roomUsed, alreadyPlanned, hasDayLen, learnHint, minutesOn, setDayMinutes, evSkipOf, isInvite, setEvSkip, countedOf, turnCounts, anchorIndex, anchorOffset, anchorTitle, applyTemplate, blocksOn, busyOn, checklistLeft, closedIssue, checklistOf, checkMealNow, deleteBlock, endSeries, ensureSeries, eventBlockOf, eventDate, eventOf, eventTasksOf, followParent, isCheckStep, isSeries, leadOf, catFlag, isApptLike, isMealTask, mealRecipes, mealTasks, mealTitle, missingForMeal, newBlock, syncMealBlocks, nextBlockOf, nextPlanned, offsetDue, offsetText, openTasks, outcomeOf, plannedTaskIds, plannedWhen, planTask, PREP_PLACES, qtyText, readinessText, recipeOf, recipes, RULE_PLACES, RULE_WHEN, rulesOf, savedGroups, savedInfo, savedStart, saveEvent, savedTasks, seriesBlocks, setBlockDone, setOutcome, setStepOutcome, setTaskDone, shoppingItems, splitSeries, stepLen, stepsDoneOf, stepsOf, stepTimes, syncEventTasks, taskIssues, taskSpan, templates, travelTasks, trySetBlockDone, tryStep } from './model.js';
 import { addDays, dateStr, fmtDur, fmtTime, isoDay, ruleAt, formatTemplateLines, parseDuration, freeSlot, groupTasks, IMPORTANCE, importanceOf, isDate, nowMinutes, parseDate, parseTemplateLines, parseTime, quickAdd, REPEATS, sortTasks, today } from './plan.js';
 import { AUTO_SPANS, partOfDay, placeGhosts, planEventTasks, planGroceryTrips, planSoon, suggestSlot, trayTasks, tripItems, tripTitle, warnConflicts } from './planning.js';
 import { pantryCoverage } from './recipe-tools.js';
@@ -1911,6 +1911,7 @@ function tookRow(b, task) {
     ${keep ? `<button class="btn small" value="took-keep:${b.minutes}" formnovalidate>${esc(t('tookKeep', fmtDur(b.minutes)))}</button>` : ''}</div>`;
 }
 export function openBlock(block, defaults = {}) {
+  if (!ui.roomAskKeep) ui.roomAsk = null; ui.roomAskKeep = false; // (v95) the «only this time / all» question lives while the sheet does
   const isNew = !block;
   const b = block || { title: '', date: currentDate(), start: 9 * 60, minutes: 30, category: '', notes: '', done: false, ...defaults };
   const task = b.taskId && get('tasks', b.taskId);
@@ -1936,6 +1937,13 @@ export function openBlock(block, defaults = {}) {
     <button class="btn primary small" value="learn-yes" formnovalidate>${esc(t('lrUse', fmtDur(lh.minutes), lh.iso))}</button>
     <div class="es-row"><button class="btn small" value="learn-no" formnovalidate>${esc(t('lrKeep'))}</button><button class="btn small ghost" value="learn-never" formnovalidate>${esc(t('lrNever'))}</button></div></div>` : '';
   const cnt = nTimes ? (() => { const on = turnCounts(b); const n = countedOf(task); return `<div class="es-count"><span>${esc(t('countsFor', nTimes))}<small>${esc(on ? t('countsWill', n, nTimes) : t('countsStays', n, nTimes))}</small></span><button class="sw-btn${on ? ' on' : ''}" value="count-toggle" formnovalidate aria-pressed="${on}" aria-label="${esc(t('countsFor', nTimes))}"></button></div>`; })() : '';
+  // (v95) «Altre cose qui dentro»: from the routine (or task), or this turn only; a routine's turn asks which.
+  const roomNow = roomOf(b); const roomOwn = b.room !== undefined || b.allowOverlap;
+  const roomRow = turnUi && !isShop && !isMeal ? `<div class="tb-room${roomNow ? ' on' : ''}"><div class="tb-room-h"><span>⊕ ${esc(t('roomTurnL'))}<small>${esc(!roomNow ? t('roomTurnOff')
+    : [b.seriesId ? t(roomOwn ? 'roomOnlyThis' : 'roomFromRoutine') : '', roomNow.max ? t('roomUpTo', fmtDur(roomNow.max)) : t('roomNoLimit')].filter(Boolean).join(' · '))}</small></span>
+    <button class="sw-btn${roomNow ? ' on' : ''}" value="room-toggle" formnovalidate role="switch" aria-checked="${Boolean(roomNow)}" aria-label="${esc(t('roomTurnL'))}"></button></div>
+    ${ui.roomAsk === b.id ? `<div class="tb-room-ask"><p>${esc(t('roomAsk'))}</p><div class="es-row"><button class="btn small" value="room-one" formnovalidate>${esc(t('roomOne', relDay(b.date)))}</button><button class="btn small" value="room-all" formnovalidate>${esc(t('roomAll'))}</button></div></div>`
+    : roomNow?.max ? `<p class="pl-hint">${esc(t('roomUsedToday', fmtDur(roomUsed(b)) || '0m', fmtDur(roomNow.max)))}</p>` : ''}</div>` : '';
   const esito = !esNew || isNew ? '' : isShop ? tripEsito(b, status) : `<div class="esito"><div class="es-q">${esc(t('esito'))}</div>${status === 'done' || status === 'partial'
     ? `<div class="es-state done"><span>✓ ${esc(b.endedAt ? `${t('esDoneLine')} · ${t('realOf', fmtDur(b.minutes), fmtDur(b.plannedMinutes || b.minutes))}` : t('esDoneLine'))}</span><button class="btn small" value="reset" formnovalidate>${esc(t('reset'))}</button></div>${b.endedAt || classic() ? '' : tookRow(b, task)}`
     : status === 'failed' ? `<div class="es-state fail"><span>✕ ${esc(t('esFailLine'))}</span><button class="btn small" value="reset" formnovalidate>${esc(t('reset'))}</button></div>`
@@ -1957,7 +1965,7 @@ export function openBlock(block, defaults = {}) {
       ${isEvent(task) && !turnUi ? `<p class="hint">📅 ${esc(t('blockOfEvent'))}</p>` : ''}
     ${turnUi ? `<details class="tb-time"${ui.tbOpen ? ' open' : ''}><summary class="pl-pill on">🕒 ${esc(`${relDay(b.date)} · ${fmtTime(b.start + off)}–${fmtTime(b.start + b.minutes)} · ${fmtDur(b.minutes)}`)}<span aria-hidden="true">▾</span></summary><div class="pl-panel">
       <label>${esc(t('date'))}${dateBox(`<input name="date" type="date" required value="${esc(b.date)}">`, b.date)}</label>
-      ${timePairHtml(b, off, anchorName ? t('anchorAt', anchorName) : '')}${b.seriesId ? `<p class="pl-hint">${esc(t('tbSeriesHint'))}</p>` : ''}</div></details>` : esNew && !isShop ? `<label>${esc(t('date'))}${dateBox(`<input name="date" type="date" required value="${esc(b.date)}">`, b.date)}</label>
+      ${timePairHtml(b, off, anchorName ? t('anchorAt', anchorName) : '')}${b.seriesId ? `<p class="pl-hint">${esc(t('tbSeriesHint'))}</p>` : ''}</div></details>${roomRow}` : esNew && !isShop ? `<label>${esc(t('date'))}${dateBox(`<input name="date" type="date" required value="${esc(b.date)}">`, b.date)}</label>
     ${timePairHtml(b, off, anchorName ? t('anchorAt', anchorName) : '')}` : `<div class="three">
       <label>${esc(t('date'))}${dateBox(`<input name="date" type="date" required value="${esc(b.date)}">`, b.date)}</label>
       <label>${esc(anchorName ? t('anchorAt', anchorName) : t('start'))}<input name="start" ${TIME24} required value="${fmtTime(b.start + off)}"></label>
@@ -2043,6 +2051,21 @@ export function openBlock(block, defaults = {}) {
       }
       if (h && action === 'learn-never') upsert('tasks', { ...get('tasks', h.task.id), learnOff: [...(h.task.learnOff || []), 'all'] }, { silent: true });
       openBlock(get('blocks', b.id)); return;
+    }
+    if (action === 'room-toggle' || action === 'room-one' || action === 'room-all') {
+      e.preventDefault();
+      const cur = get('blocks', b.id); const tk = cur.taskId && get('tasks', cur.taskId); const on = Boolean(roomOf(cur));
+      const keepMax = (roomOf(cur) || tk?.room || {}).max ?? 180;
+      const clean = ({ room, allowOverlap, ...rest }) => { void room; void allowOverlap; return rest; };
+      if (action === 'room-toggle' && cur.seriesId && tk) { ui.roomAsk = ui.roomAsk === b.id ? null : b.id; ui.roomAskKeep = true; openBlock(cur); return; }
+      ui.roomAsk = null;
+      if (action === 'room-one' || !tk) upsert('blocks', { ...clean(cur), room: on ? false : { max: keepMax } }, { silent: true });
+      else {
+        // the whole routine (or the task of a one-off turn): set on the task; this turn follows it again
+        upsert('tasks', { ...tk, room: on ? null : { max: keepMax } }, { silent: true });
+        upsert('blocks', clean(cur), { silent: true });
+      }
+      changed(); openBlock(get('blocks', b.id)); return;
     }
     if (action === 'count-toggle') { e.preventDefault(); setCounts(b.id, !turnCounts(get('blocks', b.id))); openBlock(get('blocks', b.id)); return; }
     if (action === 'block-start') { const nb = startBlock(get('blocks', b.id)); if (isPalestra(task)) openPalestra(task, nb); afterStart(nb); return; }

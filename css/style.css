@@ -2186,3 +2186,25 @@ input.gi-ck { appearance: none; -webkit-appearance: none; display: grid; place-c
 .np-down { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--warn) 8%, var(--surface)); font-size: .88rem; }
 .np-down small { color: var(--muted); } .np-down .btn { align-self: flex-start; }
 .rm-kinds { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 8px; }
+
+/* (v95) «Altre cose possono starci dentro»: the + sheet row, the turn sheet row, the box tag in the agenda */
+.pl-roommax { align-items: center; gap: 8px; flex-wrap: wrap; }
+.pl-step { display: inline-flex; align-items: center; gap: 6px; }
+.pl-step b { min-width: 72px; text-align: center; font-size: .95rem; }
+.pl-step .pl-chip { min-width: 40px; }
+.tb-room { margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; }
+.tb-room.on { border-color: var(--accent); background: var(--accent-soft); }
+.tb-room-h { display: flex; align-items: center; gap: 10px; }
+.tb-room-h > span { flex: 1; font-size: .95rem; }
+.tb-room-h small { display: block; color: var(--muted); font-size: .8rem; }
+.tb-room .pl-hint { margin: 6px 0 0; }
+.tb-room-ask { margin-top: 8px; padding: 8px 10px; border-radius: 11px; background: var(--bg); border: 1px solid var(--line); }
+.tb-room-ask p { margin: 0 0 6px; font-size: .88rem; }
+.ag-box.roomy { border-style: dashed; }
+.ag-room { list-style: none; margin: -2px 0 4px 58px; }
+.ag-room span { display: inline-block; font-size: .74rem; padding: 1px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+/* (v95) Ricette / Palestra from another GitHub account */
+.ext-other { border-top: 1px solid var(--line); padding-top: 4px; margin-top: 4px; }
+.ext-other summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: .9rem; padding: 8px 0; }
+.ext-other label { display: block; margin-top: 8px; }
+.ext-tok { display: inline; color: var(--muted); font-weight: 400; }

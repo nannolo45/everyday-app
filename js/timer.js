@@ -7,7 +7,7 @@ import { esc, planSettings, ui } from './core.js';
 import { t } from './i18n.js';
 import { isPalestra, startLink } from './palestra.js';
 import { isEvent } from './kinds.js';
-import { blocksOn, outcomeOf, planTask, trySetBlockDone } from './model.js';
+import { blocksOn, roomy, outcomeOf, planTask, trySetBlockDone } from './model.js';
 import { addDays, fmtDur, fmtTime, nowMinutes, today } from './plan.js';
 import { placeBlock, planPlacements } from './planning.js';
 import { get, live, remove, upsert } from './store.js';
@@ -59,8 +59,9 @@ export function stopTimer(block, { done = true } = {}) {
 
 // Today's movable blocks that the running one now overlaps (planned length from its new start).
 export function overlapsAfter(b) {
+  if (roomy(b)) return []; // (v95) other things are meant to go inside it
   const end = b.start + (b.plannedMinutes || b.minutes);
-  return blocksOn(b.date).filter((x) => x.id !== b.id && x.taskId && !outcomeOf(x) && !x.startedAt && !x.seriesId && !x.allowOverlap
+  return blocksOn(b.date).filter((x) => x.id !== b.id && x.taskId && !outcomeOf(x) && !x.startedAt && !x.seriesId && !roomy(x)
     && x.kind !== 'prep' && !isEvent(get('tasks', x.taskId)) && x.start >= b.start && x.start < end);
 }
 // "Move the next ones": they go to the planner's next good slots (today, else later days); Undo puts them back.

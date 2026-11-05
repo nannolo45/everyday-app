@@ -11,7 +11,7 @@ import { allPlaces, hasHours, openState, placeEmoji } from '../places.js';
 import { autoHoursFor, tripMode } from '../planning.js';
 import { changed } from '../shell.js';
 import { contractTooNew, get, live, state } from '../store.js';
-import { isConfigured, palestraConfigured, ricetteConfigured } from '../sync.js';
+import { isConfigured, palestraConfigured, repoLabel, repoTarget, ricetteConfigured } from '../sync.js';
 import { ensureLegTasks, LEGS, legTemplate, travelCfg } from '../travel-plan.js';
 import { MODE_ICON, MODES as TRAVEL_MODES } from '../travel.js';
 import { glance, GLANCE, planStyle, VIEWS } from './planner.js';
@@ -31,6 +31,15 @@ export function viewSettings() {
   const msg = ui.connMsg;
   if (ensureLegTasks()) setTimeout(changed, 0);
   return settingsHtml(s, msg);
+}
+// (v95) «Di un altro account GitHub» under the Ricette / Palestra repository: the owner and a token of its own.
+function extFields(key, tokenKey) {
+  const s = state.settings; const cur = String(s[key] || ''); const other = cur.includes('/') ? cur.split('/')[0] : '';
+  const dis = isConfigured() ? '' : 'disabled';
+  return `<details class="ext-other" ${other || s[tokenKey] ? 'open' : ''}><summary>${esc(t('extOther'))}</summary>
+    <label>${esc(t('extOwner'))}<input name="${key}Owner" value="${esc(other)}" placeholder="${esc(s.owner || '')}" autocomplete="off" autocapitalize="off" spellcheck="false" ${dis}></label>
+    <label>${esc(t('extToken'))}<input name="${key}Token" type="password" placeholder="${esc(t(s[tokenKey] ? 'tokenSaved' : 'extTokenPh'))}" autocomplete="off" ${dis}>
+      <small>${esc(t('extWhy'))}</small></label></details>`;
 }
 export function settingsHtml(s, msg) {
   const hourOpts = (sel, from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i).map((h) => `<option value="${h}" ${h === Number(sel) ? 'selected' : ''}>${fmtTime(h * 60)}</option>`).join('');
@@ -118,8 +127,8 @@ export function settingsHtml(s, msg) {
   </form>`;
   const ricette = ricetteConfigured() ? `
   <div class="conn-card">
-    <div class="conn-main"><span class="ok-dot"></span><div><b>${esc(s.owner)}/${esc(s.ricetteRepo)}</b>
-      <small>${esc(t('ricetteStatus', live('r_recipes').length, live('r_pantry').length, live('r_shopping').filter((x) => !x.checked).length))}</small>${contractTooNew() ? `<p class="sl-frozen" role="alert">⚠ ${esc(t('sl_contract'))}</p>` : ''}</div></div>
+    <div class="conn-main"><span class="ok-dot"></span><div><b>${esc(repoLabel(s.ricetteRepo))}</b>${s.ricetteToken ? ` <small class="ext-tok">· ${esc(t('extSepToken'))}</small>` : ''}
+      ${repoTarget(s.ricetteRepo).owner !== String(s.owner || '').trim() ? `<small>${esc(t('extShared', repoTarget(s.ricetteRepo).owner))}</small>` : ''}<small>${esc(t('ricetteStatus', live('r_recipes').length, live('r_pantry').length, live('r_shopping').filter((x) => !x.checked).length))}</small>${contractTooNew() ? `<p class="sl-frozen" role="alert">⚠ ${esc(t('sl_contract'))}</p>` : ''}</div></div>
     ${ui.ricMsg && ui.ricMsg !== 'connected' ? `<p class="conn bad">${esc(t(ui.ricMsg))}</p>` : ''}
     <label class="opt low-pref">${esc(t('lowPrefL'))}<select data-action="low-pref" ${contractTooNew() ? 'disabled' : ''}>${LOW_MODES.map((m) => `<option value="${m}" ${m === lowPref() ? 'selected' : ''}>${esc(t(`lowPref_${m}`))}</option>`).join('')}</select><small>${esc(t('lowPrefWhy'))}</small></label>
     <div class="button-row"><button class="btn small ghost" type="button" data-action="ric-off">${esc(t('disconnect'))}</button></div>
@@ -127,13 +136,14 @@ export function settingsHtml(s, msg) {
   <form class="form" id="ric-form">
     <label>${esc(t('ricetteRepo'))}<input name="ricetteRepo" value="${esc(s.ricetteRepo || 'ricette-data')}" autocomplete="off" autocapitalize="off" spellcheck="false" ${isConfigured() ? '' : 'disabled'}>
       <small>${esc(isConfigured() ? t('ricetteRepoHint') : t('ricetteNeedsSync'))}</small></label>
+    ${extFields('ricetteRepo', 'ricetteToken')}
     ${ui.ricMsg ? `<p class="conn ${ui.ricMsg === 'connected' ? 'good' : 'bad'}">${esc(t(ui.ricMsg))}</p>` : ''}
     <div class="button-row"><button class="btn primary" ${isConfigured() ? '' : 'disabled'}>${esc(t('connect'))}</button></div>
   </form>`;
   const nPal = live('tasks').filter((x) => isPalestra(x) && !x.archived).length; const lastS = lastSessionAt();
   const palestra = palestraConfigured() ? `
   <div class="conn-card">
-    <div class="conn-main"><span class="ok-dot"></span><div><b>${esc(s.owner)}/${esc(s.palestraRepo)}</b>
+    <div class="conn-main"><span class="ok-dot"></span><div><b>${esc(repoLabel(s.palestraRepo))}</b>${s.palestraToken ? ` <small class="ext-tok">· ${esc(t('extSepToken'))}</small>` : ''}
       <small>${esc(t('palStatus', nPal, lastS ? relDay(dateStr(new Date(lastS))) : ''))}</small>${palestraTooNew() ? `<p class="sl-frozen" role="alert">⚠ ${esc(t('palContract'))}</p>` : ''}</div></div>
     ${ui.palMsg && ui.palMsg !== 'connected' ? `<p class="conn bad">${esc(t(ui.palMsg))}</p>` : ''}
     <div class="button-row"><a class="btn small" href="${esc(PALESTRA_APP)}" target="_blank" rel="noopener">${esc(t('palOpen'))} ↗</a><button class="btn small ghost" type="button" data-action="pal-off">${esc(t('disconnect'))}</button></div>
@@ -142,6 +152,7 @@ export function settingsHtml(s, msg) {
     <p class="hint">${esc(t('palWhy'))}</p>
     <label>${esc(t('palRepo'))}<input name="palestraRepo" value="${esc(s.palestraRepo || 'palestra-data')}" autocomplete="off" autocapitalize="off" spellcheck="false" ${isConfigured() ? '' : 'disabled'}>
       <small>${esc(isConfigured() ? t('ricetteRepoHint') : t('ricetteNeedsSync'))}</small></label>
+    ${extFields('palestraRepo', 'palestraToken')}
     ${ui.palMsg ? `<p class="conn ${ui.palMsg === 'connected' ? 'good' : 'bad'}">${esc(t(ui.palMsg))}</p>` : ''}
     <div class="button-row"><button class="btn primary" ${isConfigured() ? '' : 'disabled'}>${esc(t('connect'))}</button></div>
   </form>`;
@@ -246,7 +257,7 @@ export function settingsHtml(s, msg) {
   const conn = (on, label) => (on ? label : t('notConnected'));
   const advPages = {
     sync: { icon: '🔄', title: t('sync'), sub: conn(ghConnected(), `${s.owner}/${s.repo}`), body: `${why('connectionsWhy')}${github}` },
-    ric: { icon: '🍲', title: t('ricette'), sub: conn(ricetteConfigured(), `${s.owner}/${s.ricetteRepo}`), body: ricette },
+    ric: { icon: '🍲', title: t('ricette'), sub: conn(ricetteConfigured(), repoLabel(s.ricetteRepo)), body: ricette },
     pal: { icon: '🏋', title: t('palestra'), sub: conn(palestraConfigured(), t('palStatus', nPal, '')), body: palestra },
     gcal: { icon: '📆', title: t('gcal'), sub: t('gcalRowSub'), body: gcalSection() },
     tasks: { icon: '☑', title: t('advTasks'), sub: t('advTasksSub'), body: tasksPage },

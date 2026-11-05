@@ -15,7 +15,7 @@
 // in Everyday: the others are kept (`palOut`), out of the lists, and come back when a plan has them.
 import { esc } from './core.js';
 import { t } from './i18n.js';
-import { busyOn, newBlock } from './model.js';
+import { busyOn, newBlock, planBusy } from './model.js';
 import { autoHoursFor } from './planning.js';
 import { addDays, dateStr, fmtTime, freeSlot, isOccurrence, parseTime, today } from './plan.js';
 import { contractVersion, get, live, PAL_CONTRACT, remove, state, uid, upsert } from './store.js';
@@ -158,7 +158,7 @@ function applyLive(mine) {
 export const moveKey = (m) => `${m.at}|${m.from}|${m.to}`;
 const openOn = (x, d) => live('blocks').filter((b) => b.taskId === x.id && b.date === d && b.kind !== 'prep' && !outcomeOf(b) && !b.startedAt && !b.endedAt).sort((a, b) => a.start - b.start);
 function slotOn(d, minutes, want, skipId) {
-  const busy = busyOn(d).filter((b) => b.id !== skipId && !b.allowOverlap);
+  const busy = planBusy(d, (b) => b.id !== skipId);
   const [h0, h1] = autoHoursFor(d);
   if (want != null && !busy.some((b) => b.start < want + minutes && b.start + b.minutes > want)) return want;
   const now = new Date(); const nowM = d === today() ? now.getHours() * 60 + now.getMinutes() : 0;

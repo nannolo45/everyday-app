@@ -2,7 +2,7 @@
 import { fmtDay, GROCERY_MINUTES, planSettings, relDay, toast, ui } from './core.js';
 import { t } from './i18n.js';
 import { isTodo } from './kinds.js';
-import { busyOn, conflictsOn, conflictText, eventTasksOf, followParent, itemById, leadOf, leaveTrace, maySplit, minutesLeft, newBlock, openTasks, outcomeOf, partsLeft, periodKey, plannedTaskIds, planTask, prereqsOf, splitsSteps, stepLen, timesLeft } from './model.js';
+import { busyOn, planBusy, roomy, conflictsOn, conflictText, eventTasksOf, followParent, itemById, leadOf, leaveTrace, maySplit, minutesLeft, newBlock, openTasks, outcomeOf, partsLeft, periodKey, plannedTaskIds, planTask, prereqsOf, splitsSteps, stepLen, timesLeft } from './model.js';
 import { addDays, fmtTime, freeSlot, importanceOf, nowMinutes, parseDate, today } from './plan.js';
 import { hoursFields, placeHours, placeOfTask } from './places.js';
 import { isTravelStep } from './travel-plan.js';
@@ -51,7 +51,7 @@ export function openSlotFor(task, b) {
 function openSlotFrom(task, b, from) {
   const s = planSettings(); const td = today(); const now = nowMinutes();
   const dates = Array.from({ length: 14 }, (_, i) => addDays(from, i));
-  const dayInfo = (d) => ({ date: d, blocks: busyOn(d).filter((x) => x.id !== b.id && !x.allowOverlap), from: Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((now + 5) / 5) * 5 : 0), to: autoHoursFor(d)[1] });
+  const dayInfo = (d) => ({ date: d, blocks: planBusy(d, (x) => x.id !== b.id), from: Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((now + 5) / 5) * 5 : 0), to: autoHoursFor(d)[1] });
   const step = b.stepId && (task.steps || []).find((y) => y.id === b.stepId);
   const hf = step ? (placeHours(task) ? { hours: placeHours(task), pre: 0, own: b.minutes } : {}) : hoursFields(task);
   const item = { id: 'fix', taskId: task.id, title: task.title, minutes: b.minutes, importance: importanceOf(task), createdAt: task.createdAt, ...hf };
@@ -67,7 +67,7 @@ export function fixConflict(c) {
     const [a, b] = c.ids.map((id) => itemById(id) && { ...itemById(id), fixed: !get('blocks', id) });
     const weight = (x) => (x.fixed ? 1e7 : x.done ? 1e6 : x.kind === 'meal' ? 1e5 : x.taskId && get('tasks', x.taskId) ? scoreTask(get('tasks', x.taskId), x.date).score : 20);
     const mover = weight(a) < weight(b) ? a : b;
-    const others = busyOn(mover.date).filter((x) => x.id !== mover.id && !x.allowOverlap);
+    const others = planBusy(mover.date, (x) => x.id !== mover.id);
     const from = mover.date === today() ? nowMinutes() : s.dayStart;
     const at = nearestSlot(others, mover.minutes, mover.start, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap, buffer: s.buffer });
     if (at == null) { toast(t('noRoom')); return; }
@@ -88,7 +88,7 @@ export function fixConflict(c) {
     for (let i = 0; i < 21 && !done; i++) {
       const d = addDays(pre.date, i);
       const from = Math.max(i ? s.dayStart : pre.start + pre.minutes, d === today() ? nowMinutes() : 0);
-      const at = freeSlot(busyOn(d).filter((x) => x.id !== b.id && !x.allowOverlap), b.minutes, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap });
+      const at = freeSlot(planBusy(d, (x) => x.id !== b.id), b.minutes, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, snap: s.snap });
       if (at != null) { followParent(upsert('blocks', { ...b, date: d, start: at, auto: false }, { silent: true })); toast(t('movedTo', b.title, `${relDay(d)} ${fmtTime(at)}`)); done = true; }
     }
     if (!done) { toast(t('noRoom')); return; }
@@ -158,14 +158,14 @@ export function planPlacements(ids, dates, extra = []) {
   const s = planSettings(); const td = today(); const now = nowMinutes();
   const tasks = ids.map((id) => get('tasks', id)).filter(Boolean);
   const { items } = planningItems(tasks, dates);
-  const dayInfo = (d) => ({ date: d, blocks: [...busyOn(d).filter((b) => !b.allowOverlap), ...extra.filter((e) => e.date === d)], from: Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((now + 5) / 5) * 5 : 0), to: autoHoursFor(d)[1] });
+  const dayInfo = (d) => ({ date: d, blocks: planBusy(d, undefined, extra.filter((e) => e.date === d)), from: Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((now + 5) / 5) * 5 : 0), to: autoHoursFor(d)[1] });
   return spreadWithSplit(items, dates.map(dayInfo), s).placed;
 }
 // Where a new task would go "as soon as possible" over the next week (nothing stored; for the + sheet).
 export function suggestSlot(x) {
   const s = planSettings(); const td = today(); const now = nowMinutes();
   const dates = Array.from({ length: 7 }, (_, i) => addDays(td, i));
-  const dayInfo = (d) => ({ date: d, blocks: busyOn(d).filter((b) => !b.allowOverlap), from: Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((now + 5) / 5) * 5 : 0), to: autoHoursFor(d)[1] });
+  const dayInfo = (d) => ({ date: d, blocks: planBusy(d), from: Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((now + 5) / 5) * 5 : 0), to: autoHoursFor(d)[1] });
   const item = { id: 'new', taskId: 'new', title: x.title || '', minutes: x.minutes || 30, due: x.due || null, importance: x.importance || 3, priority: x.priority || 0, createdAt: Date.now(), ...(x.hours ? { hours: x.hours, pre: x.pre || 0, own: x.own || x.minutes || 30 } : {}) };
   return spreadTasks({ tasks: [item], days: dates.map(dayInfo), settings: s }).placed[0] || null;
 }
@@ -253,7 +253,7 @@ export function planGroceryTrips({ meal = null, newId = null } = {}) {
   const days = []; for (let d = td; d <= lastDay; d = addDays(d, 1)) days.push(d);
   const trips = planTrips({
     shopIds, shops: list, mode: tripMode(), days, snap: planSettings().snap,
-    busyOn: (d) => busyOn(d).filter((b) => !b.allowOverlap && !outcomeOf(b)),
+    busyOn: (d) => planBusy(d, (b) => !outcomeOf(b)),
     from: { date: td, minute: now + 5 }, deadline: meal ? { date: meal.date, minute: meal.start - 15 } : null, hours: autoHoursFor,
   });
   const blocks = []; const missing = [];
@@ -324,7 +324,7 @@ export function planningItems(tasks, dates) {
   return { items, skipped };
 }
 export function loadOf(date) {
-  const now = busyOn(date).filter((b) => !b.allowOverlap && !b.outcome).reduce((n, b) => n + (b.minutes || 0), 0);
+  const now = busyOn(date).filter((b) => !roomy(b) && !b.outcome).reduce((n, b) => n + (b.minutes || 0), 0);
   const add = ghostsOn(date).reduce((n, g) => n + g.minutes + (g.lead || 0), 0);
   return { now, add, limit: planSettings().maxLoad };
 }
@@ -365,7 +365,7 @@ export function placeGhosts(ids, dates, minute = null, { busy = [], more = 0 } =
   const { items, skipped: blocked } = planningItems(tasks, dates);
   const dayInfo = (d) => ({
     date: d,
-    blocks: [...busyOn(d).filter((b) => !b.allowOverlap), ...ghostsOn(d).map((g) => ({ start: g.start - (g.lead || 0), minutes: g.minutes + (g.lead || 0) })), ...busy.filter((e) => e.date === d)], // (v81) and the routines' turns proposed with them
+    blocks: planBusy(d, undefined, [...ghostsOn(d).map((g) => ({ start: g.start - (g.lead || 0), minutes: g.minutes + (g.lead || 0) })), ...busy.filter((e) => e.date === d)]), // (v81) and the routines' turns proposed with them
     from: Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((now + 5) / 5) * 5 : 0),
     to: autoHoursFor(d)[1],
   });

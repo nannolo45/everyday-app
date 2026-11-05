@@ -5,7 +5,7 @@ import { openAutoPlanner } from '../editors.js';
 import { catColor, esc, fmtDay, hint, PPM, range, reasonText, relDay, toast, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { isEvent } from '../kinds.js';
-import { alreadyPlanned, isApptLike, isMealTask, mealRecipes, taskIcon, autoApply, autoChecks, blocksOn, blockTimeText, checklistLeft, checklistOf, checkMissed, conflictsOn, conflictText, eventsOn, isInvite, ISSUE_SEC, issueText, linkFor, nextPlanned, outcomeOf, partsLeft, plannedWhen, prereqsOf, splitsSteps, stepTimes, taskDayOf, taskIssues, timedEventsOn, timesLeft } from '../model.js';
+import { roomOf, roomUsed, roomy, alreadyPlanned, isApptLike, isMealTask, mealRecipes, taskIcon, autoApply, autoChecks, blocksOn, blockTimeText, checklistLeft, checklistOf, checkMissed, conflictsOn, conflictText, eventsOn, isInvite, ISSUE_SEC, issueText, linkFor, nextPlanned, outcomeOf, partsLeft, plannedWhen, prereqsOf, splitsSteps, stepTimes, taskDayOf, taskIssues, timedEventsOn, timesLeft } from '../model.js';
 import { addDays, dateStr, dayTotals, fmtDur, fmtTime, importanceOf, layoutBlocks, parseDate, sortTasks, today, weekday } from '../plan.js';
 import { addGhostList, autoHoursFor, hoursShort, inRange, loadOf, selecting, spreadLabel, trayTasks } from '../planning.js';
 import { changed, currentDate, render } from '../shell.js';
@@ -52,7 +52,7 @@ export function viewPlan(date) {
   const td = today();
   let title; let prev; let next; let sub = '';
   if (v === 'day') {
-    const totals = dayTotals(blocksOn(date));
+    const totals = dayTotals(blocksOn(date).filter((b) => !roomy(b))); // (v95) a block with room for other things isn't load
     title = fmtDay(date); prev = addDays(date, -1); next = addDays(date, 1);
     sub = `${date === td ? t('today') : relDay(date)} · ${totals.planned ? t('plannedSum', fmtDur(totals.planned)) : t('nothingPlanned')}${totals.done ? ` · ${t('doneSum', fmtDur(totals.done))}` : ''}`;
   } else if (v === 'month') {
@@ -576,16 +576,16 @@ export const behindCard = (date) => { // (v81) also on Oggi
 // (v74–v76) What takes time on the agenda: an invitation you're not going to doesn't, nor an event shown as
 // free in Google, nor a block that may overlap anything; a proposal does.
 const isBehind = (b) => { if (b.date !== today() || outcomeOf(b) || (b.startedAt && !b.endedAt)) return false; const n = new Date(); return b.start + (b.minutes || 0) <= n.getHours() * 60 + n.getMinutes(); };
-const takesTime = (it) => !(it.k === 'event' && (it.e.skipped || it.e.busy === false)) && !(it.k === 'block' && it.b.allowOverlap);
+const takesTime = (it) => !(it.k === 'event' && (it.e.skipped || it.e.busy === false)) && !(it.k === 'block' && roomy(it.b));
 // (v76) Boxes: a block or event of 2 hours or more holds the things that fall wholly inside it.
 function boxItems(items) {
   const inner = new Set(); const out = [];
   for (const it of items) {
     if (inner.has(it)) continue;
     const end = it.start + it.minutes;
-    if ((it.k === 'block' || it.k === 'event') && it.minutes >= 120) {
+    if ((it.k === 'block' || it.k === 'event') && (it.minutes >= 120 || (it.k === 'block' && roomy(it.b)))) {
       const kids = items.filter((x) => x !== it && !inner.has(x) && x.start >= it.start && x.start + x.minutes <= end && x.minutes < it.minutes);
-      if (kids.length) { for (const k of kids) inner.add(k); out.push({ ...it, inner: kids }); continue; }
+      if (kids.length || (it.k === 'block' && roomy(it.b))) { for (const k of kids) inner.add(k); out.push({ ...it, inner: kids }); continue; } // (v95) a roomy block is a box even when empty
     }
     out.push(it);
   }
@@ -612,10 +612,11 @@ function boxHtml(it, gaps, date, from0) {
   const id = it.k === 'block' ? it.b.id : it.e.id;
   const color = it.k === 'block' ? catColor(it.b.category) || 'var(--accent)' : it.e.color || 'var(--muted)';
   const end = it.start + it.minutes; const open = !ui.boxFold?.has(id);
-  const head = agRow({ ...it, inner: null });
+  const room = it.k === 'block' && !outcomeOf(it.b) ? roomOf(it.b) : null;
+  const head = agRow({ ...it, inner: null }) + (room ? `<li class="ag-room"><span>⊕ ${esc(room.max ? t('roomTagMax', fmtDur(roomUsed(it.b)) || '0m', fmtDur(room.max)) : t('roomTag'))}</span></li>` : '');
   const inner = open ? rowsFor(it.inner, from0(it.start), end, gaps && !takesTime(it), date, from0).join('') : '';
   const sum = it.inner.map((x) => `${x.k === 'block' ? x.b.title : x.k === 'event' ? x.e.title : x.k === 'ghost' ? ghostTitle(x.g) : x.g.title} ${fmtTime(x.start)}`).join(' · ');
-  return `<li class="ag-box${open ? '' : ' shut'}" style="--c:${esc(color)}"><ul class="ag-box-l">${head}${inner}</ul>
+  return `<li class="ag-box${open ? '' : ' shut'}${room ? ' roomy' : ''}" style="--c:${esc(color)}"><ul class="ag-box-l">${head}${inner}</ul>
     <div class="ag-box-end"><span>${esc(open ? t('boxEnd', fmtTime(end % 1440)) : sum)}</span><button type="button" class="link" data-action="box-fold" data-id="${esc(id)}" aria-expanded="${open}">${esc(open ? t('boxClose') : t('boxOpen', it.inner.length))}</button></div></li>`;
 }
 // (v92) What's set for «in giornata» on this day (on today also what was left from the days before) and isn't on

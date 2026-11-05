@@ -5,7 +5,7 @@
 // sheet, the task sheet, Rivedi, the planner pane ("Sposta") and the search.
 import { esc, planSettings, relDay, toast } from './core.js';
 import { t } from './i18n.js';
-import { anchorOffset, busyOn, deleteBlock, ensureSeries, followParent, isSeries, leadOf, outcomeOf, planTask, seriesBlocks } from './model.js';
+import { anchorOffset, busyOn, planBusy, deleteBlock, ensureSeries, followParent, isSeries, leadOf, outcomeOf, planTask, seriesBlocks } from './model.js';
 import { addDays, fmtDur, fmtTime, freeSlot, isoDay, nowMinutes, parseDate, today, weekday } from './plan.js';
 import { autoHoursFor, warnConflicts } from './planning.js';
 import { WINDOWS } from './smart.js';
@@ -32,7 +32,7 @@ export function partSpan(date, part) {
 }
 // What's busy on a date for this task (its own blocks don't count: they're what we're moving).
 function busyFor(x, date, skipIds) {
-  return busyOn(date).filter((b) => !b.allowOverlap && b.taskId !== x.id && !skipIds.has(b.id));
+  return planBusy(date, (b) => b.taskId !== x.id && !skipIds.has(b.id));
 }
 // A cell: free minutes in it, the first block start that fits (need = length + the lead time), or null.
 export function cellInfo(x, date, part, skipIds = new Set()) {

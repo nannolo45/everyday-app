@@ -5,7 +5,7 @@
 import { esc, planSettings, relDay, ui } from './core.js';
 import { t } from './i18n.js';
 import { isSaved, isTodo } from './kinds.js';
-import { busyOn, isEnded, leadOf, openTurnsOf, periodKey, planTask, timesLeft, turnsLeftOf } from './model.js';
+import { busyOn, planBusy, isEnded, leadOf, openTurnsOf, periodKey, planTask, timesLeft, turnsLeftOf } from './model.js';
 import { openModal } from './widgets.js';
 import { addDays, fmtDur, fmtTime, freeSlot, nowMinutes, occurrences, REPEATS, ruleAt, today } from './plan.js';
 import { autoHoursFor, placeBlock, planPlacements } from './planning.js';
@@ -50,7 +50,7 @@ export function toFix(from, to) {
 // [{start, part, until}] (start = when the task itself starts; the lead time, e.g. getting there, is before).
 export function slotOptions(x, date, n = 3, extra = []) {
   const s = planSettings(); const lead = leadOf(x); const need = (x.minutes || 30) + lead;
-  const busy = [...busyOn(date), ...extra.filter((e) => e.date === date)].filter((b) => !b.allowOverlap && !(b.taskId === x.id && b.date === date));
+  const busy = planBusy(date, (b) => !(b.taskId === x.id && b.date === date), extra.filter((e) => e.date === date && !(e.taskId === x.id)));
   const [h0, h1] = autoHoursFor(date);
   const from0 = date === today() ? Math.ceil((nowMinutes() + 5) / 5) * 5 : 0;
   const order = [...new Set([x.when, 'evening', 'morning', 'afternoon'].filter(Boolean))];

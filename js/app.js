@@ -480,8 +480,8 @@ view.addEventListener('click', (e) => {
     case 'gcal-now': gcalNow(); break;
     case 'leg-edit': { ensureLegTasks(); const x = legTemplate(btn.dataset.kind); if (x) openTask(x); break; }
     case 'gcal-remove': if (confirm(t('gcalRemoveConfirm'))) { removeCalendarData().then((n) => { toast(t('gcalRemoved', n)); changed(); }).catch(() => { toast(t('err_network')); }); } break;
-    case 'pal-off': saveSettings({ palestraRepo: '' }).then(() => { ui.palMsg = ''; render(); }); break;
-    case 'ric-off': saveSettings({ ricetteRepo: '' }).then(() => { ui.ricMsg = ''; render(); }); break;
+    case 'pal-off': saveSettings({ palestraRepo: '', palestraToken: '' }).then(() => { ui.palMsg = ''; render(); }); break;
+    case 'ric-off': saveSettings({ ricetteRepo: '', ricetteToken: '' }).then(() => { ui.ricMsg = ''; render(); }); break;
     case 'export': exportData(); break;
     default: break;
   }

@@ -6,7 +6,7 @@ import { addQuantities, formatQty } from './parse.js';
 import { sameFood } from './foods.js';
 import { addDays, autoTemplatesFor, completeTask, fmtDur, fmtTime, freeSlot, importanceOf, isoDay, nextOccurrence, nowMinutes, occurrences, parseDate, reopenTask, REPEATS, ruleAt, templateBlocks, today } from './plan.js';
 import { prepMinutes } from './recipes.js';
-import { findConflicts, placeGroceries, placePrep, spreadTasks, windowOn, WINDOWS } from './smart.js';
+import { findConflicts, freeIntervals, placeGroceries, placePrep, spreadTasks, windowOn, WINDOWS } from './smart.js';
 import { contractTooNew, get, has, live, remove, state, uid, upsert } from './store.js';
 import { isConfigured, queueCooked, ricetteConfigured, unqueueCooked } from './sync.js';
 import { hereNow, isTravelStep, legMinutes, ownMinutes, realSteps, travelCache, travelCfg, travelOf } from './travel-plan.js';
@@ -17,7 +17,7 @@ import { changed } from './shell.js';
 import { openChecklist, openOutcome, saveTask } from './editors.js';
 import { shopsList } from './views/shop.js';
 import { weekStart } from './views/planner.js';
-import { planGroceryTrips } from './planning.js';
+import { autoHoursFor, planGroceryTrips } from './planning.js';
 import { afterPantryChange, pantrySnap } from './lowstock.js';
 
 // ---------- tasks, preparations, checklists ----------
@@ -48,6 +48,52 @@ export function timedEventsOn(date) { return eventsOn(date).filter((e) => !e.all
 // Everything that takes up time: your blocks plus busy calendar events.
 export function busyOn(date) { return [...blocksOn(date), ...timedEventsOn(date).filter((e) => e.busy !== false)]; }
 export const itemById = (id) => get('blocks', id) || get('events', id);
+// (v95) «Altre cose possono starci dentro»: other things may be planned inside this block (time with someone,
+// a long wait). The task sets it for all its turns (`room: {max}`, max = minutes of other things at most,
+// 0 = no limit); one turn can say otherwise (`room: {max}` or `false`). The old `allowOverlap` = no limit.
+export function roomOf(b) {
+  if (!b || b.room === false) return null;
+  if (b.room && typeof b.room === 'object') return b.room;
+  if (b.allowOverlap) return { max: 0 };
+  if (!b.taskId || b.stepId || b.kind === 'prep' || b.kind === 'followup' || b.kind === 'groceries') return null;
+  const x = get('tasks', b.taskId);
+  return x?.room && typeof x.room === 'object' ? x.room : null;
+}
+export const roomy = (b) => Boolean(roomOf(b));
+// Minutes of other things already inside a roomy block (what overlaps it and isn't roomy itself).
+export function roomUsed(c, others = busyOn(c.date)) {
+  const cs = c.start; const ce = c.start + (c.minutes || 0);
+  return others.filter((b) => b.id !== c.id && !roomy(b) && outcomeOf(b) !== 'failed')
+    .reduce((n, b) => n + Math.max(0, Math.min(ce, b.start + (b.minutes || 0)) - Math.max(cs, b.start)), 0);
+}
+// What's busy that day for the planner: everything except roomy blocks. A roomy block with a limit keeps
+// only that much free (the first free minutes inside it, from now on); the rest of it counts as busy, as
+// pieces marked `noLoad` (they don't add to the day's load). `keep` filters first (e.g. the block being
+// moved); `extra` = more busy time (previews, proposals) that also uses up a block's room.
+export function planBusy(date, keep = () => true, extra = []) {
+  const all = busyOn(date).filter(keep);
+  const hard = [...all.filter((b) => !roomy(b)), ...extra];
+  const out = [...hard];
+  const now = date === today() ? Math.ceil(nowMinutes() / 5) * 5 : 0;
+  for (const c of all.filter((b) => roomy(b) && !outcomeOf(b))) {
+    const max = Number(roomOf(c).max) || 0; if (!max) continue;
+    const cs = c.start; const ce = c.start + (c.minutes || 0);
+    let left = Math.max(0, max - roomUsed(c, hard));
+    const inside = hard.filter((b) => b.start < ce && b.start + (b.minutes || 0) > cs);
+    const piece = (a, z) => out.push({ id: `${c.id}~full~${a}`, start: a, minutes: z - a, title: c.title, noLoad: true, roomOf: c.id });
+    if (now > cs) piece(cs, Math.min(now, ce));
+    // the room goes first to the free time inside the planner's hours, then to the rest
+    const [h0, h1] = autoHoursFor(date);
+    const parts = [];
+    for (const [a, z] of freeIntervals(inside, { from: Math.max(cs, now), dayStart: cs, dayEnd: ce })) {
+      for (const [x, y] of [[a, Math.min(z, h0)], [Math.max(a, h0), Math.min(z, h1)], [Math.max(a, h1), z]]) if (y > x) parts.push([x, y, x >= h0 && y <= h1 ? 0 : 1]);
+    }
+    const keepFree = new Map();
+    for (const pt of [...parts].sort((p1, p2) => p1[2] - p2[2] || p1[0] - p2[0])) { const k = Math.min(left, pt[1] - pt[0]); left -= k; keepFree.set(pt, k); }
+    for (const pt of parts) { const k = keepFree.get(pt) || 0; if (pt[0] + k < pt[1]) piece(pt[0] + k, pt[1]); }
+  }
+  return out;
+}
 // To-dos: tasks of kind 'todo' (see kinds.js).
 export function openTasks() { return live('tasks').filter((x) => !x.done && isTodo(x)); }
 // To-dos and events: everything that gets travel legs.
@@ -246,7 +292,7 @@ export function planTask(task, date, start = null, extra = {}) {
   // (v85) its place has opening hours: the first free time that day when it's open
   if (at == null && !fields.stepId && placeHours(task)) {
     const p = spreadTasks({ tasks: [{ id: 'x', taskId: task.id, title: task.title, minutes, ...hoursFields(task) }], settings: { ...s, maxLoad: 1440 },
-      days: [{ date, blocks: busyOn(date).filter((b) => !b.allowOverlap), from: (date === today() ? nowMinutes() : s.dayStart) + leadOf(task), to: s.dayEnd }] }).placed[0];
+      days: [{ date, blocks: planBusy(date), from: (date === today() ? nowMinutes() : s.dayStart) + leadOf(task), to: s.dayEnd }] }).placed[0];
     if (p) at = p.start;
   }
   if (at == null) {
@@ -720,7 +766,7 @@ export function nextWindowSlot(wins, minutes) {
     const d = addDays(td, i);
     for (const w of wins.filter((x) => windowOn(x, d)).sort((a, b) => a.from - b.from)) {
       const from = Math.max(w.from, d === td ? Math.ceil(now / 5) * 5 : 0);
-      const at = freeSlot(busyOn(d).filter((b) => !b.allowOverlap), minutes, { from, dayStart: 0, dayEnd: w.to, snap: Math.min(s.snap, 15) });
+      const at = freeSlot(planBusy(d), minutes, { from, dayStart: 0, dayEnd: w.to, snap: Math.min(s.snap, 15) });
       if (at != null) return { date: d, start: at };
     }
   }
@@ -992,7 +1038,7 @@ export function autoApply(date) {
 
 export function conflictsOn(date) {
   // (v94) a block marked «couldn't do it» (e.g. «Non ci sono andato») and an event you skip take no time any more
-  return findConflicts([...blocksOn(date).filter((b) => outcomeOf(b) !== 'failed'), ...timedEventsOn(date).filter((e) => e.busy !== false && !e.skipped)], {
+  return findConflicts([...blocksOn(date).filter((b) => outcomeOf(b) !== 'failed').map((b) => (roomy(b) && !b.allowOverlap ? { ...b, allowOverlap: true } : b)), ...timedEventsOn(date).filter((e) => e.busy !== false && !e.skipped)], {
     getBlock: (id) => get('blocks', id), getTask: (id) => get('tasks', id),
     blocksOfTask: (id) => live('blocks').filter((b) => b.taskId === id && b.kind !== 'prep' && !outcomeOf(b)),
     closedOf: (b) => (b.taskId && !outcomeOf(b) ? closedIssue(b) : null),
