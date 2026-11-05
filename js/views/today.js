@@ -8,7 +8,7 @@ import { blocksOn, isApptLike, eventsOn, ISSUE_SEC, issueText, legTimes, openTas
 import { addDays, dayTotals, fmtDur, fmtTime, importanceOf, nowMinutes, today } from '../plan.js';
 import { morningReflow } from '../planning.js';
 import { get, state } from '../store.js';
-import { dayCount, giornataHtml, nextPrepHtml, tomorrowHtml } from './giornata.js';
+import { giornataHtml } from './giornata.js';
 import { MODE_ICON } from '../travel.js';
 import { behindCard, loadBar, prepareDays, weekStart } from './planner.js';
 import { classic } from './impegni.js';
@@ -46,7 +46,11 @@ export function viewToday() {
   const run = runningBlock(); // a timer running: that's the card, whatever else overlaps
   const curBlock = (run && open.find((b) => b.id === run.id)) || open.find((b) => b.start <= now && b.start + b.minutes > now);
   const nextBlock = open.find((b) => b.start > now);
-  const card = curBlock || (nextBlock && nextBlock.start - now <= 15 ? nextBlock : null) || current || next;
+  const old = curBlock || (nextBlock && nextBlock.start - now <= 15 ? nextBlock : null) || current || next;
+  // (v92) one page: the card is about what's next; what's running is a line on top of it
+  const running = classic() ? null : curBlock || current;
+  const card = running && next && next !== running ? next : old;
+  const runLine = running && card !== running ? `<div class="now-run"><span class="now-dot" aria-hidden="true"></span><span><b>${esc(t('inProgress'))}:</b> ${esc(running.title)} · ${esc(t('untilTime', fmtTime(running.start + running.minutes)))}</span>${running.isEvent ? '' : `<button class="btn small ghost" type="button" data-action="now-done" data-id="${esc(running.id)}">${esc(t('markDone'))}</button>`}</div>` : '';
   const lg = card && !card.isEvent ? legTimes(card) : null;
   const task = card && !card.isEvent && card.taskId ? get('tasks', card.taskId) : null;
   const place = task?.place || '';
@@ -61,7 +65,7 @@ export function viewToday() {
         <button class="btn" type="button" data-action="now-move" data-id="${esc(card.id)}">${esc(t('move'))}</button>
         ${place ? `<a class="btn icon-btn" href="${esc(mapsHref(task))}" target="_blank" rel="noopener" aria-label="${esc(t('openMaps'))}">📍</a>` : ''}
       </div>`;
-    nowCard = `<section class="now-card${started ? ' live' : ''}" aria-label="${esc(t('nextMove'))}">
+    nowCard = `<section class="now-card${started ? ' live' : ''}" aria-label="${esc(t('nextMove'))}">${runLine}
       <div class="now-head"><span>${esc(started ? t('inProgress') : t('nextMove'))}</span><b class="${inMin <= 15 && !started ? 'soon' : ''}">${esc(status)}</b></div>
       <div class="now-main">
         ${lg && lg.trip > 0 ? `<div class="now-time"><b class="leave">${fmtTime(lg.leave)}</b><small>${esc(t('leaveWord'))}</small></div><span class="now-arrow" aria-hidden="true">→</span><div class="now-time"><b>${fmtTime(lg.start)}</b><small>${esc(t('startWord'))}</small></div>` : `<div class="now-time"><b>${fmtTime(card.start)}</b><small>${esc(t('startWord'))}</small></div>`}
@@ -87,21 +91,14 @@ export function viewToday() {
     return `<div class="pr-row"><span class="pr-dot ${late ? 'late' : x.due ? 'soon' : 'fix'}"></span><button class="pr-text" type="button" data-action="edit-task" data-id="${esc(x.id)}"><span>${esc(x.title)}</span><small>${esc([why, fmtDur(x.minutes || 30)].join(' · '))}</small></button>
       ${iss.length && !late ? `<button class="btn small" type="button" data-action="task-fix" data-id="${esc(x.id)}" data-sec="${ISSUE_SEC[iss[0]]}">${esc(t('fix'))}</button>` : `<button class="btn small primary-ghost" type="button" data-action="plan-task" data-id="${esc(x.id)}" data-date="${td}">${esc(t('today'))}</button>`}</div>`;
   };
-  // (v91) Adesso | Giornata
+  // (v92) one page: what's running and what's next, then the day (views/giornata.js)
   if (!classic()) {
-    const mode = state.settings.todayMode === 'now' ? 'now' : 'day';
-    const { n, d } = dayCount(td);
-    const seg = `<div class="seg gi-seg" role="tablist"><button type="button" role="tab" class="${mode === 'now' ? 'on' : ''}" aria-selected="${mode === 'now'}" data-action="today-mode" data-id="now">${esc(t('todayNow'))}</button><button type="button" role="tab" class="${mode === 'day' ? 'on' : ''}" aria-selected="${mode === 'day'}" data-action="today-mode" data-id="day">${esc(t('todayDay'))}${n ? ` · ${d}/${n}` : ''}</button></div>`;
-    const after = upcoming.filter((b) => b !== card && b.start > now).slice(0, 2);
-    const rest = upcoming.some((b) => b.start + b.minutes > now);
-    const body = mode === 'day' ? giornataHtml(td) : `${nowCard}${behindCard(td)}${nextPrepHtml(td)}${spareLine}
-      ${after.length ? `<section class="card gi-sec open"><div class="gi-sh"><span>${esc(t('giPoi'))}</span></div><div class="gi-sb">${after.map((b) => `<button type="button" class="gi-row" data-action="${b.isEvent ? 'event' : 'open-block'}" data-id="${esc(b.id)}"><span class="gi-t">${fmtTime(b.start)}</span><span class="gi-c"><span class="gi-x"><b>${esc(b.title)}</b></span></span><span class="gi-r">${esc(fmtDur(b.minutes))}</span></button>`).join('')}</div></section>` : ''}
-      ${rest ? '' : tomorrowHtml(td)}`;
+    const body = `${nowCard}${behindCard(td)}${giornataHtml(td)}`;
     return `<div class="today">
       <div class="today-head"><h1>${esc(fmtDay(td))}</h1><small>${esc(totals.planned ? t('plannedSum', fmtDur(totals.planned)) : t('nothingPlanned'))}${items.filter((b) => b.isEvent).length ? ` · ${esc(t('nEvents', items.filter((b) => b.isEvent).length))}` : ''}</small></div>
       ${eventsOn(td).filter((e) => e.allDay).length ? `<div class="today-allday">${eventsOn(td).filter((e) => e.allDay).map((e) => `<button class="allday-chip" type="button" data-action="event" data-id="${esc(e.id)}" style="--c:${esc(e.color)}">📅 ${esc(e.title)}</button>`).join('')}</div>` : ''}
       ${ui.reflow ? `<div class="reflow"><span>${esc(t('reflowMoved', ui.reflow.moved))}</span><button class="linkish" type="button" data-action="reflow-undo">${esc(t('undo'))}</button><button class="icon" type="button" data-action="reflow-ok" aria-label="${esc(t('close'))}">✕</button></div>` : ''}
-      ${seg}${body}</div>`;
+      ${body}</div>`;
   }
   const ws = weekStart(td);
   const week = Array.from({ length: 7 }, (_, i) => addDays(ws, i));

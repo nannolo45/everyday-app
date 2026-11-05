@@ -95,13 +95,15 @@ function briefSec(td, now, keys, others) {
   const rows = []; let lined = false;
   for (const k of keys) {
     if (!lined && (k.leave ?? k.start) > now) { rows.push(nowLine(now)); lined = true; }
-    if (k.leave != null) rows.push(row(fmtTime(k.leave), '🚶', esc(t('giLeave', k.title)), '', { cls: `sub${now >= k.leave || k.done ? ' done' : ''}` }));
+    if (k.leave != null) rows.push(row(fmtTime(k.leave), '🚶', esc(t('giLeave', k.title)), '', { cls: `gl${now >= k.leave || k.done ? ' done' : ''}` }));
     const sub = [k.noOut ? `<span class="gi-warn">${esc(t('giNoOutcome'))}</span>` : '', k.failed ? esc(t('couldnt')) : '', esc(k.sub)].filter(Boolean).join(' · ');
     rows.push(row(fmtTime(k.start), k.ic, esc(k.title), sub, { cls: `${k.done ? 'done' : ''}${!k.done && k.start <= now && now < k.end ? ' cur' : ''}`, right: k.done ? '✓' : fmtDur(k.end - k.start), action: k.ev ? 'event' : 'open-block', id: k.id }));
   }
   if (!lined) rows.push(nowLine(now));
   const oDone = others.filter((b) => outcomeOf(b)).length;
-  const left = [...keys.filter((k) => !k.done && !k.ev).map((k) => k.end - k.start), ...others.filter((b) => !outcomeOf(b)).map((b) => b.minutes || 0)].reduce((a, b) => a + b, 0);
+  // (v92) what's left from now: a long block already running counts only its rest
+  const rest = (a, z) => Math.max(0, z - Math.max(a, now));
+  const left = [...keys.filter((k) => !k.done && !k.ev).map((k) => rest(k.start, k.end)), ...others.filter((b) => !outcomeOf(b)).map((b) => rest(b.start, b.start + (b.minutes || 0)))].reduce((a, b) => a + b, 0);
   rows.push(row('', '⏳', esc(left ? t('giLeft', fmtDur(left)) : t('giNothingLeft')), `${others.length ? `${esc(t('giOthersDone', oDone, others.length))} · ` : ''}<a href="#/plan">${esc(t('tabPlan'))} ›</a>`, { cls: 'sum' }));
   const nx = keys.find((k) => !k.done && (k.leave ?? k.start) > now) || keys.find((k) => !k.done);
   return section('brief', { count: keys.length ? `${keys.filter((k) => k.done).length}/${keys.length}` : '', summary: nx ? `${esc(t('giNext'))} <b>${fmtTime(nx.start)} ${esc(nx.title)}</b>${nx.leave != null && now < nx.leave ? ` · <span class="leave">${esc(t('leaveAt', fmtTime(nx.leave)))}</span>` : ''}` : esc(keys.length ? t('giAllDone') : t('giNoKey')), body: rows.join('') });
@@ -126,7 +128,7 @@ function dueSec(td, preps = []) {
   if (!list.length) return '';
   const day = (d) => (d < td ? t('giLate') : relDay(d));
   return section('due', { count: String(list.length), summary: `<b>${esc(list[0].title)}</b> · ${esc(day(list[0].due))}`,
-    body: list.map((x) => row(esc(day(x.due)), '📌', esc(x.title), esc(fmtDur(x.minutes || 30)), { right: `<button type="button" class="btn small" data-action="plan-task" data-id="${esc(x.id)}" data-date="${td}">${esc(t('today'))}</button>`, cls: x.due < td ? 'late' : '' })).join('') });
+    body: list.map((x) => row(esc(day(x.due)), x.onDay ? '📌' : '⏳', esc(x.title), esc(fmtDur(x.minutes || 30)), { right: `<button type="button" class="btn small" data-action="plan-task" data-id="${esc(x.id)}" data-date="${td}">${esc(t('today'))}</button>`, cls: x.due < td ? 'late' : '' })).join('') });
 }
 function freeSec(td, now) {
   const gaps = freeGaps(td, now); if (!gaps.length) return '';
@@ -141,7 +143,7 @@ function shopSec() {
 }
 function tmrSec(td) {
   const tm = addDays(td, 1); const keys = keyMoments(tm, -1);
-  const rows = keys.flatMap((k) => [...(k.leave != null ? [row(fmtTime(k.leave), '🚶', esc(t('giLeave', k.title)), '', { cls: 'sub' })] : []), row(fmtTime(k.start), k.ic, esc(k.title), esc(k.sub), { action: k.ev ? 'event' : 'open-block', id: k.id })]);
+  const rows = keys.flatMap((k) => [...(k.leave != null ? [row(fmtTime(k.leave), '🚶', esc(t('giLeave', k.title)), '', { cls: 'gl' })] : []), row(fmtTime(k.start), k.ic, esc(k.title), esc(k.sub), { action: k.ev ? 'event' : 'open-block', id: k.id })]);
   const preps = prepItems(tm, keys).filter((p) => !p.done);
   if (preps.length) rows.push(row('', '🌙', esc(t('giTonight')), esc(preps.map((p) => p.title).join(' · ')), { cls: 'sum' }));
   const first = keys[0];

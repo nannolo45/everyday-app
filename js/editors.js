@@ -21,14 +21,14 @@ import { fold, matchesQ } from './shoplist.js';
 import { candidates, spareTime } from './smart.js';
 import { get, has, kvGet, kvSet, live, remove, saveSettings, state, uid, upsert } from './store.js';
 import { fetchRicettePhoto, ricetteConfigured } from './sync.js';
-import { applyTravel, hereNow, isTravelStep, ownMinutes, realSteps, scheduleTravelRefresh, travelCfg, travelOf } from './travel-plan.js';
-import { MODE_ICON, MODES as TRAVEL_MODES } from './travel.js';
+import { applyTravel, hereNow, isTravelStep, ownMinutes, realSteps, scheduleTravelRefresh, travelCache, travelCfg, travelOf } from './travel-plan.js';
+import { MODE_ICON, MODES as TRAVEL_MODES, norm, searchAddress } from './travel.js';
 import { impBadge, invTag } from './views/planner.js';
 import { remindDefault, remindLabel, REMINDS } from './views/settings.js';
 import { K, readerList, readerTrips, RICETTE_SHOP, SH, shopAdd, shopName, shopReader, tripRowsHtml } from './views/shop.js';
 import { cardRowsIn, fixOcc, skipOcc, slotOptions, toFix } from './weekpick.js';
 import { openPlus, openPlusEdit } from './plus.js';
-import { deletePlace, placeEmoji, placeUsers, savePlace } from './places.js';
+import { deletePlace, guessEmoji, placeAddress, placeEmoji, placeUsers, savePlace } from './places.js';
 import { tripHtml, tvAction, tvRead, tvRecord, tvSame, tvState } from './tripui.js';
 import { pullCandidate, pullUp, runningBlock, shiftAfter, startBlock, startTask, stopTimer, timeHistory, undoShift } from './timer.js';
 import { cleanWindows, dateBox, dayShort, durField, lines, openModal, placeLink, plannedIso, readDur, readWindows, repeatText, searchBox, TIME24, windowsEditor, windowsText } from './widgets.js';
@@ -971,6 +971,7 @@ export function openPlaceRec(place = null, opts = {}) {
     <div class="plc-emojis" role="radiogroup" aria-label="${esc(t('plcIcon'))}">${PLACE_EMOJI.map((e) => `<label><input type="radio" name="em" value="${e}" ${(x.em || placeEmoji(x)) === e ? 'checked' : ''}><span>${e}</span></label>`).join('')}</div>
     <label>${esc(t('name'))}<input name="name" required value="${esc(x.name)}" autocomplete="off" placeholder="${esc(t('plcNamePh'))}"></label>
     <label>${esc(t('plcAddress'))}<input name="place" value="${esc(x.place || '')}" autocomplete="off" placeholder="${esc(t('homePh'))}"></label>
+    <p class="np-fmt">${t('npFormatAddr')}</p><div class="pl-sugg" id="plc-sg"></div>
     <label>${esc(t('placeLink'))}<input name="link" type="url" value="${esc(x.link || '')}" autocomplete="off"></label>
     <button class="pl-tog${x.shop ? ' on' : ''}" type="submit" value="shop-tog" formnovalidate><span>🛒 ${esc(t('plcShop'))}<small>${esc(t(x.shop ? 'plcShopOn' : 'plcShopOff'))}</small></span><i></i></button>
     ${lostItems.length ? `<p class="notice-inline">${esc(t('plcShopLost', lostItems.map((i) => i.name).join(', ')))}</p>` : ''}
@@ -997,17 +998,34 @@ export function openPlaceRec(place = null, opts = {}) {
       const tr = tvAction(tv, action);
       if (tr) { e.preventDefault(); if (typeof tr === 'string') tv.all = tr.slice(4); draw(); return; }
       const wm = action.match(/^w_(add|rm:(\d+))$/);
+      if (action.startsWith('plcg:')) { e.preventDefault(); const g = (geo || [])[Number(action.slice(5))]; if (g) { x.place = g.address; x.lat = g.lat; x.lon = g.lon; if (!x.name) x.name = g.name || ''; if (!x.em || x.em === '📍') x.em = guessEmoji(x.name || g.name); } draw(); return; }
       if (wm) { e.preventDefault(); if (wm[1] === 'add') x.hours.push({ days: x.hours.length ? [6] : [1, 2, 3, 4, 5], from: 480, to: 1200 }); else x.hours.splice(Number(wm[2]), 1); draw(); return; }
       if (action === 'shop-tog') { e.preventDefault(); x.shop = !x.shop; if (x.shop && !x.minutes) x.minutes = 30; draw(); return; }
       if (action === 'delete') { if (confirm(t(u.tasks.length ? 'plcDeleteUsed' : 'plcDeleteConfirm', x.name))) { deletePlace(place.id); changed(); } render(); return; }
       if (!x.name) { e.preventDefault(); return; }
       const { shop, ...fields } = x;
+      if (place && fields.place !== place.place && fields.lat === place.lat) { delete fields.lat; delete fields.lon; } // a new address typed by hand: the old point no longer holds
       const saved = savePlace({ ...fields, id: place?.id || uid(), hours: cleanWindows(x.hours), travel: tvSame(tv, tvState({})) ? null : tvRecord(tv) }, shop);
+      if (saved.lat != null) { const c = travelCache(); saveSettings({ travelCache: { ...c, geo: { ...(c.geo || {}), [norm(placeAddress(saved))]: { lat: saved.lat, lon: saved.lon, name: placeAddress(saved), at: Date.now() } } } }); }
       for (const y of live('tasks').filter((z) => z.placeId === saved.id)) applyTravel(y);
       changed();
       render();
     });
+    // (v92) the address field suggests real places as you type (Photon, OpenStreetMap)
+    const inp = modal.querySelector('input[name=place]'); const box = modal.querySelector('#plc-sg');
+    inp?.addEventListener('input', () => {
+      clearTimeout(geoT); const q = inp.value.trim(); if (q.length < 3 || typeof fetch !== 'function') { box.innerHTML = ''; return; }
+      box.innerHTML = `<p class="hint">${esc(t('npSearching'))}</p>`;
+      geoT = setTimeout(async () => {
+        const h = travelCfg().home; const hp = h && travelCache().geo?.[norm(h)];
+        const res = await searchAddress(q, { fetchFn: (u, i) => fetch(u, i), near: hp?.lat != null ? { lat: hp.lat, lon: hp.lon } : null, lang: getLang() });
+        if (inp.value.trim() !== q) return;
+        geo = res;
+        box.innerHTML = res.length ? res.map((g, i) => `<button class="pl-sopt map" value="plcg:${i}" formnovalidate><span aria-hidden="true">${g.name ? esc(guessEmoji(g.name)) : '📍'}</span><span>${g.name ? `<b>${esc(g.name)}</b> · ` : ''}${esc(g.main === g.name ? '' : g.main)}<small>${esc([g.sub, g.km != null ? (g.km < 100 ? `${g.km} km` : t('npFar')) : ''].filter(Boolean).join(' · '))}</small></span></button>`).join('') : `<p class="hint">${esc(t('npNoMap'))}</p>`;
+      }, 350);
+    });
   };
+  let geo = []; let geoT = null;
   draw();
 }
 

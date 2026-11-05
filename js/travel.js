@@ -15,6 +15,7 @@ const ENDPOINTS = {
   osrm: 'https://router.project-osrm.org/route/v1',
   vbb: 'https://v6.vbb.transport.rest/journeys',
   google: 'https://routes.googleapis.com/directions/v2:computeRoutes',
+  photon: 'https://photon.komoot.io/api/', // (v92) search as you type (Nominatim's policy forbids it)
 };
 const OSRM_PROFILE = { walk: 'foot', bike: 'bike', car: 'driving' };
 const GOOGLE_MODE = { walk: 'WALK', bike: 'BICYCLE', transit: 'TRANSIT', car: 'DRIVE' };
@@ -116,4 +117,27 @@ export function placeNotFound(cache, address) {
   if (!address || isCoord(address)) return false;
   const hit = cache?.geo?.[norm(address)];
   return Boolean(hit && hit.lat == null);
+}
+
+// (v92) Places as you type a new one (Photon, on OpenStreetMap data): streets with house numbers and named
+// places, nearest to `near` first. [{name (a named place, else ''), main, sub, address, lat, lon, km}].
+export const kmBetween = (a, b) => { const r = (d) => (d * Math.PI) / 180; const x = Math.sin(r(b.lat - a.lat) / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(r(b.lon - a.lon) / 2) ** 2; return 12742 * Math.asin(Math.sqrt(x)); };
+export async function searchAddress(q, { fetchFn, near = null, lang = '' } = {}) {
+  q = String(q || '').trim(); if (q.length < 3) return [];
+  const url = `${ENDPOINTS.photon}?q=${encodeURIComponent(q)}&limit=6${near ? `&lat=${near.lat}&lon=${near.lon}` : ''}${['de', 'en', 'fr'].includes(lang) ? `&lang=${lang}` : ''}`;
+  const data = await getJson(fetchFn, url, { headers: { Accept: 'application/json' } }, 8000);
+  const out = [];
+  for (const f of data?.features || []) {
+    const p = f.properties || {}; const [lon, lat] = f.geometry?.coordinates || [];
+    if (lat == null) continue;
+    const street = p.street ? `${p.street}${p.housenumber ? ` ${p.housenumber}` : ''}` : '';
+    const named = p.name && !['highway', 'place', 'boundary'].includes(p.osm_key) && p.type !== 'street' && p.type !== 'house' ? p.name : '';
+    const main = street || p.name || ''; if (!main) continue;
+    const city = p.city || p.town || p.village || p.district || '';
+    const sub = [[p.postcode, city].filter(Boolean).join(' '), p.country && !city ? p.country : ''].filter(Boolean).join(' · ');
+    const address = [main === named ? '' : main, [p.postcode, city].filter(Boolean).join(' ')].filter(Boolean).join(', ') || main;
+    if (out.some((o) => o.address === address && o.name === (named && named !== main ? named : ''))) continue;
+    out.push({ name: named && named !== main ? named : (named || ''), main, sub, address, lat: Number(lat), lon: Number(lon), km: near ? Math.round(kmBetween(near, { lat, lon }) * 10) / 10 : null });
+  }
+  return out.slice(0, 5);
 }

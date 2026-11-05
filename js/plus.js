@@ -16,7 +16,11 @@ import { skipOcc } from './weekpick.js';
 import { openWeekGrid } from './weekgrid.js';
 import { changed } from './shell.js';
 import { addDays, fmtDur, fmtTime, isoDay, nowMinutes, parseDate, parseTime, quickAdd, today } from './plan.js';
-import { allPlaces, hasHours, openState, placeAddress, placeById, placeByText, placeEmoji, quickPlace, recentPlaces, searchPlaces } from './places.js';
+import { allPlaces, guessEmoji, hasHours, openState, parsePlaceText, PLACE_ICONS, placeAddress, placeById, placeByText, placeEmoji, quickPlace, recentPlaces, savePlace, searchPlaces } from './places.js';
+import { norm, searchAddress } from './travel.js';
+import { saveSettings } from './store.js';
+import { travelCache, travelCfg } from './travel-plan.js';
+import { getLang } from './i18n.js';
 import { planSoon, suggestSlot } from './planning.js';
 import { get, live, remove, uid, upsert } from './store.js';
 import { afterAdd, openEventTaskAdd, openTask, rulesForEditor, saveTask } from './editors.js';
@@ -173,8 +177,51 @@ function placeBody() {
     <p class="pl-hint">${esc([p.place && p.place !== p.name ? p.place : '', hasHours(p) ? `🕒 ${windowsText(p.hours)}` : t('plcNoLimits')].filter(Boolean).join(' · '))}</p>${travel}`;
   if (P.place) return `<div class="pl-chips"><span class="pl-chip on">📍 ${esc(P.place)}<button class="pl-x" value="plc-rm" formnovalidate aria-label="${esc(t('remove'))}">✕</button></span><button class="pl-chip" value="plc-save" formnovalidate>☆ ${esc(t('plcSaveAs'))}</button></div>
     <p class="pl-hint">${esc(t('plcOnlyHere'))}</p>${travel}`;
-  return `<div class="pl-lirow"><input id="pl-place" class="pl-in" placeholder="${esc(t('plcSearchPh'))}" autocomplete="off"><button class="pl-chip pl-all" value="ov:place" formnovalidate title="${esc(t('plAllTitle'))}">☰ ${esc(t('plAll'))}</button></div><div class="pl-sugg" id="pl-sg-place"></div>
-    <p class="pl-hint">${esc(t('plcPickHint'))}</p>`;
+  if (P.np) return newPlaceBox();
+  return `<div class="pl-lirow"><input id="pl-place" class="pl-in" value="${esc(P.pq || '')}" placeholder="${esc(t('npPh'))}" autocomplete="off"><button class="pl-chip pl-all" value="ov:place" formnovalidate title="${esc(t('plAllTitle'))}">☰ ${esc(t('plAll'))}</button></div>
+    <p class="np-fmt">${t('npFormat')}</p><div class="pl-sugg" id="pl-sg-place">${P.pq ? placeSuggest() : ''}</div>`;
+}
+// (v92) A new place: what you typed («nome, indirizzo» works too), your places, then the map's suggestions
+// (Photon) as you type; picking one asks only for a name. The point picked is kept for the travel times.
+let geoTimer = null;
+function placeSuggest() {
+  const q = (P.pq || '').trim(); if (!q) return '';
+  const pp = parsePlaceText(q);
+  const hits = searchPlaces(pp.name || q, 5);
+  const map = q.length < 3 ? '' : P.geoQ !== pp.addr ? `<p class="pl-hint">${esc(t('npSearching'))}</p>` : (P.geo || []).length ? (P.geo || []).map((g, i) => `<button class="pl-sopt map" value="plc-geo:${i}" formnovalidate><span aria-hidden="true">${g.name ? esc(guessEmoji(g.name)) : '📍'}</span><span>${g.name ? `<b>${esc(g.name)}</b> · ` : ''}${esc(g.main === g.name ? '' : g.main)}<small>${esc([g.sub, g.km != null ? (g.km < 100 ? `${g.km} km` : t('npFar')) : ''].filter(Boolean).join(' · '))}</small></span></button>`).join('') : `<p class="pl-hint">${esc(t('npNoMap'))}</p>`;
+  return `${pp.name ? `<div class="np-parsed">✎ ${t('npParsed', esc(pp.name), esc(pp.addr))}</div>` : ''}
+    ${hits.length ? `<div class="np-grp">${esc(t('npYours'))}</div>${hits.map((p) => placeOpt(p, `plc:${esc(p.id)}`)).join('')}` : ''}
+    ${q.length >= 3 ? `<div class="np-grp">${esc(t('npOnMap'))}<small>OpenStreetMap</small></div>${map}` : ''}
+    <button class="pl-sopt new" value="plc-asis" formnovalidate>✎ ${esc(t('npAsIs', pp.addr))}<small>${esc(t('npAsIsSub'))}</small></button>`;
+}
+function homePoint() { const h = travelCfg().home; const g = h && travelCache().geo?.[norm(h)]; return g?.lat != null ? { lat: g.lat, lon: g.lon } : null; }
+function lookUp(form) {
+  clearTimeout(geoTimer);
+  const addr = parsePlaceText(P.pq || '').addr;
+  if (addr.length < 3 || typeof fetch !== 'function') return;
+  geoTimer = setTimeout(async () => {
+    const res = await searchAddress(addr, { fetchFn: (u, i) => fetch(u, i), near: homePoint(), lang: getLang() });
+    if (parsePlaceText(P.pq || '').addr !== addr) return; // typed on meanwhile
+    P.geo = res; P.geoQ = addr;
+    const box = form.querySelector('#pl-sg-place'); if (box) box.innerHTML = placeSuggest();
+  }, 350);
+}
+function newPlaceBox() {
+  const n = P.np; const em = n.em || (n.shop ? '🛒' : guessEmoji(n.name));
+  return `<div class="np-box"><div class="np-addr">${n.checked ? '✓' : '⚠'} ${esc(n.addr)} <button class="linkish" value="plc-np-back" formnovalidate>${esc(t('npChange'))}</button><small>${esc(t(n.checked ? 'npChecked' : 'npUnchecked'))}</small></div>
+    <div class="np-name"><button class="np-em" value="plc-np-emo" formnovalidate aria-label="${esc(t('plcIcon'))}">${esc(em)}</button><input id="pl-npname" class="pl-in" value="${esc(n.name)}" placeholder="${esc(t('npNamePh'))}" autocomplete="off" enterkeyhint="done"></div>
+    ${n.emOpen ? `<div class="np-ems">${PLACE_ICONS.map((e) => `<button class="${e === em ? 'on' : ''}" value="plc-np-em:${e}" formnovalidate>${e}</button>`).join('')}</div>` : ''}
+    <div class="np-row"><button class="pl-chip${n.shop ? ' on' : ''}" value="plc-np-shop" formnovalidate>🛒 ${esc(t(n.shop ? 'npShopOn' : 'npShop'))}</button><small>${esc(t('npHoursLater'))}</small></div>
+    <div class="np-row"><button class="btn primary" value="plc-np-ok" formnovalidate ${n.name.trim() ? '' : 'disabled'}>☆ ${esc(n.name.trim() ? t('npSaveN', n.name.trim()) : t('npSave'))}</button><button class="btn" value="plc-np-once" formnovalidate>${esc(t('npOnce'))}</button></div></div>`;
+}
+const startNew = (text, checked = false, extra = {}) => { const pp = parsePlaceText(text); P.np = { addr: pp.addr, name: pp.name, checked, em: null, emOpen: false, shop: false, lat: null, lon: null, ...extra }; };
+function saveNew() {
+  const n = P.np; const name = n.name.trim(); if (!name) return false;
+  const rec = savePlace({ id: uid(), name, place: n.addr, link: '', hours: [], em: n.shop ? '🛒' : n.em || guessEmoji(name), ...(n.lat != null ? { lat: n.lat, lon: n.lon } : {}) }, n.shop);
+  // the point picked on the map: travel times won't need to look the address up
+  if (n.lat != null) { const c = travelCache(); saveSettings({ travelCache: { ...c, geo: { ...(c.geo || {}), [norm(n.addr)]: { lat: n.lat, lon: n.lon, name: n.addr, at: Date.now() } } } }); }
+  P.placeId = rec.id; P.place = placeAddress(rec); P.np = null; P.pq = ''; placeChosen(); toast(t('plcSaved', name));
+  return true;
 }
 const openText = (p) => {
   const o = openState(p, today(), nowMinutes(), addDays);
@@ -304,10 +351,9 @@ function draw(focus = null) {
     <div class="pl-name"><input id="pl-name" value="${esc(P.name)}" placeholder="${esc(t('addTaskPh'))}" autocomplete="off" enterkeyhint="done" aria-label="${esc(t('title'))}"><button class="pl-star${P.save ? ' on' : ''}" value="save" formnovalidate aria-pressed="${P.save}" aria-label="${esc(t('plSave'))}" title="${esc(t('plSave'))}">${P.save ? '★' : '☆'}</button></div>
     ${P.save ? `<p class="pl-hint">${esc(t('plSaveHint'))}</p>` : ''}
     <button class="pl-tog${P.appt ? ' on' : ''}" value="appt" formnovalidate><span>📅 ${esc(t('plAppt'))}<small>${esc(t(P.appt ? 'plApptOn' : 'plApptOff'))}</small></span><i></i></button>
-    <div class="pl-tabs${P.pop ? ' open' : ''}" role="tablist">${tab('len', `⏱ ${esc(t('duration'))}`, esc(lenOn ? lenLabel() : t('duration')), lenOn)}${tab('when', `${P.appt ? '📅' : '🕒'} ${esc(t('whenChip').replace('…', ''))}`, esc(whenOn ? whenWords() : t('whenChip').replace('…', '')), whenOn)}${tab('cat', `● ${esc(t('category'))}`, c ? `<i class="cat-dot" style="--c:${esc(c.color || 'var(--line)')}"></i>${esc(catName(c))}` : esc(catOn ? t('noCategory') : t('category')), catOn)}</div>
-    ${P.pop ? `<div class="pl-panel pl-tpanel">${P.pop === 'len' ? lenPanel() : P.pop === 'when' ? whenPanel() : catPanel()}</div>` : ''}
+    <div class="pl-tabs four${P.pop || P.more ? ' open' : ''}" role="tablist">${tab('len', `⏱ ${esc(t('duration'))}`, esc(lenOn ? lenLabel() : t('duration')), lenOn)}${tab('when', `${P.appt ? '📅' : '🕒'} ${esc(t('whenChip').replace('…', ''))}`, esc(whenOn ? whenWords() : t('whenChip').replace('…', '')), whenOn)}${tab('cat', `● ${esc(t('category'))}`, c ? `<i class="cat-dot" style="--c:${esc(c.color || 'var(--line)')}"></i>${esc(catName(c))}` : esc(catOn ? t('noCategory') : t('category')), catOn)}<button class="pl-tab${os ? ' set' : ''}${P.more ? ' open' : ''}" value="more" formnovalidate role="tab" aria-selected="${Boolean(P.more)}" aria-expanded="${Boolean(P.more)}"><small>⋯ ${esc(t('plMoreTab'))}</small><span>${esc(os || '—')}</span></button></div>
+    ${P.pop ? `<div class="pl-panel pl-tpanel">${P.pop === 'len' ? lenPanel() : P.pop === 'when' ? whenPanel() : catPanel()}</div>` : P.more ? `<div class="pl-panel pl-tpanel pl-more">${optRows()}</div>` : ''}
     ${P.edit ? planBox() : ''}
-    <div class="pl-more"><button class="pl-ohead top" value="more" formnovalidate><span>${esc(t('plMoreOpts'))}${os && !P.more ? `<small>${esc(os)}</small>` : ''}</span><span class="pl-oval">${P.more ? '▾' : '›'}</span></button>${P.more ? optRows() : ''}</div>
     ${P.edit ? `<div class="pl-foot"><button class="btn primary" value="go" ${!P.name.trim() || needsTime() ? 'disabled' : ''}>${esc(t('save'))}</button><button class="btn" value="cancel" formnovalidate>${esc(t('close'))}</button>
       <details class="bk-more pl-dots"><summary class="btn" aria-label="${esc(t('options'))}">⋯</summary><div class="bk-menu"><button class="btn ghost" value="full" formnovalidate>▤ ${esc(t('plFull'))}</button><button class="btn ghost danger" value="del" formnovalidate>🗑 ${esc(t('delete'))}</button></div></details></div>
       ${needsTime() ? `<p class="pl-hint">${esc(t('plNeedTime'))}</p>` : ''}`
@@ -329,7 +375,7 @@ function onSubmit(form, action, e) {
   const tr = tvAction(P.tv, action);
   if (tr) { P.tvOwn = true; if (typeof tr === 'string') { P.legOv = tr.slice(4); P.ov = 'place'; P.ovq = ''; P.ovt = 'recent'; } draw(tr === true ? null : '#pl-ovq'); return; }
   if (P.edit && editAction(a, b, c, action)) return;
-  if (a === 'pop') { const was = P.pop; if (was) P.touched[was] = true; P.pop = was === b ? null : b; if (b === 'when' && P.pop === 'when' && P.wc === undefined) P.wc = undefined; }
+  if (a === 'pop') { const was = P.pop; if (was) P.touched[was] = true; P.pop = was === b ? null : b; if (P.pop) P.more = false; if (b === 'when' && P.pop === 'when' && P.wc === undefined) P.wc = undefined; }
   else if (a === 'save') P.save = !P.save;
   else if (a === 'appt') { P.appt = !P.appt; if (P.appt) { if (P.wc !== 'pick') P.wc = 'pick'; P.once = true; P.mode = 'at'; P.pop = 'when'; } }
   else if (a === 'unknown') { P.unknown = !P.unknown; P.touched.len = true; linkTimes('len'); }
@@ -339,18 +385,26 @@ function onSubmit(form, action, e) {
   else if (a === 'wd') { const d = Number(b); P.days = P.days.includes(d) ? P.days.filter((x) => x !== d) : [...P.days, d]; if (P.per === 'settimana' && P.days.length) P.n = P.days.length; }
   else if (a === 'until') P.until = b;
   else if (a === 'cat') { P.cat = b || null; P.touched.cat = true; P.pop = null; }
-  else if (a === 'more') P.more = !P.more;
+  else if (a === 'more') { P.more = !P.more; if (P.more) { if (P.pop) P.touched[P.pop] = true; P.pop = null; } } // (v92) a tab like the other three
   else if (a === 'row') { P.open = P.open === b ? null : b; if (P.open) { P.more = true; P.pop = null; } }
   else if (a === 'ov') { P.ov = b; P.ovq = ''; P.ovt = 'recent'; focus = '#pl-ovq'; }
   else if (a === 'ovt') { P.ovt = b; P.ovq = ''; }
   else if (a === 'plc' && P.legOv) { if (placeById(b)) { P.tv[P.legOv] = b; P.tvOwn = true; } P.legOv = null; P.ov = null; P.ovq = ''; }
   else if (a === 'plc') { const p = placeById(b); if (p) { P.placeId = p.id; P.place = placeAddress(p); placeChosen(); } P.ov = null; P.ovq = ''; }
+  else if (a === 'plc-geo') { const g = (P.geo || [])[Number(b)]; if (g) startNew(P.pq || '', true, { addr: g.address, lat: g.lat, lon: g.lon, name: parsePlaceText(P.pq || '').name || g.name || '' }); focus = '#pl-npname'; }
+  else if (a === 'plc-asis') { startNew(P.pq || ''); focus = '#pl-npname'; }
+  else if (a === 'plc-np-back') { P.np = null; focus = '#pl-place'; }
+  else if (a === 'plc-np-emo') P.np.emOpen = !P.np.emOpen;
+  else if (a === 'plc-np-em') { P.np.em = action.slice('plc-np-em:'.length); P.np.emOpen = false; }
+  else if (a === 'plc-np-shop') P.np.shop = !P.np.shop;
+  else if (a === 'plc-np-ok') { if (!saveNew()) focus = '#pl-npname'; }
+  else if (a === 'plc-np-once') { P.placeId = null; P.place = P.np.addr; P.np = null; P.pq = ''; }
   else if (a === 'plc-txt') { P.placeId = null; P.place = decodeURIComponent(action.slice('plc-txt:'.length)).trim(); }
-  else if (a === 'plc-rm') { P.placeId = null; P.place = ''; focus = '#pl-place'; }
+  else if (a === 'plc-rm') { P.placeId = null; P.place = ''; P.pq = ''; focus = '#pl-place'; }
   else if (a === 'plc-save' || (a === 'ov-new' && b === 'place') || a === 'plc-new') {
     const v = a === 'plc-save' ? P.place : decodeURIComponent(action.slice(`${a}:${a === 'ov-new' ? 'place:' : ''}`.length)).trim();
     if (v && P.legOv && a !== 'plc-save') { const p = placeByText(v) || quickPlace(v, uid); P.tv[P.legOv] = p.id; P.tvOwn = true; P.legOv = null; }
-    else if (v) { const p = placeByText(v) || quickPlace(v, uid); P.placeId = p.id; P.place = placeAddress(p); placeChosen(); toast(t('plcSaved', p.name)); }
+    else if (v) { const p = placeByText(v); if (p) { P.placeId = p.id; P.place = placeAddress(p); placeChosen(); } else { if (a === 'plc-save') P.place = ''; startNew(v); focus = '#pl-npname'; } } // (v92) a new one asks for its name
     P.ov = null; P.ovq = '';
   }
   else if (a === 'ovk') { P.ov = b; P.ovq = ''; }
@@ -375,6 +429,8 @@ function collect(form) {
   const v = (id) => form.querySelector(`#${id}`);
   if (v('pl-name')) P.name = v('pl-name').value;
   if (v('pl-notes')) P.notes = v('pl-notes').value;
+  if (v('pl-npname') && P.np) P.np.name = v('pl-npname').value;
+  if (v('pl-place')) P.pq = v('pl-place').value;
   const tv0 = JSON.stringify(P.tv); tvRead(form, P.tv); if (JSON.stringify(P.tv) !== tv0) P.tvOwn = true;
   // (v85) the place is chosen from the suggestions (Enter: a saved place by that name, else the text as typed)
 }
@@ -442,22 +498,26 @@ function wire() {
       if (ev.key !== 'Enter' || !oq.value.trim()) return;
       ev.preventDefault();
       const q = oq.value.trim();
-      if (P.ov === 'place') { const p = placeByText(q) || quickPlace(q, uid); if (P.legOv) { P.tv[P.legOv] = p.id; P.tvOwn = true; P.legOv = null; } else { P.placeId = p.id; P.place = placeAddress(p); placeChosen(); } P.ov = null; P.ovq = ''; redraw(); return; }
+      if (P.ov === 'place') { const known = placeByText(q); if (P.legOv) { const p = known || quickPlace(q, uid); P.tv[P.legOv] = p.id; P.tvOwn = true; P.legOv = null; } else if (known) { P.placeId = known.id; P.place = placeAddress(known); placeChosen(); } else startNew(q); P.ov = null; P.ovq = ''; redraw(P.np ? '#pl-npname' : undefined); return; }
       const hit = candidates().find((x) => x.title.toLowerCase() === q.toLowerCase());
       if (hit && !P[P.ov].some((a) => a.id === hit.id)) P[P.ov].push({ id: hit.id, title: hit.title }); else if (!hit) P[P.ov].push({ title: q, isNew: true });
       P.ovq = ''; redraw('#pl-ovq');
     });
   }
+  const npn = v('pl-npname');
+  if (npn && P.np) {
+    npn.addEventListener('input', () => {
+      P.np.name = npn.value; const ok = form.querySelector('button[value="plc-np-ok"]'); const nm = P.np.name.trim();
+      if (ok) { ok.disabled = !nm; ok.textContent = `☆ ${nm ? t('npSaveN', nm) : t('npSave')}`; }
+      const eb = form.querySelector('.np-em'); if (eb && !P.np.em && !P.np.shop) eb.textContent = guessEmoji(P.np.name);
+    });
+    npn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); form.querySelector('button[value="plc-np-ok"]:not([disabled])')?.click(); } });
+  }
   const pin = v('pl-place');
   if (pin) {
     const box = v('pl-sg-place');
-    pin.addEventListener('input', () => {
-      const q = pin.value.trim(); if (!q) { box.innerHTML = ''; return; }
-      const hits = searchPlaces(q, 5); const exact = hits.some((p) => p.name.toLowerCase() === q.toLowerCase());
-      box.innerHTML = hits.map((p) => placeOpt(p, `plc:${esc(p.id)}`)).join('')
-        + `<button class="pl-sopt new" value="plc-txt:${encodeURIComponent(q)}" formnovalidate>📍 ${esc(t('plcJustHere', q))}<small>${esc(t('plcJustHereSub'))}</small></button>`
-        + (exact ? '' : `<button class="pl-sopt new" value="plc-new:${encodeURIComponent(q)}" formnovalidate>☆ ${esc(t('plcSaveNew', q))}<small>${esc(t('plcSaveNewSub'))}</small></button>`);
-    });
+    pin.addEventListener('input', () => { P.pq = pin.value; box.innerHTML = placeSuggest(); lookUp(form); });
+    if (P.pq && P.geoQ !== parsePlaceText(P.pq).addr) lookUp(form);
     pin.addEventListener('keydown', (ev) => {
       if (ev.key !== 'Enter' || !pin.value.trim()) return;
       ev.preventDefault();
@@ -536,7 +596,7 @@ function save() {
   else if (P.wc === 'pick') {
     if (P.mode === 'at' && P.start != null) b = planTask(rec, P.date, Math.max(0, P.start - anchorOffset(null, rec)));
     else if (P.mode === 'first') b = planTask(rec, P.date, null);
-    else upsert('tasks', { ...get('tasks', rec.id), due: P.due && P.due < P.date ? P.due : P.date }, { silent: true });
+    else upsert('tasks', { ...get('tasks', rec.id), due: P.due && P.due < P.date ? P.due : P.date, onDay: P.date }, { silent: true }); // (v92) «in giornata»: to do that day
   }
   finish(get('tasks', rec.id), b, null, P.wc === 'first');
 }
@@ -619,7 +679,8 @@ function fromTask(x) {
     const st = nb.start + anchorOffset(nb, x);
     Object.assign(p, { wc: 'pick', once: true, date: nb.date, mode: 'at', start: st, end: (st + p.len) % 1440 });
     p.due = x.due || '';
-  } else { p.wc = 'later'; p.due = x.due || ''; }
+  } else if (x.onDay) { Object.assign(p, { wc: 'pick', once: true, date: x.onDay, mode: 'any' }); p.due = x.due && x.due !== x.onDay ? x.due : ''; }
+  else { p.wc = 'later'; p.due = x.due || ''; }
   return p;
 }
 const REPEAT_OFF = { repeat: null, repeatDays: [], timesN: null, timesPer: null, dayTimes: null, slotTimes: null, seriesTime: null, every: 1, pickTime: null, repeatUntil: null, repeatCount: null, whenMode: 'once' };
@@ -666,8 +727,10 @@ function saveEdit({ stay = false } = {}) {
     allRules: [...P.keepRules, ...P.ok.map((a) => rule(a, 'done')), ...P.ko.map((a) => rule(a, 'failed'))],
     kind: P.appt ? 'event' : P.save || routine ? 'saved' : isEvent(x0) || isSaved(x0) ? 'todo' : x0.kind,
   };
-  if (!routine && !P.appt) x.due = P.due || null;
+  const anyDay = P.wc === 'pick' && P.once && P.mode === 'any' && !P.appt;
+  if (!routine && !P.appt) x.due = P.due || (anyDay ? P.date : null);
   const changedWhen = whenKey() !== P.orig;
+  if (changedWhen && !anyDay) x.onDay = null;
   const was = isSeries(x0) || Boolean(x0.repeat);
   const openSeries = (tid) => seriesBlocks(tid).filter((y) => !outcomeOf(y) && y.date >= td);
   let rec;
@@ -698,7 +761,7 @@ function saveEdit({ stay = false } = {}) {
     else if (P.wc === 'first') { if (cur) deleteBlock(cur); planSoon(fresh1); }
     else if (P.wc === 'pick' && P.mode === 'at' && P.start != null) place(P.date, P.start);
     else if (P.wc === 'pick' && P.mode === 'first') { if (cur) deleteBlock(cur); planTask(fresh1, P.date, null); }
-    else if (P.wc === 'pick') { if (cur) deleteBlock(cur); upsert('tasks', { ...fresh1, due: P.due && P.due < P.date ? P.due : P.date }, { silent: true }); }
+    else if (P.wc === 'pick') { if (cur) deleteBlock(cur); upsert('tasks', { ...fresh1, due: P.due && P.due < P.date ? P.due : P.date, onDay: P.date }, { silent: true }); }
     else if (cur && !was) deleteBlock(cur); // Da decidere: off the plan
   }
   changed();

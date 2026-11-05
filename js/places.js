@@ -101,6 +101,15 @@ export function deletePlace(id) {
   for (const x of live('tasks').filter((y) => y.placeId === id)) upsert('tasks', { ...x, placeId: null, place: x.place || placeAddress(p) }, { silent: true });
   remove(p.shop ? SHOPS() : PLACES, id);
 }
+// (v92) «nome, indirizzo»: what's before the first comma is the name when it has no number and an address follows.
+export function parsePlaceText(text) {
+  const m = String(text || '').match(/^\s*([^,\d]{2,}?)\s*,\s*(.+)$/);
+  return m ? { name: m[1].trim(), addr: m[2].trim() } : { name: '', addr: String(text || '').trim() };
+}
+// An icon guessed from a place's name (a tap on it picks another).
+const GUESS = [[/bici|fahrrad|officin|riparaz|werkstatt|meccanic|ferrament|baumarkt/i, '🔧'], [/pediatr|kinderarzt|arzt|medic|dott|ospedal|klinik|clinic|dentist|zahn|farmac|apothek|praxis/i, '🏥'], [/palestra|gym|fitness|piscina|schwimm/i, '🏋'], [/super|negozio|mercat|market|rewe|edeka|lidl|aldi|conad|coop|esselunga/i, '🛒'], [/ufficio|lavoro|office|büro/i, '💼'], [/casa|home|zuhause|nonn|mamma|zia/i, '🏠'], [/bar|caff|café|cafe/i, '☕'], [/ristor|pizz|trattor|restaurant/i, '🍽️'], [/scuola|asilo|kita|schule|uni/i, '🏫'], [/parco|park|giardin/i, '🌳'], [/bimb|baby|krabbel/i, '👶']];
+export const guessEmoji = (name) => (GUESS.find(([r]) => r.test(name || '')) || [0, '📍'])[1];
+export const PLACE_ICONS = ['📍', '🏠', '💼', '🏋️', '🛒', '🏥', '🩺', '💊', '🔧', '👶', '🏫', '☕', '🍽️', '🌳', '📮', '🏦', '✂️', '⛪'];
 // A new place from what was typed (☆ Salva come luogo in the + sheet): no hours, not a shop.
 export function quickPlace(text, uid) {
   const v = String(text || '').trim();

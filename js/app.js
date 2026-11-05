@@ -38,7 +38,7 @@ import { openWeekGrid } from './weekgrid.js';
 import { goToBlock, goToProposal, openChooser, openPropsList, resumeRoutine, sheetClick } from './finder.js';
 import { setLowPref } from './lowstock.js';
 import { countToast, firstFreeStart, moveBlockTo, openConflictChoice, openDropOn, placeItem, unplanToPane } from './placing.js';
-import { agendaAdd, agendaPlan, keepFix, keepGhost, openGapFits, planStyle, showSteps } from './views/planner.js';
+import { agendaAdd, agendaPlan, onDayTasks, keepFix, keepGhost, openGapFits, planStyle, showSteps } from './views/planner.js';
 import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName } from './views/shop.js';
 import { openTaskTools, taskFilter } from './views/tasks.js';
 import { clearSearch, syncDateText, tidyTime } from './widgets.js';
@@ -431,6 +431,7 @@ view.addEventListener('click', (e) => {
     case 'vw-sort': openSort(); break;
     case 'vw-triage': openTriage(); break;
     case 'vw-complete': openComplete(); break;
+    case 'od-all': { const d = btn.dataset.date; let n = 0; for (const x of onDayTasks(d)) { if (planTask(x, d, null)) n++; } toast(t('fixedN', n)); changed(); break; }
     case 'today-mode': saveSettings({ todayMode: id }); render(); window.scrollTo(0, 0); break;
     case 'gi-sec': { const def = id === 'tmr' ? nowMinutes() >= 19 * 60 : ['brief', 'prep'].includes(id); ui.giOpen = { ...(ui.giOpen || {}), [id]: !(ui.giOpen?.[id] ?? def) }; render(); break; }
     case 'gi-secs': openSections(render); break;

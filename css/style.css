@@ -2094,7 +2094,7 @@ button.gi-row { cursor: pointer; }
 .gi-x { min-width: 0; } .gi-x b { font-weight: 600; font-size: .93rem; } .gi-x small { display: block; color: var(--muted); font-size: .8rem; margin-top: 1px; }
 .gi-r { color: var(--muted); font-size: .8rem; white-space: nowrap; }
 .gi-row.done .gi-x b, .gi-row.done .gi-x small { text-decoration: line-through; color: var(--muted); }
-.gi-row.sub .gi-x b { font-weight: 400; color: var(--muted); font-size: .86rem; }
+.gi-row.gl .gi-x b { font-weight: 400; color: var(--muted); font-size: .86rem; text-transform: none; letter-spacing: 0; }
 .gi-row.sum .gi-x b { font-weight: 400; } .gi-row.sum a { color: var(--accent); }
 .gi-row.cur { background: var(--accent-soft); border-radius: 10px; padding-left: 6px; padding-right: 6px; }
 .gi-row.late .gi-t { color: var(--red, #b24a3c); }
@@ -2119,3 +2119,25 @@ input.gi-ck { appearance: none; -webkit-appearance: none; display: grid; place-c
 .vw-li .check { flex: 1; } .vw-builtin { color: var(--muted); font-size: .72rem; border: 1px solid var(--line); border-radius: 999px; padding: 1px 6px; margin-left: 4px; }
 .vw-li.gone { justify-content: space-between; color: var(--muted); }
 .vw-sort .vw-li.dragging, .vw-ul .vw-li.dragging { opacity: .6; }
+
+/* ---------- v92: one-page Today (what's running as a line), the + with four tabs, «da fare oggi», new places ---------- */
+.now-run { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 6px 8px; border-radius: 10px; background: var(--accent-soft); font-size: .88rem; }
+.now-run > span:nth-child(2) { flex: 1; min-width: 0; } .now-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green, #3f8f5a); flex: none; }
+.pl-tabs.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.pl-tabs.four .pl-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.pl-more { padding-top: 4px; }
+.od-band { border: 1px solid var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--surface)); border-radius: 14px; padding: 10px 12px; margin: 0 0 12px; }
+.od-h { display: flex; justify-content: space-between; color: var(--warn); font-size: .82rem; letter-spacing: .03em; margin-bottom: 4px; }
+.od-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); }
+.od-row:first-of-type { border-top: 0; } .od-t { flex: 1; min-width: 0; } .od-t small { display: block; color: var(--muted); font-size: .78rem; }
+.np-fmt { color: var(--muted); font-size: .78rem; line-height: 1.4; margin: 6px 2px 0; }
+.np-grp { display: flex; justify-content: space-between; color: var(--muted); font-size: .72rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; margin: 10px 0 4px; } .np-grp small { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.np-parsed { margin-top: 8px; font-size: .82rem; color: var(--muted); background: var(--accent-soft); border-radius: 10px; padding: 6px 9px; } .np-parsed b { color: var(--ink); }
+.np-box { border: 1px solid var(--accent); border-radius: 14px; padding: 10px 12px; margin-top: 4px; }
+.np-addr { font-size: .9rem; } .np-addr small { display: block; color: var(--muted); font-size: .76rem; margin-top: 2px; }
+.np-name { display: flex; gap: 6px; align-items: center; margin-top: 8px; } .np-name .pl-in { flex: 1; }
+.np-em { flex: none; width: 46px; height: 46px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-size: 1.3rem; cursor: pointer; }
+.np-ems { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; } .np-ems button { width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: 1.1rem; cursor: pointer; } .np-ems button.on { border-color: var(--accent); background: var(--accent-soft); }
+.np-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; } .np-row small { color: var(--muted); font-size: .78rem; }
+.pl-sopt.map { display: flex; gap: 8px; align-items: flex-start; }
+.pl-tabs.four .pl-tab small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .62rem; letter-spacing: .02em; }

@@ -1,5 +1,6 @@
 // views/planner.js: moved from app.js (v36). See app.js for how the modules fit together.
-import { cardRows, fixAll, toFix, weekCardHtml } from '../weekpick.js';
+import { cardRows, fixAll, slotOptions, toFix, weekCardHtml } from '../weekpick.js';
+import { leadOf, openTasks, plannedTaskIds } from '../model.js';
 import { openAutoPlanner } from '../editors.js';
 import { catColor, esc, fmtDay, hint, PPM, range, reasonText, relDay, toast, ui } from '../core.js';
 import { t } from '../i18n.js';
@@ -573,6 +574,21 @@ function boxHtml(it, gaps, date, from0) {
   return `<li class="ag-box${open ? '' : ' shut'}" style="--c:${esc(color)}"><ul class="ag-box-l">${head}${inner}</ul>
     <div class="ag-box-end"><span>${esc(open ? t('boxEnd', fmtTime(end % 1440)) : sum)}</span><button type="button" class="link" data-action="box-fold" data-id="${esc(id)}" aria-expanded="${open}">${esc(open ? t('boxClose') : t('boxOpen', it.inner.length))}</button></div></li>`;
 }
+// (v92) What's set for «in giornata» on this day (on today also what was left from the days before) and isn't on
+// the plan yet: a band on top, each with its first free time, and one tap to place them all.
+export function onDayTasks(date) {
+  const td = today(); const planned = plannedTaskIds();
+  return openTasks().filter((x) => x.onDay && (x.onDay === date || (date === td && x.onDay < td)) && !planned.has(x.id) && !x.travelRole);
+}
+function dayBand(date) {
+  if (date < today()) return '';
+  const list = onDayTasks(date); if (!list.length) return '';
+  const tot = list.reduce((n, x) => n + (x.minutes || 30), 0);
+  return `<section class="od-band" aria-label="${esc(t('odTitle', list.length))}"><div class="od-h"><b>📌 ${esc(t(date === today() ? 'odTitle' : 'odTitleOn', list.length, relDay(date)))}</b><span>${esc(fmtDur(tot))}</span></div>
+    ${list.map((x) => { const o = slotOptions(x, date, 1)[0]; return `<div class="od-row"><span class="od-t"><b>${esc(x.title)}</b><small>${esc([fmtDur(x.minutes || 30), x.onDay < date ? t('odFrom', relDay(x.onDay)) : '', x.place ? `📍 ${x.place.split(',')[0]}` : ''].filter(Boolean).join(' · '))}</small></span>
+      ${o ? `<button class="btn small primary" type="button" data-action="plan-task" data-id="${esc(x.id)}" data-date="${date}" data-start="${o.start - leadOf(x)}">${esc(fmtTime(o.start))}</button>` : `<small class="hint">${esc(t('noFreeSlotDay'))}</small>`}<button class="btn small" type="button" data-action="task-edit" data-id="${esc(x.id)}">${esc(t('otherTime'))}</button></div>`; }).join('')}
+    ${list.length > 1 ? `<div class="button-row left"><button class="btn small primary" type="button" data-action="od-all" data-date="${date}">${esc(t('odAll'))}</button></div>` : ''}</section>`;
+}
 export function agendaDay(date) {
   prepareDays([date]);
   const td = today();
@@ -586,7 +602,7 @@ export function agendaDay(date) {
   // too, when it lets other things happen); the rest of the day around it as before
   const top = boxItems(items);
   const rows = rowsFor(top, from0(h0), h1, gaps, date, from0);
-  return `${planCard()}${behindCard(date)}${conflictBanner(date)}
+  return `${planCard()}${dayBand(date)}${behindCard(date)}${conflictBanner(date)}
     ${allDay.length ? `<div class="allday">${allDay.map((e) => `<button class="allday-chip" type="button" data-action="event" data-id="${esc(e.id)}" style="--c:${esc(e.color)}">${esc(e.title)}</button>`).join('')}</div>` : ''}
     ${items.length ? '' : `<p class="empty ag-empty">${esc(t('agEmpty'))}</p>`}
     <ul class="agenda">${rows.join('')}</ul>`;
