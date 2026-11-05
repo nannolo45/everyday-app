@@ -504,7 +504,30 @@ function agRow(it) {
   const b = it.b; const st = outcomeOf(b);
   const swap = placing && !st && b.id !== ui.pickBlock; // (v70) tap it to put what you're placing here instead
   // (v69) a block not yet done can be dragged to another free stretch or day (mouse)
-  return `<li class="ag-row${st ? ` is-${st}` : isBehind(b) ? ' is-behind' : ''}${ui.flash === b.id ? ' flash' : ''}"${st ? '' : ` draggable="true" data-drag="block:${esc(b.id)}" data-min="${b.minutes || 30}"`} style="--c:${esc(catColor(b.category) || 'var(--accent)')}">${time}<button class="ag-c${swap ? ' swap' : ''}" type="button" data-action="${swap ? 'swap-block' : 'open-block'}" data-id="${esc(b.id)}">${swap ? `<span class="ag-swap">${esc(t('swapHere'))}</span>` : ''}<span class="ag-t">${st === 'done' ? '✓ ' : ''}${b.taskId ? taskIcon(get('tasks', b.taskId)) : ''}${esc(b.title)}</span>${isBehind(b) ? `<span class="inv-tag behind">⏰ ${esc(t('behindTag'))}</span>` : ''}${b.palLive && !st ? `<span class="inv-tag live">● ${esc(t('palLiveTag'))}</span>` : ''}${b.place ? `<small>📍 ${esc(b.place)}</small>` : ''}${lenBar(it.minutes)}</button>${b.kind === 'meal' && !st && !swap && !mealRecipes(b).length && ricetteConfigured() ? `<button class="ag-addrec" type="button" data-action="meal-pick" data-id="${esc(b.id)}">＋ ${esc(t('recipeShort'))}</button>` : ''}</li>`; // (v87) a meal with nothing chosen: «＋ Ricetta» beside it
+  const steps = swap ? '' : agSteps(b, st);
+  return `<li class="ag-row${st ? ` is-${st}` : isBehind(b) ? ' is-behind' : ''}${ui.flash === b.id ? ' flash' : ''}"${st ? '' : ` draggable="true" data-drag="block:${esc(b.id)}" data-min="${b.minutes || 30}"`} style="--c:${esc(catColor(b.category) || 'var(--accent)')}">${time}${steps ? '<div class="ag-cw">' : ''}<button class="ag-c${swap ? ' swap' : ''}" type="button" data-action="${swap ? 'swap-block' : 'open-block'}" data-id="${esc(b.id)}">${swap ? `<span class="ag-swap">${esc(t('swapHere'))}</span>` : ''}<span class="ag-t">${st === 'done' ? '✓ ' : ''}${b.taskId ? taskIcon(get('tasks', b.taskId)) : ''}${esc(b.title)}</span>${isBehind(b) ? `<span class="inv-tag behind">⏰ ${esc(t('behindTag'))}</span>` : ''}${b.palLive && !st ? `<span class="inv-tag live">● ${esc(t('palLiveTag'))}</span>` : ''}${b.place ? `<small>📍 ${esc(b.place)}</small>` : ''}${lenBar(it.minutes)}</button>${steps}${steps ? '</div>' : ''}${b.kind === 'meal' && !st && !swap && !mealRecipes(b).length && ricetteConfigured() ? `<button class="ag-addrec" type="button" data-action="meal-pick" data-id="${esc(b.id)}">＋ ${esc(t('recipeShort'))}</button>` : ''}</li>`; // (v87) a meal with nothing chosen: «＋ Ricetta» beside it
+}
+// (v93) A block's steps in the day list: a strip with one segment per step (tap to tick), «▤ 1/3 passaggi» to
+// open the list (tick, time, length), and the block running now (or the next one) open by itself. What you open
+// or close by hand stays so (ui.agOpen).
+const stepName = (y) => y.title || t(y.travel === 'there' ? 'getThere' : y.travel === 'back' ? 'comeBack' : 'steps');
+export function autoStepsBlock(date) {
+  if (date !== today()) return null;
+  const n = new Date(); const now = n.getHours() * 60 + n.getMinutes();
+  return blocksOn(date).filter((b) => !outcomeOf(b) && !b.stepId && b.start + (b.minutes || 0) > now && stepTimes(b).length > 1).sort((a, b) => a.start - b.start)[0]?.id || null;
+}
+function agSteps(b, st) {
+  const ys = stepTimes(b); if (ys.length < 2) return '';
+  const n = new Date(); const now = b.date === today() ? n.getHours() * 60 + n.getMinutes() : -1;
+  const done = (y) => st === 'done' || y.state === 'done';
+  const cur = ys.find((y) => !done(y) && y.start <= now && now < y.end);
+  const auto = ui.agAuto === b.id;
+  const open = ui.agOpen?.[b.id] ?? auto;
+  const nDone = ys.filter(done).length;
+  const strip = `<div class="ag-strip">${ys.map((y) => `<button type="button" class="ag-sg${done(y) ? ' done' : ''}${y.travel ? ' trv' : ''}${y === cur ? ' cur' : ''}" style="flex:${Math.max(1, y.end - y.start)}" data-action="ag-step" data-block="${esc(b.id)}" data-step="${esc(y.id)}" title="${esc(`${stepName(y)} · ${fmtTime(y.start)}`)}" aria-label="${esc(stepName(y))}" ${st ? 'disabled' : ''}></button>`).join('')}</div>`;
+  const head = `<div class="ag-sh"><button type="button" class="ag-stog" data-action="ag-steps" data-id="${esc(b.id)}" aria-expanded="${open}">▤ ${esc(t('agStepsN', nDone, ys.length))} ${open ? '▾' : '›'}</button>${!open && cur ? `<span class="ag-scur">${esc(t('agStepNow', stepName(cur)))}</span>` : ''}${open && auto ? `<span class="ag-sauto">${esc(t('agStepsNowTag'))}</span>` : ''}</div>`;
+  const list = open ? `<div class="ag-sl">${ys.map((y) => `<label class="ag-st${done(y) ? ' done' : ''}${y.travel ? ' trv' : ''}${y === cur ? ' cur' : ''}"><input type="checkbox" data-action="step-done" data-block="${esc(b.id)}" data-step="${esc(y.id)}" ${done(y) ? 'checked' : ''} ${st ? 'disabled' : ''}><span class="ag-stn">${y.travel ? (MODE_ICON[y.mode] || '🚶') + ' ' : ''}${esc(stepName(y))}</span><small>${esc(fmtTime(y.start))} · ${esc(fmtDur(y.end - y.start))}</small></label>`).join('')}</div>` : '';
+  return `<div class="ag-steps">${strip}${head}${list}</div>`;
 }
 const gapRow = (date, start, min) => {
   const pick = (ui.pickBlock && get('blocks', ui.pickBlock)) || (ui.pick && get('tasks', ui.pick)); // (v56) something picked: where it fits lights up (v70: or a block being moved)
@@ -591,6 +614,7 @@ function dayBand(date) {
 }
 export function agendaDay(date) {
   prepareDays([date]);
+  ui.agAuto = autoStepsBlock(date);
   const td = today();
   const allDay = eventsOn(date).filter((e) => e.allDay);
   const items = agItems(date);

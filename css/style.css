@@ -2141,3 +2141,23 @@ input.gi-ck { appearance: none; -webkit-appearance: none; display: grid; place-c
 .np-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; } .np-row small { color: var(--muted); font-size: .78rem; }
 .pl-sopt.map { display: flex; gap: 8px; align-items: flex-start; }
 .pl-tabs.four .pl-tab small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .62rem; letter-spacing: .02em; }
+
+/* ---------- v93: a block's steps in the day list ---------- */
+.ag-cw { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ag-cw > .ag-c { border-radius: 12px 12px 0 0; border-bottom: 0; }
+.ag-steps { border: 1px solid var(--line); border-top: 0; border-left: 4px solid var(--c); border-radius: 0 0 12px 12px; background: var(--surface); padding: 0 12px 8px; }
+.ag-row.is-done .ag-steps { opacity: .6; }
+.ag-strip { display: flex; gap: 2px; height: 10px; }
+.ag-sg { min-width: 6px; border: 0; padding: 0; border-radius: 3px; background: var(--line); cursor: pointer; }
+.ag-sg.trv { background: color-mix(in srgb, var(--line) 55%, transparent); }
+.ag-sg.done { background: var(--c, var(--accent)); }
+.ag-sg.cur { outline: 2px solid var(--warn); outline-offset: 0; }
+.ag-sh { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.ag-stog { border: 1px dashed var(--line); background: none; color: var(--muted); border-radius: 999px; padding: 3px 10px; font: inherit; font-size: .78rem; cursor: pointer; min-height: 28px; }
+.ag-scur { font-size: .76rem; color: var(--warn); } .ag-sauto { font-size: .74rem; color: var(--accent); }
+.ag-sl { margin-top: 6px; border-left: 2px solid var(--line); padding-left: 8px; }
+.ag-st { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: .88rem; cursor: pointer; }
+.ag-st input { width: 20px; height: 20px; flex: none; margin: 0; }
+.ag-stn { flex: 1; min-width: 0; } .ag-st small { color: var(--muted); font-size: .76rem; white-space: nowrap; }
+.ag-st.trv .ag-stn { color: var(--muted); } .ag-st.done .ag-stn { text-decoration: line-through; color: var(--muted); }
+.ag-st.cur { background: var(--accent-soft); border-radius: 8px; padding-left: 4px; }

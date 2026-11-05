@@ -431,6 +431,9 @@ view.addEventListener('click', (e) => {
     case 'vw-sort': openSort(); break;
     case 'vw-triage': openTriage(); break;
     case 'vw-complete': openComplete(); break;
+    case 'ag-steps': { const auto = ui.agAuto === id; const cur = ui.agOpen?.[id] ?? auto; ui.agOpen = { ...(ui.agOpen || {}), [id]: !cur }; render(); break; }
+    case 'ag-step': { const b = get('blocks', btn.dataset.block); if (!b) break; const done = b.stepState?.[btn.dataset.step] === 'done'; if (tryStep(b, btn.dataset.step, !done)) changed(); break; }
+    case 'now-start': { const b = get('blocks', id); if (b) afterStart(startBlock(b)); break; }
     case 'od-all': { const d = btn.dataset.date; let n = 0; for (const x of onDayTasks(d)) { if (planTask(x, d, null)) n++; } toast(t('fixedN', n)); changed(); break; }
     case 'today-mode': saveSettings({ todayMode: id }); render(); window.scrollTo(0, 0); break;
     case 'gi-sec': { const def = id === 'tmr' ? nowMinutes() >= 19 * 60 : ['brief', 'prep'].includes(id); ui.giOpen = { ...(ui.giOpen || {}), [id]: !(ui.giOpen?.[id] ?? def) }; render(); break; }
