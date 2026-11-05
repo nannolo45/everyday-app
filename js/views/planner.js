@@ -477,7 +477,7 @@ export function planCard() {
   // (v66) one word for both: what's to plan and this week's routine turns without a time yet
   return `<div class="ag-card-top"><span><b>${esc(t('agToPlan', nPlan + nFix))}</b></span><button class="btn small primary" type="button" data-action="ag-plan">✦ ${esc(t('smartTitle'))}</button></div>`;
 }
-function agItems(date) {
+export function agItems(date) {
   const ghosts = ghostsOn(date).map((g) => ({ k: 'ghost', g, start: g.start, minutes: g.minutes || 30 }));
   const fixes = fixProps().filter((f) => f.date === date).map((f) => ({ k: 'fix', g: f, start: f.start, minutes: f.minutes }));
   return [...blocksOn(date).map((b) => ({ k: 'block', b, start: b.start, minutes: b.minutes || 0 })),
@@ -629,7 +629,7 @@ export function onDayTasks(date) {
   const td = today(); const planned = plannedTaskIds();
   return openTasks().filter((x) => x.onDay && (x.onDay === date || (date === td && x.onDay < td)) && !planned.has(x.id) && !x.travelRole);
 }
-function dayBand(date) {
+export function dayBand(date) {
   if (date < today()) return '';
   const list = onDayTasks(date); if (!list.length) return '';
   const tot = list.reduce((n, x) => n + (x.minutes || 30), 0);
@@ -650,12 +650,46 @@ export function agendaDay(date) {
   const from0 = (st) => (date === td ? Math.max(st, nowM) : st);
   // (v76) a long block or event with other things inside is a box that holds them (its free time inside
   // too, when it lets other things happen); the rest of the day around it as before
-  const top = boxItems(items);
+  // (v97) today: what's done (and over) folds into one line, until you open it
+  const nmin = now.getHours() * 60 + now.getMinutes();
+  const doneIt = date === td && !ui.agDone ? items.filter((it) => it.k === 'block' && outcomeOf(it.b) === 'done' && it.start + it.minutes <= nmin) : [];
+  const shown = items.filter((it) => !doneIt.includes(it));
+  const top = boxItems(shown);
   const rows = rowsFor(top, from0(h0), h1, gaps, date, from0);
-  return `${planCard()}${dayBand(date)}${behindCard(date)}${conflictBanner(date)}
+  const fold = doneIt.length ? `<button type="button" class="agn-fold" data-action="sc-agdone">✓ ${esc(t('agnDoneN', doneIt.length))} <small>${esc(doneIt.map((it) => it.b.title).join(' · '))}</small> ▸</button>`
+    : date === td && ui.agDone ? `<button type="button" class="agn-fold" data-action="sc-agdone">${esc(t('agnFoldDone'))} ▴</button>` : '';
+  return `${planCard()}${nowCard(date)}${dayBand(date)}${behindCard(date)}${conflictBanner(date)}
     ${allDay.length ? `<div class="allday">${allDay.map((e) => `<button class="allday-chip" type="button" data-action="event" data-id="${esc(e.id)}" style="--c:${esc(e.color)}">${esc(e.title)}</button>`).join('')}</div>` : ''}
-    ${items.length ? '' : `<p class="empty ag-empty">${esc(t('agEmpty'))}</p>`}
+    ${items.length ? '' : `<p class="empty ag-empty">${esc(t('agEmpty'))}</p>`}${fold}
     <ul class="agenda">${rows.join('')}</ul>`;
+}
+// (v97) The Agenda answers «what do I do now?»: on today, the thing running on top (time left, its checklist,
+// ✓ / timer / +15 min / ✕) and what's next, with how long until it starts.
+export function nowCard(date) {
+  if (date !== today()) return '';
+  const n = new Date(); const nm = n.getHours() * 60 + n.getMinutes();
+  const bl = blocksOn(date).filter((b) => !b.stepId && !(b.kind === 'prep' && b.parentId) && !roomy(b) && !outcomeOf(b));
+  const cur = bl.filter((b) => b.start <= nm && nm < b.start + b.minutes).sort((a, b) => b.start - a.start)[0];
+  const nextB = [...bl.filter((b) => b.start > nm), ...timedEventsOn(date).filter((e) => !e.skipped && e.busy !== false && e.start > nm)].sort((a, b) => a.start - b.start)[0];
+  if (!cur && !nextB) return '';
+  const nx = nextB ? `<div class="agn-next"><span><small>${esc(t(cur ? 'agnThen' : 'agnNext', fmtTime(nextB.start)))}</small><b>${esc(nextB.title)}</b></span><span class="agn-in">${esc(t('agnIn', fmtDur(nextB.start - nm)))}</span></div>` : '';
+  if (!cur) return `<div class="agn">${nx}</div>`;
+  const end = cur.start + cur.minutes; const cl = checklistOf(cur); const ck = cur.checked || [];
+  const running = cur.startedAt && !cur.endedAt;
+  return `<div class="agn"><div class="agn-card" style="--c:${esc(catColor(cur.category) || 'var(--accent)')}"><div class="agn-k">${esc(t('agnNow', fmtTime(end)))}</div>
+    <button type="button" class="agn-t" data-action="open-block" data-id="${esc(cur.id)}">${cur.taskId ? taskIcon(get('tasks', cur.taskId)) : ''}${esc(cur.title)}</button><small>${esc(t('agnLeft', fmtTime(cur.start), fmtDur(end - nm)))}</small>
+    <div class="agn-bar"><i style="width:${Math.round(((nm - cur.start) / Math.max(1, cur.minutes)) * 100)}%"></i></div>
+    ${cl.length ? `<div class="agn-cl">${cl.map((c, i) => `<label><input type="checkbox" data-ci="${i}" data-block="${esc(cur.id)}" ${ck[i] ? 'checked' : ''}> <span>${esc(c)}</span></label>`).join('')}</div>` : ''}
+    <div class="agn-row"><button class="btn small primary" type="button" data-action="now-done" data-id="${esc(cur.id)}">✓ ${esc(t('esDone'))}</button>${running ? '' : `<button class="btn small" type="button" data-action="now-start" data-id="${esc(cur.id)}">⏱ ${esc(t('agnTimer'))}</button>`}<button class="btn small" type="button" data-action="sc-ext" data-id="${esc(cur.id)}">+15 min</button><button class="btn small ghost" type="button" data-action="block-fail" data-id="${esc(cur.id)}">✕ ${esc(t('esFail'))}</button></div></div>${nx}</div>`;
+}
+// (v97) For the side pane on a wide screen (all three looks): ✦ Pianifica and this day's warnings, each with its fix.
+export function paneWarnings(date) {
+  const td = today(); const conflicts = conflictsOn(date); const late = date === td ? behindToday() : [];
+  const cf = conflicts.map((c, i) => `<li class="pw-item red"><span>⚠ ${esc(conflictText(c))}</span><span class="pw-acts">${(c.type !== 'late' || (get('tasks', get('blocks', c.ids[0])?.taskId)?.due || '') >= td) && !(c.type === 'closed' && isEvent(get('tasks', get('blocks', c.ids[0])?.taskId))) ? `<button class="btn small primary" type="button" data-action="fix" data-date="${date}" data-i="${i}">${esc(t('fix'))}</button>` : ''}${c.type === 'overlap' || c.type === 'closed' ? `<button class="btn small" type="button" data-action="allow" data-date="${date}" data-i="${i}">${esc(t('sc_leave'))}</button>` : ''}</span></li>`).join('');
+  const lt = late.map((b) => `<li class="pw-item yel"><span>⏰ ${esc(t('pwLate', b.title, fmtTime(b.start)))}</span><span class="pw-acts"><button class="btn small primary" type="button" data-action="behind-done" data-id="${esc(b.id)}">✓</button><button class="btn small" type="button" data-action="behind-fail" data-id="${esc(b.id)}">✕</button><button class="btn small" type="button" data-action="behind-tmr" data-id="${esc(b.id)}">→ ${esc(t('tomorrow'))}</button></span></li>`).join('');
+  const n = conflicts.length + late.length;
+  return `<div class="pw"><button class="btn primary pw-plan" type="button" data-action="ag-plan">✦ ${esc(t('smartTitle'))}</button>
+    <div class="field-label">${esc(t('pwTitle'))} <small>${n || ''}</small></div>${n ? `<ul class="pw-list">${cf}${lt}</ul>` : `<p class="hint">✓ ${esc(t('pwNone'))}</p>`}</div>`;
 }
 export function agendaWeek(date) {
   const td = today();

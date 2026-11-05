@@ -28,7 +28,7 @@ import { remindDefault, remindLabel, REMINDS } from './views/settings.js';
 import { K, readerList, readerTrips, RICETTE_SHOP, SH, shopAdd, shopName, shopReader, tripRowsHtml } from './views/shop.js';
 import { cardRowsIn, fixOcc, skipOcc, slotOptions, toFix } from './weekpick.js';
 import { openPlus, openPlusEdit } from './plus.js';
-import { deletePlace, guessEmoji, placeAddress, placeEmoji, placeUsers, savePlace } from './places.js';
+import { allPlaces, deletePlace, guessEmoji, placeAddress, placeById, placeByText, placeEmoji, placeUsers, recentPlaces, savePlace } from './places.js';
 import { tripHtml, tvAction, tvRead, tvRecord, tvSame, tvState } from './tripui.js';
 import { pullCandidate, pullUp, runningBlock, shiftAfter, startBlock, startTask, stopTimer, timeHistory, undoShift } from './timer.js';
 import { cleanWindows, dateBox, dayShort, durField, lines, openModal, placeLink, plannedIso, readDur, readWindows, repeatText, searchBox, TIME24, windowsEditor, windowsText } from './widgets.js';
@@ -1455,7 +1455,8 @@ export function openTask(task, draft = null, opts = {}) {
     ${taskRules.map(([r, i]) => ruleCard(r, i)).join('')}
     <button class="btn small" value="add-rule:" formnovalidate>+ ${esc(t('addRule'))}</button>`;
   const placeBody = `
-    <label>${esc(t('place'))}<input name="place" value="${esc(x.place || '')}" placeholder="${esc(t('placePh'))}" autocomplete="off"></label>
+    ${placeQuick(x)}<label>${esc(t('place'))}<input name="place" value="${esc(x.place || '')}" placeholder="${esc(t('placePh'))}" autocomplete="off" list="dl-places"></label>
+    <input type="hidden" name="placeId" value="${esc(x.placeId || '')}"><datalist id="dl-places">${allPlaces().map((p) => `<option value="${esc(placeAddress(p))}" label="${esc(`${placeEmoji(p)} ${p.name}`)}"></option>`).join('')}</datalist>
     <label>${esc(t('placeLink'))}<input name="link" type="url" inputmode="url" value="${esc(x.link || '')}" placeholder="https://maps.app.goo.gl/…" autocomplete="off"></label>
     ${x.place || x.link ? `<p class="hint">${placeLink(x)}</p>` : `${hint('placeHint')}`}
     ${!helper && !x.travelRole ? `<div class="field-label">${esc(t('travelTitle'))}</div>
@@ -1703,7 +1704,7 @@ export function openTask(task, draft = null, opts = {}) {
     if (form.checklist) x.checklist = lines(form.checklist.value);
     x.notes = form.notes.value.trim();
     if (form.importance) x.importance = Number(form.importance.value) || 3;
-    if (form.place) { x.place = form.place.value.trim(); x.link = form.link.value.trim(); }
+    if (form.place) { x.place = form.place.value.trim(); x.link = form.link.value.trim(); if (form.placeId) x.placeId = (form.placeId.value && placeAddress(placeById(form.placeId.value)) === x.place ? form.placeId.value : placeByText(x.place)?.id) || null; } // (v97) a saved place stays linked
     if (form.tvThere) x.travel = { there: form.tvThere.checked, back: form.tvBack.checked, mode: form.tvMode.value || 'default' };
     if (form.buffer) x.buffer = form.buffer.value === '' ? null : Number(form.buffer.value) || 0;
     if (form.querySelector('[value="w_add"]')) x.windows = readWindows(form, 'w_', (x.windows || []).length);
@@ -2446,3 +2447,17 @@ export function openSpare(minutes = null) {
     changed();
   });
 }
+
+// (v97) The full editor's Luogo: your saved places (Luoghi salvati) as chips above the field, and as suggestions
+// while typing; picking one keeps the task linked to it (its hours, its way there).
+function placeQuick(x) {
+  const ps = recentPlaces(8); if (!ps.length) return '';
+  return `<div class="field-label">${esc(t('plcSavedL'))}</div><div class="plc-quick">${ps.map((p) => `<button type="button" class="plc-q${x.placeId === p.id ? ' on' : ''}" data-plcfill="${esc(p.id)}" data-addr="${esc(placeAddress(p))}">${esc(placeEmoji(p))} ${esc(p.name)}</button>`).join('')}</div>`;
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest?.('[data-plcfill]'); if (!b) return; const f = b.closest('form'); if (!f?.place) return;
+  const on = f.placeId?.value === b.dataset.plcfill;
+  f.place.value = on ? '' : b.dataset.addr; if (f.placeId) f.placeId.value = on ? '' : b.dataset.plcfill;
+  for (const q of f.querySelectorAll('[data-plcfill]')) q.classList.toggle('on', !on && q === b);
+});
+document.addEventListener('input', (e) => { if (e.target.name === 'place' && e.target.form?.placeId) { e.target.form.placeId.value = ''; for (const q of e.target.form.querySelectorAll('[data-plcfill]')) q.classList.remove('on'); } });

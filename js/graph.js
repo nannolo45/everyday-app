@@ -141,7 +141,10 @@ function newTodo(title, from, minutes = 30) {
 }
 // A new thing from a port of a block.
 export function createFrom(fromId, k, title, ready = null) {
-  const F = node(fromId); if (!F || F.kind !== 'block') return null; const x = F.x; const b = F.b; const s = planSettings();
+  const F = node(fromId);
+  // (v97) from a step not on the plan yet (the Scaletta): only before / after, also not planned
+  if (F?.kind === 'task' && (k === 'poi' || k === 'req')) { const n = newTodo(title, F.x, ready?.minutes || 30); if (k === 'poi') addAfter(n, F.x, false); else addAfter(F.x, n, false); toast(t('gr_made', `${LT[k].i} ${lname(k)}`, title)); changed(); return n; }
+  if (!F || F.kind !== 'block') return null; const x = F.x; const b = F.b; const s = planSettings();
   if (!x) { toast(t('gr_needTask')); return null; }
   if (k === 'ok' || k === 'ko' || k === 'miss') {
     const rule = ready?.retry ? { id:uid().slice(0, 6), when:WHEN_OF[k], then:'task', taskId:x.id, place:ready.place || 'pool' } : ready?.groceries ? { id:uid().slice(0, 6), when:WHEN_OF[k], then:'groceries', place:'before' } : { id:uid().slice(0, 6), when:WHEN_OF[k], then:'task', title, minutes:30, place:'pool' };
@@ -197,7 +200,7 @@ const READY = { poi:['gr_r_shower','gr_r_send','gr_r_home'], par:['gr_r_music','
 const READY_X = { gr_r_retry:{ retry:true }, gr_r_tomorrow:{ retry:true, place:'tomorrow' }, gr_r_groceries:{ groceries:true } };
 export function ghostOpen(fromId, k) { ui.gr = { from:fromId, k, q:'', pv:null }; render(); setTimeout(() => document.getElementById('gr-q')?.focus(), 30); }
 function suggestions(F, k, q) {
-  const near = (n) => (n.category === F.category ? 0 : 1e7) + Math.abs((planned(n) ? T0(n) : 1e9) - T0(F));
+  const f0 = planned(F) ? T0(F) : dn(today()) * 1440; const near = (n) => (n.category === F.category ? 0 : 1e7) + Math.abs((planned(n) ? T0(n) : 1e9) - f0);
   const td = today(); const from = addDays(td, -7), to = addDays(td, 35);
   const bl = live('blocks').filter((b) => b.id !== F.id && b.kind !== 'prep' && !b.stepId && b.date >= from && b.date <= to && !(b.seriesId && b.seriesId === F.b?.seriesId)).map((b) => node(b.id));
   const tk = live('tasks').filter((x) => !x.done && x.kind === 'todo' && !live('blocks').some((b) => b.taskId === x.id)).map((x) => node(`task:${x.id}`));

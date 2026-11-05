@@ -13,14 +13,14 @@ import { addDays, fmtDur, fmtTime, parseDate, today } from '../plan.js';
 import { trayTasks } from '../planning.js';
 import { repeatText } from '../widgets.js';
 import { get, live, upsert } from '../store.js';
-import { changed, render } from '../shell.js';
+import { changed, currentDate, render } from '../shell.js';
 import { allItems, classic, curView, dateOf, flagCount, LENS, matches, missing, openTriage, overviewCards, setLen, setView, setWhen, toPlanList, typeOf, viewList, viewName, WHEN_PICKS, whenPickOf } from './impegni.js';
 import { finderHtml } from '../finder.js';
 import { moveBlockTo, placeItem } from '../placing.js';
 import { openWeekGrid } from '../weekgrid.js';
 import { leaveShop, SH } from './shop.js';
 import { eventItems } from './events.js';
-import { loadBar, weekStart } from './planner.js';
+import { loadBar, paneWarnings, planStyle, weekStart } from './planner.js';
 
 const MQ = typeof matchMedia === 'function' ? matchMedia('(min-width: 1100px)') : null;
 export const isWide = () => Boolean(MQ?.matches) && !classic();
@@ -83,7 +83,7 @@ function paneTask() {
 // (v66) the length it has always shows lit, also when it isn't one of the six
 const lensFor = (x) => { const m = x.lenSet !== false ? x.minutes || 30 : null; return m && !LENS.includes(m) ? [...LENS, m].sort((a, b) => a - b) : LENS; };
 // (v66) the Planner's pane: Da pianificare · Nel piano · Tutte, and the search (finder.js)
-function panePlan() { return finderHtml({ props: true }); } // (v67) with the proposals on top
+function panePlan() { return `${planStyle() === 'hours' ? '' : paneWarnings(currentDate())}${finderHtml({ props: true })}`; } // (v67) with the proposals on top; (v97) ✦ Pianifica and the day's warnings above them
 function paneEvent() {
   const items = eventItems();
   const e = items.find((y) => y.id === ui.evSel && (!ui.evDate || y.date === ui.evDate)) || items.find((y) => y.id === ui.evSel);

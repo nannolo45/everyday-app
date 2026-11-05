@@ -1,18 +1,20 @@
-// views/scaletta.js (v96): the Planner as a «scaletta» (Settings → Planner → Aspetto): the day in a row, with the
-// links between things shown where they join (↓ Poi, 🔒 Prima serve, ‖ In parallelo, ✕ Se non riesce…), each card
-// opening in place (checklist, notes, the 7 ports to add a linked thing). Week: the days with what crosses them.
-// Month: the month at a glance (a square per day, a bar per week) and the weeks as an agenda, to zoom in.
-import { catColor, catName, esc, fmtDay, planSettings, relDay, ui } from '../core.js';
+// views/scaletta.js (v97): the Planner as a «scaletta» (Settings → Planner → Aspetto). Not the day by the clock
+// (that's the Agenda) but your things as chains of steps: each project a ladder of steps, linked by ↓ Poi,
+// 🔒 Prima serve, ⤷ Prepara or tied to an appointment, with the day of each step beside it, what can be done now
+// and what's waiting. Tap a step to open it in place (checklist, notes, the 7 ports, Esito). Below, the things
+// of the day / week / month on screen that aren't part of any chain.
+import { catColor, catName, esc, fmtDay, relDay, toast, ui } from '../core.js';
 import { t } from '../i18n.js';
-import { blocksOn, checklistOf, conflictsOn, eventsOn, outcomeOf, roomy, taskIcon, timedEventsOn, trySetBlockDone } from '../model.js';
-import { addDays, fmtDur, fmtTime, nowMinutes, parseDate, today } from '../plan.js';
+import { blocksOn, checklistOf, isApptLike, isMealTask, leadOf, outcomeOf, planTask, roomy, taskIcon, timedEventsOn, trySetBlockDone } from '../model.js';
+import { addDays, fmtDur, fmtTime, parseDate, today } from '../plan.js';
 import { changed, render } from '../shell.js';
-import { get } from '../store.js';
+import { get, live, upsert } from '../store.js';
 import { openPlus } from '../plus.js';
-import { dropOn, ghostHtml, LT, linkPill, linksFor, lname, node, pillMenuHtml, PORTS, previewHtml, when } from '../graph.js';
-import { behindCard, conflictBanner, loadBar, planCard, weekStart } from './planner.js';
+import { slotOptions } from '../weekpick.js';
+import { ghostHtml, ghostOpen, LT, linkPill, linksFor, lname, node, pillMenuHtml, PORTS, previewHtml, when } from '../graph.js';
+import { behindCard, conflictBanner, dayBand, planCard, weekStart } from './planner.js';
 
-// ---------- what a day holds ----------
+// ---------- what a day holds (also for the map) ----------
 export function dayNodes(date) {
   const bl = blocksOn(date).filter((b) => !b.stepId).map((b) => node(b.id));
   const ev = timedEventsOn(date).filter((e) => !e.skipped).map((e) => ({ id:`ev:${e.id}`, raw:e.id, kind:'event', e, title:e.title, date, start:e.start, minutes:e.minutes, fixed:true, color:e.color }));
@@ -21,33 +23,57 @@ export function dayNodes(date) {
 export const rawId = (n) => (n.kind === 'event' ? n.raw : n.id);
 export const loadMin = (date) => blocksOn(date).filter((b) => !b.stepId && !roomy(b) && outcomeOf(b) !== 'failed').reduce((s, b) => s + (b.minutes || 0), 0);
 export const nodeColor = (n) => (n.kind === 'event' ? n.color : catColor(n.category)) || 'var(--accent)';
-const icon = (n) => (n.kind === 'event' ? '🗓 ' : n.x ? taskIcon(n.x) : '');
-const dl = (d) => relDay(d);
-const level = (m) => (m === 0 ? 0 : m < 120 ? 1 : m < 240 ? 2 : m < 360 ? 3 : 4);
-const wlevel = (m) => (m < 360 ? 'light' : m < 840 ? 'normal' : m < 1320 ? 'full' : 'veryfull');
-const isParKid = (b, sameDay) => sameDay.some((o) => o.kind === 'block' && o.id !== b.id && (o.b.par || []).includes(b.id) && !(b.b?.par || []).includes(o.id));
+export const overlays = () => { const o = `${ui.gr?.pv ? previewHtml() : ''}${pillMenuHtml()}`; return o ? `<div class="gr-over">${o}</div>` : ''; };
 
-// ---------- the day ----------
-function card(n, links, near) {
-  if (n.kind === 'event') {
-    return `<div class="sc-card ev" style="--c:${esc(nodeColor(n))}"><button type="button" class="sc-b" data-action="event" data-id="${esc(n.raw)}"><b>🗓 ${esc(n.title)}</b><small>${esc(fmtTime(n.start))}–${esc(fmtTime(n.start + n.minutes))} · ${esc(t('sc_gcal'))}</small></button>${crossLines(n, links, near)}</div>`;
+// ---------- chains ----------
+const blocksOf = (id) => live('blocks').filter((b) => b.taskId === id && !b.stepId).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.start - b.start));
+export function isDoneT(x) { if (x.done) return true; const bs = blocksOf(x.id); return bs.length > 0 && bs.every((b) => outcomeOf(b) === 'done'); }
+export function blockFor(x) { const bs = blocksOf(x.id); return bs.find((b) => !outcomeOf(b)) || bs[bs.length - 1] || null; }
+// what has to come before a task (and how they're linked)
+function preOf(x) {
+  const out = (x.after || []).map((id) => ({ id, k:(x.afterNext || []).includes(id) ? 'poi' : 'req' }));
+  for (const p of x.prep || []) out.push({ id:p.taskId, k:'prep' });
+  if (x.eventId && (Number(x.eventOffset) || 0) > 0) out.push({ id:x.eventId, k:'tied' });
+  for (const y of live('tasks')) if (y.eventId === x.id && (Number(y.eventOffset) || 0) <= 0 && !y.archived) out.push({ id:y.id, k:'tied' });
+  return out.filter((q) => { const y = get('tasks', q.id); return y && !y.archived; });
+}
+const tKey = (x) => { const b = blockFor(x); return b && !isDoneT(x) ? `${b.date} ${String(b.start).padStart(4, '0')}` : isDoneT(x) ? '0' : '9'; };
+export function chains() {
+  // routines (meals and the like, repeating) aren't projects: they stay out, with what only they use
+  const tasks = live('tasks').filter((x) => !x.archived && !x.repeat && x.kind !== 'saved' && !isMealTask(x));
+  const ids = new Set(tasks.map((x) => x.id));
+  const pre = new Map(tasks.map((x) => [x.id, preOf(x).filter((q) => ids.has(q.id))]));
+  const nb = new Map(tasks.map((x) => [x.id, new Set()]));
+  for (const [id, ps] of pre) for (const p of ps) { if (!nb.has(p.id)) continue; nb.get(id).add(p.id); nb.get(p.id).add(id); }
+  const seen = new Set(); const out = [];
+  for (const x of tasks) {
+    if (seen.has(x.id) || !nb.get(x.id).size) continue;
+    const comp = []; const st = [x.id]; seen.add(x.id);
+    while (st.length) { const id = st.pop(); comp.push(id); for (const o of nb.get(id)) if (!seen.has(o)) { seen.add(o); st.push(o); } }
+    // in order: what comes first first (ties: by when)
+    const left = new Set(comp); const steps = [];
+    while (left.size) {
+      const free = [...left].filter((id) => !pre.get(id).some((p) => left.has(p.id))).map((id) => get('tasks', id)).sort((a, b) => (tKey(a) < tKey(b) ? -1 : 1));
+      const pick = free[0] || get('tasks', [...left][0]); steps.push(pick); left.delete(pick.id);
+    }
+    if (steps.every(isDoneT)) continue;
+    out.push({ steps, pre });
   }
-  const b = n.b; const st = outcomeOf(b); const open = ui.scOpen === b.id; const cl = checklistOf(b); const ck = b.checked || [];
-  const sub = [`${fmtTime(b.start)}–${fmtTime(b.start + b.minutes)}`, fmtDur(b.minutes), cl.length ? `☑ ${ck.filter(Boolean).length}/${cl.length}` : '', n.x?.place ? `📍 ${n.x.place.split(',')[0]}` : '', b.kind === 'prep' ? t('sc_prepTag') : ''].filter(Boolean).join(' · ');
-  return `<div class="sc-card${st ? ` is-${st}` : ''}${open ? ' open' : ''}${ui.gr?.from === b.id ? ' ghosting' : ''}" style="--c:${esc(nodeColor(n))}">
-    <div class="sc-top"><input type="checkbox" class="sc-tick" data-action="block-done" data-id="${esc(b.id)}" ${st === 'done' ? 'checked' : ''} aria-label="${esc(t('esDone'))}">
-    <button type="button" class="sc-b" data-action="sc-open" data-id="${esc(b.id)}" aria-expanded="${open}"><b>${st === 'failed' ? '✕ ' : ''}${icon(n)}${esc(b.title)}</b><small>${esc(sub)}</small></button></div>
-    ${open ? editInline(n, links) : crossLines(n, links, near)}
-  </div>${ui.gr?.from === b.id && !ui.gr.pv ? ghostHtml() : ''}`;
+  const nextOf = (c) => c.steps.find((x) => !isDoneT(x));
+  return out.sort((a, b) => (tKey(nextOf(a)) < tKey(nextOf(b)) ? -1 : 1));
 }
-// links to things that aren't the card just above or below: a line each, to go there
-function crossLines(n, links, near) {
-  const mine = links.filter((l) => (l.a === n.id || l.b === n.id) && !l.b.startsWith('pot:') && l.t !== 'par');
-  const out = mine.filter((l) => !near.has(l.a === n.id ? l.b : l.a));
-  if (!out.length) return '';
-  return `<div class="sc-xs">${out.map((l) => { const o = node(l.a === n.id ? l.b : l.a); if (!o) return ''; const inc = l.b === n.id; const txt = `${inc ? '↩' : '↪'} ${LT[l.t].i} ${lname(l.t)} · ${o.title} · ${o.date === n.date ? fmtTime(o.start) : when(o)}`;
-    return o.date ? `<a class="sc-x" href="#/plan/${esc(o.date)}" style="--jc:${LT[l.t].c}">${esc(txt)}</a>` : `<span class="sc-x" style="--jc:${LT[l.t].c}">${esc(txt)}</span>`; }).join('')}</div>`;
+function stepState(x, pre) {
+  if (isDoneT(x)) return { st:'done', txt:t('ch_done') };
+  const ps = pre.get(x.id) || [];
+  const wait = ps.map((p) => get('tasks', p.id)).find((y) => y && !isDoneT(y));
+  const b = blockFor(x);
+  if (wait && b) { const wb = blockFor(wait); if (wb && !outcomeOf(wb) && (wb.date > b.date || (wb.date === b.date && wb.start + wb.minutes > b.start))) return { st:'bad', txt:t('ch_order', wait.title, relDay(wb.date)) }; }
+  if (wait) return { st:'wait', txt:t('ch_wait', wait.title) };
+  return { st:'ready', txt:t('ch_ready') };
 }
+
+// ---------- drawing ----------
+const dl = (d) => relDay(d);
 function editInline(n, links) {
   const b = n.b; const x = n.x; const st = outcomeOf(b); const cl = checklistOf(b); const ck = b.checked || [];
   const mine = links.filter((l) => l.a === n.id || l.b === n.id);
@@ -61,122 +87,74 @@ function editInline(n, links) {
     <div class="sc-foot">${!st ? `<button type="button" class="btn small" data-action="block-fail" data-id="${esc(b.id)}">✕ ${esc(t('esFail'))}</button><button type="button" class="btn small primary" data-action="sc-done" data-id="${esc(b.id)}">✓ ${esc(t('esDone'))}</button>` : `<button type="button" class="btn small" data-action="block-reset" data-id="${esc(b.id)}">↺ ${esc(t('sc_undo'))}</button>`}<button type="button" class="btn small" data-action="open-block" data-id="${esc(b.id)}">${esc(t('sc_details'))} ›</button></div>
   </div>`;
 }
-function branches(n, links) {
-  return links.filter((l) => l.a === n.id && l.b.startsWith('pot:')).map((l) => { const p = node(l.b); if (!p) return '';
-    return `<div class="sc-branch" style="--jc:${LT[l.t].c}">${linkPill(l)}<div class="sc-card pot" style="--c:${esc(nodeColor(n))}"><div class="sc-b"><b>${LT[l.t].i} ${esc(p.title)}</b><small>${esc(t('sc_branchSub', lname(l.t)))}</small></div></div></div>`; }).join('');
-}
-function joint(prev, cur, links, date, conflicts) {
-  const ab = links.filter((l) => l.t !== 'par' && ((l.a === prev.id && l.b === cur.id) || (l.a === cur.id && l.b === prev.id)));
-  const pe = prev.start + prev.minutes; const gap = cur.start - pe;
-  const ci = conflicts.findIndex((c) => c.type === 'overlap' && c.ids.includes(rawId(prev)) && c.ids.includes(rawId(cur)));
-  if (ci >= 0) {
-    const mv = conflicts[ci].ids.map((i) => get('blocks', i)).find((b) => b && !outcomeOf(b));
-    return `<div class="sc-joint bad"><span class="sc-jp bad">⚠ ${esc(t('sc_overlap', fmtDur(Math.min(pe, cur.start + cur.minutes) - cur.start)))}</span>${mv ? `<button type="button" class="sc-mini" data-action="fix" data-date="${date}" data-i="${ci}">${esc(t('sc_moveIt', mv.title))}</button>` : ''}<button type="button" class="sc-mini" data-action="allow" data-date="${date}" data-i="${ci}">${esc(t('sc_leave'))}</button></div>`;
+function stepHtml(x, i, pre, last) {
+  const s = stepState(x, pre); const b = blockFor(x); const open = ui.scOpen === x.id;
+  const cl = x.checklist || []; const ck = (b && b.checked) || [];
+  const whenTxt = b && !isDoneT(x) ? `<a class="ch-when${b.date === today() ? ' today' : ''}" href="#/plan/${esc(b.date)}">${esc(relDay(b.date))}<br>${esc(fmtTime(b.start))}</a>` : b ? `<span class="ch-when">${esc(relDay(b.date))}</span>` : `<span class="ch-when">${esc(t('gr_unplanned'))}</span>`;
+  const gFrom = ui.gr && !ui.gr.pv && (ui.gr.from === b?.id || ui.gr.from === `task:${x.id}`) && !last;
+  let h = `<div class="ch-step is-${s.st}${open ? ' open' : ''}"><div class="ch-dot"><b>${s.st === 'done' ? '✓' : i + 1}</b></div>
+    <div class="ch-main"><div class="ch-row"><button type="button" class="ch-tx" data-action="sc-step" data-id="${esc(x.id)}" aria-expanded="${open}"><b>${taskIcon(x)}${esc(x.title)}</b><small>${esc(s.txt)}${cl.length ? ` · ☑ ${ck.filter(Boolean).length}/${cl.length}` : ''}${b && !isDoneT(x) ? ` · ${esc(fmtDur(b.minutes))}` : ''}</small></button>${whenTxt}</div>`;
+  if (open) {
+    if (b && !isDoneT(x)) h += editInline(node(b.id), linksFor([b]));
+    else if (!b) h += `<div class="sc-ie"><div class="sc-foot left"><button type="button" class="btn small primary" data-action="sc-auto" data-id="${esc(x.id)}">✦ ${esc(t('ch_findSlot'))}</button><button type="button" class="btn small" data-action="task-edit" data-id="${esc(x.id)}">${esc(t('sc_details'))} ›</button></div></div>`;
+    else h += `<div class="sc-ie"><div class="sc-foot left"><button type="button" class="btn small" data-action="open-block" data-id="${esc(b.id)}">${esc(t('sc_details'))} ›</button></div></div>`;
   }
-  const free = gap >= 30 && date >= today() ? `<button type="button" class="sc-free" data-action="ag-gap" data-date="${date}" data-start="${pe}" data-min="${gap}">${esc(t('sc_free', fmtDur(gap)))} · ＋</button>` : '';
-  if (ab.length) return `<div class="sc-joint" style="--jc:${LT[ab[0].t].c}">${ab.map(linkPill).join('')}${free}</div>`;
-  const can = prev.kind === 'block' && prev.x && cur.kind !== 'pot';
-  return `<div class="sc-joint">${free || (can ? `<button type="button" class="sc-jp empty" data-action="sc-link" data-id="${esc(`${prev.id}|${cur.id}`)}">＋ ${esc(t('sc_link'))}</button>` : '')}</div>`;
+  if (gFrom) h += ghostHtml();
+  return `${h}</div></div>`;
 }
-function scDay(date) {
-  const ns = dayNodes(date); const links = linksFor(ns.filter((n) => n.kind === 'block').map((n) => n.b));
-  const conflicts = conflictsOn(date);
-  const kids = new Set(); const groups = new Map();
-  for (const n of ns) if (n.kind === 'block' && isParKid(n, ns)) kids.add(n.id);
-  for (const n of ns) if (n.kind === 'block' && !kids.has(n.id)) {
-    const par = ns.filter((o) => kids.has(o.id) && links.some((l) => l.t === 'par' && ((l.a === n.id && l.b === o.id) || (l.b === n.id && l.a === o.id))));
-    const inside = roomy(n.b) ? ns.filter((o) => o.id !== n.id && !kids.has(o.id) && o.kind === 'block' && !roomy(o.b) && o.start >= n.start && o.start + o.minutes <= n.start + n.minutes) : [];
-    for (const o of inside) kids.add(o.id);
-    if (par.length || inside.length || roomy(n.b)) groups.set(n.id, { par, inside });
-  }
-  const top = ns.filter((n) => !kids.has(n.id));
-  const td = today(); const nowM = date === td ? nowMinutes() : -1;
-  let h = '';
-  const [h0] = [planSettings().dayStart];
-  if (date >= td && top.length && top[0].start - Math.max(h0, nowM) >= 30) { const s = Math.max(h0, Math.ceil(nowM / 15) * 15); h += `<div class="sc-joint first"><button type="button" class="sc-free" data-action="ag-gap" data-date="${date}" data-start="${s}" data-min="${top[0].start - s}">${esc(t('sc_free', fmtDur(top[0].start - s)))} · ＋</button></div>`; }
-  top.forEach((n, i) => {
-    if (i) h += joint(top[i - 1], n, links, date, conflicts);
-    const near = new Set([top[i - 1]?.id, top[i + 1]?.id].filter(Boolean));
-    const g = groups.get(n.id); const isNow = nowM >= n.start && nowM < n.start + n.minutes;
-    const body = g ? `<div class="sc-grp${roomy(n.b) ? ' room' : ''}"><span class="sc-gbar">${esc(roomy(n.b) ? t('sc_inside') : `‖ ${lname('par')}`)}</span>${card(n, links, near)}<div class="sc-kids">${[...g.par, ...g.inside].map((o) => card(o, links, new Set([n.id]))).join('')}</div></div>` : card(n, links, near);
-    h += `<div class="sc-it"><div class="sc-rail">${esc(fmtTime(n.start))}${isNow ? `<em>${esc(t('sc_now'))}</em>` : ''}</div><div class="sc-col">${body}${branches(n, links)}</div></div>`;
-  });
-  if (date >= td && top.length) { const last = top.reduce((m, n) => Math.max(m, n.start + n.minutes), 0); const end = planSettings().dayEnd; if (end - last >= 30) h += `<div class="sc-joint"><button type="button" class="sc-free" data-action="ag-gap" data-date="${date}" data-start="${last}" data-min="${end - last}">${esc(t('sc_free', fmtDur(end - last)))} · ＋</button></div>`; }
-  const allDay = eventsOn(date).filter((e) => e.allDay);
-  return `${planCard()}${behindCard(date)}${conflictBanner(date)}
-    ${allDay.length ? `<div class="allday">${allDay.map((e) => `<button class="allday-chip" type="button" data-action="event" data-id="${esc(e.id)}" style="--c:${esc(e.color)}">${esc(e.title)}</button>`).join('')}</div>` : ''}
-    ${top.length ? `<div class="sc-day">${h}</div>` : `<p class="empty ag-empty">${esc(t('agEmpty'))}</p>${date >= td ? `<div class="sc-joint"><button type="button" class="sc-free" data-action="sc-add" data-id="${date}">＋ ${esc(t('sc_addHere'))}</button></div>` : ''}`}`;
+function chainHtml(c) {
+  const { steps, pre } = c; const last = steps[steps.length - 1];
+  const appt = steps.find((x) => isApptLike(x));
+  const name = appt ? appt.title : last.title;
+  const color = catColor(last.category || steps.find((x) => x.category)?.category) || 'var(--accent)';
+  const nd = steps.filter(isDoneT).length; const nx = steps.find((x) => !isDoneT(x)); const nb = nx && blockFor(nx);
+  const lastB = blockFor(last); const lastId = lastB && !isDoneT(last) ? lastB.id : `task:${last.id}`;
+  const bad = steps.some((x) => stepState(x, pre).st === 'bad');
+  return `<section class="ch" style="--c:${esc(color)}"><h4><i></i><span>${esc(name)}</span><small>${esc(t('ch_progress', nd, steps.length))} · ${esc(nb ? t('ch_nextOn', relDay(nb.date)) : t('ch_nextUnplanned'))}${bad ? ' · ⚠' : ''}</small></h4>
+    <div class="ch-prog"><i style="width:${(nd / steps.length) * 100}%"></i></div>
+    ${steps.map((x, i) => stepHtml(x, i, pre, x === last)).join('')}
+    ${ui.gr && !ui.gr.pv && ui.gr.from === lastId ? ghostHtml() : `<button type="button" class="ch-add" data-action="sc-addafter" data-id="${esc(lastId)}">＋ ${esc(t('ch_addAfter', last.title))}</button>`}</section>`;
 }
-
-// ---------- the week, the month ----------
-function dayRow(d, big) {
-  const td = today(); const ns = dayNodes(d).filter((n) => !(n.kind === 'block' && n.b.kind === 'prep' && !big));
-  const cross = linksFor(ns.filter((n) => n.kind === 'block').map((n) => n.b)).filter((l) => l.t !== 'par' && !l.b.startsWith('pot:')).map((l) => { const a = node(l.a), b = node(l.b); if (!a || !b) return null; const mine = a.date === d ? a : b.date === d ? b : null; const o = mine === a ? b : a; return mine && o.date !== d ? { l, o, out:mine === a } : null; }).filter(Boolean);
-  const conf = new Set(conflictsOn(d).flatMap((c) => c.ids));
-  const ld = loadMin(d); const max = planSettings().maxLoad;
-  return `<div class="sc-drow${d === td ? ' is-today' : ''}${d < td ? ' past' : ''}${big ? ' big' : ''}"><button type="button" class="sc-dd" data-action="view-day" data-id="${d}">${esc(fmtDay(d, { weekday:'short' }))}<b>${parseDate(d).getDate()}</b><i><u style="width:${Math.min(100, (ld / max) * 100)}%" class="${ld > max ? 'over' : ''}"></u></i></button>
-    <button type="button" class="sc-dits" data-action="view-day" data-id="${d}">${ns.length ? ns.map((n) => { const cl = n.kind === 'block' ? checklistOf(n.b) : []; return `<i class="${n.out ? 'done' : ''}${conf.has(rawId(n)) ? ' bad' : ''}${n.fixed ? ' ap' : ''}" style="--c:${esc(nodeColor(n))}">${esc(fmtTime(n.start))} ${icon(n)}${esc(n.title)}${big && cl.length ? ` · ☑${(n.b.checked || []).filter(Boolean).length}/${cl.length}` : ''}</i>`; }).join('') : `<span class="sc-free0">${esc(t('sc_dayFree'))}</span>`}
-    ${cross.map(({ l, o, out }) => `<i class="xl" style="--c:${LT[l.t].c}">${out ? '↪' : '↩'} ${LT[l.t].i} ${esc(o.title)} · ${esc(o.date ? fmtDay(o.date, { weekday:'short', day:'numeric' }) : t('gr_unplanned'))}</i>`).join('')}</button>
-    ${d >= td ? `<button type="button" class="sc-dadd" data-action="sc-add" data-id="${d}" aria-label="${esc(t('addMenu'))}">＋</button>` : ''}</div>`;
-}
-const weekLoad = (w) => Array.from({ length:7 }, (_, i) => loadMin(addDays(w, i))).reduce((a, b) => a + b, 0);
-const weekConf = (w) => Array.from({ length:7 }, (_, i) => conflictsOn(addDays(w, i)).length).reduce((a, b) => a + b, 0);
-function square(d, month) {
-  const ns = dayNodes(d); const ld = loadMin(d); const td = today();
-  let fill;
-  if ((ui.scColor || 'load') === 'load') fill = `<i class="lv lv${level(ld)}"></i>`;
-  else { const by = {}; for (const n of ns) if (n.kind === 'block') by[n.category || '-'] = (by[n.category || '-'] || 0) + n.minutes; fill = `<i class="cats" style="height:${Math.min(100, (ld / planSettings().maxLoad) * 100)}%">${Object.entries(by).map(([c, m]) => `<u style="flex:${m};background:${esc(catColor(c) || 'var(--accent)')}"></u>`).join('')}</i>`; }
-  return `<button type="button" class="sc-sq${d.slice(0, 7) === month ? '' : ' out'}${d === td ? ' is-today' : ''}${d < td ? ' past' : ''}" data-action="view-day" data-id="${d}" title="${esc(`${relDay(d)} · ${fmtDur(ld)}`)}">${fill}<span>${parseDate(d).getDate()}</span>${ns.some((n) => n.fixed) ? '<b class="ap"></b>' : ''}${conflictsOn(d).length ? '<b class="cf"></b>' : ''}</button>`;
-}
-const wkLabel = (w) => `${fmtDay(w, { day:'numeric', month:'short' })} – ${fmtDay(addDays(w, 6), { day:'numeric', month:'short' })}`;
-function monthWeeks(date) {
-  const first = `${date.slice(0, 7)}-01`; const ws = []; for (let w = weekStart(first); w.slice(0, 7) <= date.slice(0, 7); w = addDays(w, 7)) ws.push(w);
-  return ws;
-}
-function scMonth(date) {
-  const month = date.slice(0, 7); const ws = monthWeeks(date); const td = today();
-  const maxW = Math.max(...ws.map(weekLoad), 1);
-  if (!ui.scWeeks) ui.scWeeks = new Set([weekStart(td)]);
-  const heads = Array.from({ length:7 }, (_, i) => fmtDay(addDays(ws[0], i), { weekday:'narrow' }));
-  const ov = `<div class="sc-ov"><div class="sc-ovh"><b>${esc(t('sc_glance'))}</b><div class="sc-seg">${['load', 'cat'].map((k) => `<button type="button" class="${(ui.scColor || 'load') === k ? 'on' : ''}" data-action="sc-color" data-id="${k}">${esc(t(`sc_col_${k}`))}</button>`).join('')}</div></div>
-    <div class="sc-ovg"><span></span>${heads.map((x) => `<span class="sc-ovd">${esc(x)}</span>`).join('')}<span class="sc-ovd">${esc(t('sc_week'))}</span>
-    ${ws.map((w) => { const L = weekLoad(w); const c = weekConf(w); const cur = weekStart(td) === w; return `<button type="button" class="sc-ovl${cur ? ' cur' : ''}" data-action="sc-wk" data-id="${w}">${parseDate(w).getDate()}</button>${Array.from({ length:7 }, (_, i) => square(addDays(w, i), month)).join('')}<button type="button" class="sc-wbar${cur ? ' cur' : ''}" data-action="sc-wk" data-id="${w}"><i style="width:${(L / maxW) * 100}%" class="${wlevel(L)}"></i><span>${esc(fmtDur(L) || '—')}${c ? ` · <em>⚠${c}</em>` : ''}</span></button>`; }).join('')}</div>
-    <div class="sc-leg">${(ui.scColor || 'load') === 'load' ? `<i class="lv lv1"></i> ${esc(t('sc_little'))} <i class="lv lv2"></i><i class="lv lv3"></i><i class="lv lv4"></i> ${esc(t('sc_lot'))}` : esc(t('sc_catLeg'))} · <b class="ap"></b> ${esc(t('sc_appt'))} · <b class="cf"></b> ${esc(t('sc_conflict'))}</div></div>`;
-  const cards = ws.map((w) => {
-    const open = ui.scWeeks.has(w); const L = weekLoad(w); const c = weekConf(w); const cur = weekStart(td) === w;
-    const days = Array.from({ length:7 }, (_, i) => addDays(w, i));
-    const appts = days.flatMap((d) => dayNodes(d).filter((n) => n.fixed));
-    const busiest = [...days].sort((a, b) => loadMin(b) - loadMin(a))[0];
-    let h = `<div class="sc-wk${open ? ' open' : ''}${cur ? ' cur' : ''}"><button type="button" class="sc-wkh" data-action="sc-wtog" data-id="${w}" aria-expanded="${open}"><span><b>${esc(wkLabel(w))}</b><small>${esc([fmtDur(L) || t('sc_nothing'), t(`sc_wl_${wlevel(L)}`), loadMin(busiest) ? t('sc_busiest', fmtDay(busiest, { weekday:'short', day:'numeric' })) : ''].filter(Boolean).join(' · '))}${c ? ` · <em>⚠ ${esc(t('nConflicts', c))}</em>` : ''}</small></span><span>${open ? '▾' : '▸'}</span></button>`;
-    if (!open) h += appts.length ? `<div class="sc-wkap">${appts.map((n) => `<button type="button" style="--c:${esc(nodeColor(n))}" data-action="view-day" data-id="${n.date}">${n.kind === 'event' ? '🗓' : '📅'} ${esc(n.title)} · ${esc(fmtDay(n.date, { weekday:'short', day:'numeric' }))}</button>`).join('')}</div>` : '';
-    else h += `<div class="sc-wkb">${days.map((d) => dayRow(d, false)).join('')}<button type="button" class="sc-wkzoom" data-action="sc-wk" data-id="${w}">${esc(t('sc_openWeek'))} ›</button></div>`;
-    return h + '</div>';
-  }).join('');
-  return `${planCard()}${ov}<div class="sc-agenda">${cards}</div>`;
-}
-function scWeek(date) {
-  const w = weekStart(date); const L = weekLoad(w); const c = weekConf(w);
-  return `${planCard()}<div class="sc-wkhead"><div class="sc-strip">${Array.from({ length:7 }, (_, i) => square(addDays(w, i), date.slice(0, 7))).join('')}</div><small>${esc([fmtDur(L) || t('sc_nothing'), t(`sc_wl_${wlevel(L)}`)].join(' · '))}${c ? ` · ⚠ ${c}` : ''}</small></div>
-    <div class="sc-agenda">${Array.from({ length:7 }, (_, i) => dayRow(addDays(w, i), true)).join('')}</div>`;
+function range(v, date) {
+  if (v === 'week') { const w = weekStart(date); return [w, addDays(w, 6)]; }
+  if (v === 'month') { const d = parseDate(date); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); return [`${date.slice(0, 7)}-01`, `${date.slice(0, 7)}-${String(last).padStart(2, '0')}`]; }
+  return [date, date];
 }
 export function viewScaletta(v, date) {
-  const key = `${v}|${date}`; if (ui.scKey && ui.scKey !== key) { ui.gr = null; ui.grPill = null; ui.scOpen = null; } ui.scKey = key;
-  const body = v === 'week' ? scWeek(date) : v === 'month' ? scMonth(date) : scDay(date);
-  return `<section class="plan-main sc-main">${body}</section>${overlays()}`;
+  const key = `${v}|${date}`; if (ui.scKey && ui.scKey !== key) { ui.gr = null; ui.grPill = null; } ui.scKey = key;
+  const [d0, d1] = range(v, date);
+  const cs = chains(); const inChain = new Set(cs.flatMap((c) => c.steps.map((x) => x.id)));
+  const inRange = (c) => c.steps.some((x) => blocksOf(x.id).some((b) => b.date >= d0 && b.date <= d1));
+  const here = cs.filter(inRange); const others = cs.filter((c) => !inRange(c));
+  const loose = []; for (let d = d0; d <= d1; d = addDays(d, 1)) loose.push(...blocksOn(d).filter((b) => !b.stepId && !(b.kind === 'prep' && b.parentId) && !(b.taskId && inChain.has(b.taskId))));
+  const periodTxt = t(`ch_in_${v}`);
+  const looseHtml = loose.length ? `<div class="ch-lb">${esc(t('ch_loose'))} <small>${esc(periodTxt)} · ${loose.length}</small></div><div class="ch-loose">${loose.slice(0, 60).map((b) => `<button type="button" style="--c:${esc(catColor(b.category) || 'var(--accent)')}" class="${outcomeOf(b) ? 'is-done' : ''}" data-action="open-block" data-id="${esc(b.id)}">${v === 'day' ? '' : `${esc(fmtDay(b.date, { weekday:'short', day:'numeric' }))} `}${esc(fmtTime(b.start))} · ${esc(b.title)}</button>`).join('')}</div>` : '';
+  const day = v === 'day' ? `${behindCard(date)}${conflictBanner(date)}${dayBand(date)}` : '';
+  return `<section class="plan-main sc-main">${planCard()}${day}
+    ${cs.length ? '' : `<div class="ch-empty"><b>${esc(t('ch_emptyT'))}</b><p class="hint">${esc(t('ch_emptyS'))}</p></div>`}
+    ${here.length ? `<div class="ch-lb">${esc(t('ch_here'))} <small>${esc(periodTxt)} · ${here.length}</small></div>${here.map(chainHtml).join('')}` : ''}
+    ${others.length ? `<div class="ch-lb">${esc(here.length ? t('ch_others') : t('ch_all'))} <small>${others.length}</small></div>${others.map(chainHtml).join('')}` : ''}
+    <button type="button" class="btn ch-new" data-action="sc-new">＋ ${esc(t('ch_new'))}</button>
+    ${looseHtml}</section>${overlays()}`;
 }
-export const overlays = () => { const o = `${ui.gr?.pv ? previewHtml() : ''}${pillMenuHtml()}`; return o ? `<div class="gr-over">${o}</div>` : ''; };
 
 // ---------- clicks ----------
 export function scClick(btn) {
   const { action, id } = btn.dataset; if (!action?.startsWith('sc-')) return false;
   switch (action) {
-    case 'sc-open': ui.scOpen = ui.scOpen === id ? null : id; if (ui.gr && ui.gr.from !== id) ui.gr = null; render(); return true;
+    case 'sc-step': ui.scOpen = ui.scOpen === id ? null : id; if (ui.gr) ui.gr = null; render(); return true;
     case 'sc-done': { const b = get('blocks', id); if (b && trySetBlockDone(b, true)) changed(); return true; }
-    case 'sc-add': openPlus({ date:id }); return true;
-    case 'sc-link': { const [a, b] = id.split('|'); dropOn(a, 'poi', b); return true; }
-    case 'sc-color': ui.scColor = id; render(); return true;
-    case 'sc-wtog': { if (!ui.scWeeks) ui.scWeeks = new Set(); if (ui.scWeeks.has(id)) ui.scWeeks.delete(id); else ui.scWeeks.add(id); render(); return true; }
-    case 'sc-wk': ui.view = 'week'; location.hash = `#/plan/${id}`; render(); return true;
+    case 'sc-new': openPlus({}); toast(t('ch_newHint'), 5000); return true;
+    case 'sc-addafter': ghostOpen(id, 'poi'); return true;
+    case 'sc-agdone': ui.agDone = !ui.agDone; render(); return true;
+    case 'sc-ext': { const b = get('blocks', id); if (b) { upsert('blocks', { ...b, minutes:(b.minutes || 30) + 15, auto:false }, { silent:true }); toast(t('agnExtended', fmtTime(b.start + b.minutes + 15))); changed(); } return true; }
+    case 'sc-auto': {
+      const x = get('tasks', id); if (!x) return true;
+      const after = preOf(x).map((p) => get('tasks', p.id)).map((y) => y && blockFor(y)).filter(Boolean).map((b) => b.date).sort().pop();
+      const from = after && after > today() ? after : today();
+      for (let i = 0; i < 21; i++) { const d = addDays(from, i); const o = slotOptions(x, d, 1)[0]; if (o) { planTask(x, d, o.start - leadOf(x)); toast(t('ch_planned', x.title, relDay(d), fmtTime(o.start))); changed(); return true; } }
+      toast(t('noFreeSlotDay')); return true;
+    }
     default: return false;
   }
 }
