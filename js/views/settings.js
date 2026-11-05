@@ -72,7 +72,7 @@ export function settingsHtml(s, msg) {
       <label>${esc(t('weekCardDay'))}<select name="weekCardDay">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<option value="${d}" ${d === Number(s.weekCardDay ?? 0) ? 'selected' : ''}>${esc(fmtDay(addDays('2026-11-01', d), { weekday: 'long' }))}</option>`).join('')}</select></label>
       <label>${esc(t('weekCardHour'))}<select name="weekCardHour">${hourOpts(s.weekCardHour ?? 18, 0, 23)}</select></label>
     </div>${why('weekCardWhy')}
-    <label>${esc(t('planStyleL'))}<select name="planStyle">${['agenda', 'hours'].map((v) => `<option value="${v}" ${v === planStyle() ? 'selected' : ''}>${esc(t(`ps_${v}`))}</option>`).join('')}</select></label>
+    <label>${esc(t('planStyleL'))}<select name="planStyle">${['agenda', 'hours', 'scaletta', 'mappa'].map((v) => `<option value="${v}" ${v === planStyle() ? 'selected' : ''}>${esc(t(`ps_${v}`))}</option>`).join('')}</select></label>
     <label>${esc(t('defaultView'))}<select name="defaultView">${VIEWS.map((v) => `<option value="${v}" ${v === currentViewDefault() ? 'selected' : ''}>${esc(t(`v_${v}`))}</option>`).join('')}</select></label>
   </form>`;
   const [dayTop, planRest] = dayCard.split(PLAN_CUT);

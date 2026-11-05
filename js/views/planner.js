@@ -18,6 +18,8 @@ import { DATE_GROUPS, dateBuckets, filterBar, sortPicker, sortTaskList, taskFilt
 import { isWide } from './wide.js';
 import { placeItem } from '../placing.js';
 import { hasRhythm, routines } from '../routines.js';
+import { viewScaletta } from './scaletta.js';
+import { viewMappa } from './mappa.js';
 
 // "Already planned": a folded list at the bottom of the planning panels, each one a link to its day.
 export function plannedList(list, action, open) {
@@ -68,7 +70,7 @@ export function viewPlan(date) {
   const showToday = v === 'day' ? date !== td : v === 'week' ? weekStart(date) !== weekStart(td) : date.slice(0, 7) !== td.slice(0, 7);
   // One drawer of tasks to plan sits under every view; "Plan" runs the guided flow.
   if (!ui.assign) ui.assign = { sel: new Set(), ghosts: [], range: null, opts: false, open: false, q: '' };
-  const ag = planStyle() === 'agenda';
+  const ps = planStyle(); const ag = ps !== 'hours';
   const head = `
   <div class="plan-top">
     <div class="view-switch" role="tablist">${VIEWS.map((k) => `<button type="button" role="tab" class="${k === v ? 'on' : ''}" data-action="view" data-id="${k}" aria-selected="${k === v}">${esc(t(`v_${k}`))}</button>`).join('')}</div>
@@ -88,6 +90,8 @@ export function viewPlan(date) {
     <button class="btn small primary" type="button" data-action="auto">✦ ${esc(t('planBtn'))}</button>
     <button class="btn small" type="button" data-action="add-menu">＋ ${esc(t('addMenu'))}</button>
   </div>`}`;
+  if (ps === 'scaletta') return head + viewScaletta(v, date);
+  if (ps === 'mappa') return head + viewMappa(v, date);
   if (ag) return `${head}<section class="plan-main agenda-main">${v === 'week' ? agendaWeek(date) : v === 'month' ? viewMonth(date) : agendaDay(date)}</section>`;
   const main = v === 'week' ? viewWeek(date) : v === 'month' ? viewMonth(date) : viewDay(date);
   return `${head}<section class="plan-main">${main}</section>${trayHtml()}`;
@@ -407,7 +411,7 @@ export function assignGhostHtml(g, startMin) {
 // ---------- (v55) the agenda: the day as a list, with the free time between ----------
 // Settings → Planner chooses it ("Agenda", the default) or the hour timeline. The old suites keep the timeline.
 export function planStyle() {
-  const s = state.settings.planStyle; if (s === 'agenda' || s === 'hours') return s;
+  const s = state.settings.planStyle; if (['agenda', 'hours', 'scaletta', 'mappa'].includes(s)) return s; // (v96) + Scaletta, Mappa
   try { if (localStorage.getItem('everyday-classic') === '1') return 'hours'; } catch { /* no storage */ }
   return 'agenda';
 }

@@ -40,6 +40,9 @@ import { goToBlock, goToProposal, openChooser, openPropsList, resumeRoutine, she
 import { setLowPref } from './lowstock.js';
 import { countToast, firstFreeStart, moveBlockTo, openConflictChoice, openDropOn, placeItem, unplanToPane } from './placing.js';
 import { unmarkedToday } from './views/planner.js';
+import { graphClick } from './graph.js';
+import { scClick } from './views/scaletta.js';
+import { mpClick, mpDragged } from './views/mappa.js';
 import { agendaAdd, agendaPlan, onDayTasks, keepFix, keepGhost, openGapFits, planStyle, showSteps } from './views/planner.js';
 import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName } from './views/shop.js';
 import { openTaskTools, taskFilter } from './views/tasks.js';
@@ -256,6 +259,8 @@ view.addEventListener('click', (e) => {
     if (block && !e.target.closest('.blk-check')) openBlock(get('blocks', block.dataset.id));
     return;
   }
+  if (mpDragged()) return;
+  if (graphClick(btn) || scClick(btn) || mpClick(btn)) return; // (v96) the Scaletta and the Map
   const { action, id } = btn.dataset;
   if (wideClick(btn)) return; // (v56) the pane on wide screens
   if (shopClick(btn, { planTrips: planTripsNow, shareList: shareShopList })) return; // the shopping list (views/shop.js)
