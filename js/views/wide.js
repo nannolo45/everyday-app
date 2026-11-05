@@ -14,7 +14,7 @@ import { trayTasks } from '../planning.js';
 import { repeatText } from '../widgets.js';
 import { get, live, upsert } from '../store.js';
 import { changed, render } from '../shell.js';
-import { allItems, classic, curView, dateOf, LENS, matches, missing, openTriage, setLen, setView, setWhen, toPlanList, typeOf, viewList, viewName, WHEN_PICKS, whenPickOf } from './impegni.js';
+import { allItems, classic, curView, dateOf, flagCount, LENS, matches, missing, openTriage, overviewCards, setLen, setView, setWhen, toPlanList, typeOf, viewList, viewName, WHEN_PICKS, whenPickOf } from './impegni.js';
 import { finderHtml } from '../finder.js';
 import { moveBlockTo, placeItem } from '../placing.js';
 import { openWeekGrid } from '../weekgrid.js';
@@ -38,7 +38,7 @@ const tabOf = (name) => (name === 'shop' ? 'tasks' : name);
 // ---------- the rail ----------
 function rail() {
   const r = route(); const cur = tabOf(r.name);
-  const nUn = toPlanList().length;
+  const nUn = flagCount();
   const v = curView();
   const views = cur === 'tasks' ? `${viewList().filter((y) => y.pin || y.id === v.id).map((y) => {
     const n = y.shop ? live(SH()).filter((i) => !i.checked).length : allItems().filter((x) => !x.done && matches(x, y.f || {})).length;
@@ -101,12 +101,12 @@ function paneEvent() {
     </div></div>`;
 }
 function paneToday() {
-  const nUn = toPlanList().length; const nPlan = trayTasks().length;
+  const nUn = toPlanList().length; const nPlan = trayTasks().length; // classic only
   const td = today();
   const next = eventItems().filter((e) => e.date >= td).slice(0, 4);
   return `<h2 class="pn-h">${esc(t('pnWaiting'))}</h2>
-    ${nUn ? `<div class="vw-card"><b>${esc(t('nToSort', nUn))}</b><button class="btn small primary" type="button" data-action="pn-triage">${esc(t('sortNow'))}</button></div>` : ''}
-    ${nPlan ? `<div class="ag-card-top"><span><b>${esc(t('agToPlan', nPlan))}</b></span><a class="btn small" href="#/plan">${esc(t('tabPlan'))} ›</a></div>` : ''}
+    ${classic() ? `${nUn ? `<div class="vw-card"><b>${esc(t('nToSort', nUn))}</b><button class="btn small primary" type="button" data-action="pn-triage">${esc(t('sortNow'))}</button></div>` : ''}
+    ${nPlan ? `<div class="ag-card-top"><span><b>${esc(t('agToPlan', nPlan))}</b></span><a class="btn small" href="#/plan">${esc(t('tabPlan'))} ›</a></div>` : ''}` : overviewCards({ pane: true })}
     ${next.length ? `<div class="field-label">${esc(t('pnNextEvents'))}</div><ul class="ev2-list">${next.map((e) => `<li class="ev2"><span class="ev2-date"><small>${esc(fmtDay(e.date, { weekday: 'short' }))}</small><b>${parseDate(e.date).getDate()}</b></span><span class="ev2-col"><a class="ev2-card" href="${classic() ? '#/events' : `#/plan/${e.date}`}" style="--c:${esc(e.color || 'var(--accent)')}"><span class="ag-t">${esc(e.title)}</span><small>${esc(e.allDay ? t('allDay') : e.start != null ? fmtTime(e.start) : '')}</small></a></span></li>`).join('')}</ul>` : ''}`;
 }
 export function paneHtml() {

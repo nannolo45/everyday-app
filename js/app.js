@@ -14,11 +14,12 @@
 import { moveWeek, openRoutine } from './routines.js';
 import { $, findCategory, hideToast, fmtDay, modal, PPM, quickFields, range, relDay, route, seedCategories, TAB_OF, TABS, toast, ui, view } from './core.js';
 import { setupDrag } from './drag.js';
-import { afterStart, openPalestra, doShift, finishTimer, openAddMenu, openPickSheet, openQuickTask, plusKind, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, pickMealRecipes, openPlanSaved, openSavedPicker, openPlaceRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
+import { afterStart, openChecklist, openPalestra, doShift, finishTimer, openAddMenu, openPickSheet, openQuickTask, plusKind, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, pickMealRecipes, openPlanSaved, openSavedPicker, openPlaceRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
 import { t } from './i18n.js';
 import { isEvent } from './kinds.js';
 import { migrateMeals, syncMealBlocks, noRhythm, repairRhythms, anchorOffset, autoChecks, leadOf, checklistLeft, checkMissed, conflictsOn, eventOf, followParent, migrateBlocksToEvents, planTask, saveEvent, seedMeals, setOutcome, setStepOutcome, setTaskDone, syncEventTasks, travelTasks, trySetBlockDone, tryStep } from './model.js';
-import { fmtTime, isDate, parseTime, quickAdd, today } from './plan.js';
+import { fmtTime, isDate, nowMinutes, parseTime, quickAdd, today } from './plan.js';
+import { openSections } from './views/giornata.js';
 import { addGhosts, assignDrop, autoHoursFor, fixConflict, placeGhosts, planEventTasks, planGroceryTrips, spreadDays, trayTasks, undoReflow, warnConflicts } from './planning.js';
 import { changed, currentDate, positionNow, released, render, renderIfSafe, renderShell, runSync, scheduleSync, scrollToGhost, syncScheduled, typing, updateSyncBadge } from './shell.js';
 import { placeById } from './places.js';
@@ -32,7 +33,7 @@ import { openEventFilters, prepareEvents } from './views/events.js';
 import { placePicked, wideClick } from './views/wide.js';
 import { applyTheme } from './theme.js';
 applyTheme();
-import { classic, curView, openFilters, openPick, openSort, openTriage, openViews, setView, setWeekly, setWhen, viewList } from './views/impegni.js';
+import { classic, curView, openComplete, openFilters, openPick, openSort, openTriage, openViews, setView, setWeekly, setWhen, viewList } from './views/impegni.js';
 import { openWeekGrid } from './weekgrid.js';
 import { goToBlock, goToProposal, openChooser, openPropsList, resumeRoutine, sheetClick } from './finder.js';
 import { setLowPref } from './lowstock.js';
@@ -429,6 +430,11 @@ view.addEventListener('click', (e) => {
     case 'vw-filters': openFilters(); break;
     case 'vw-sort': openSort(); break;
     case 'vw-triage': openTriage(); break;
+    case 'vw-complete': openComplete(); break;
+    case 'today-mode': saveSettings({ todayMode: id }); render(); window.scrollTo(0, 0); break;
+    case 'gi-sec': { const def = id === 'tmr' ? nowMinutes() >= 19 * 60 : ['brief', 'prep'].includes(id); ui.giOpen = { ...(ui.giOpen || {}), [id]: !(ui.giOpen?.[id] ?? def) }; render(); break; }
+    case 'gi-secs': openSections(render); break;
+    case 'gi-cl': { const b = get('blocks', id); if (b) openChecklist(b); break; }
     case 'vw-row': ui.openRow = ui.openRow === id ? null : id; render(); break;
     case 'vw-pick': openPick(id, btn.dataset.k); break;
     case 'prep-del': if (confirm(t('confirmDeleteTask'))) { remove('tasks', id); changed(); } break;

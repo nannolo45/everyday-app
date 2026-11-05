@@ -11,6 +11,7 @@ import { addDays, fmtDur, fmtTime, sortTasks, today } from '../plan.js';
 import { endedRoutines, isArchived, isRoutine, legend, routineRow, weekHeader } from '../routines.js';
 import { matchesQ } from '../shoplist.js';
 import { get, live, remove, saveSettings, state, upsert } from '../store.js';
+import { palestraConfigured, ricetteConfigured } from '../sync.js';
 import { render } from '../shell.js';
 import { durField, openModal, readDur, searchBox } from '../widgets.js';
 import { openWeekGrid } from '../weekgrid.js';
@@ -41,15 +42,32 @@ export function defaultViews() {
     { id: 'personal', pin: false, f: { cat: ['personal'] }, by: 'when', dir: 1 },
   ];
 }
-export function viewList() {
-  const list = (state.settings.views || defaultViews()).filter(Boolean);
+// (v91) Views that come with the app: ★ Salvate and 🛒 Spesa always (Everyday keeps its own list without Ricette),
+// 🏋 Palestra with Palestra connected. Their name and icon are fixed; untick them (no tab) or take them away («Togli»): a
+// taken-away one waits under «Viste di serie tolte» (settings.viewsGone) to be put back. Without its app a
+// view hides by itself, keeping its place for when the app is back.
+export const BUILTIN = { routine: { ic: '★', app: null }, shop: { ic: '🛒', app: null }, workout: { ic: '🏋', app: 'palestra' } };
+const appOn = (a) => !a || (a === 'ricette' ? ricetteConfigured() : palestraConfigured());
+export const goneViews = () => [...new Set([...(state.settings.viewsGone || []), ...(state.settings.rtViewGone ? ['routine'] : [])])].filter((id) => BUILTIN[id]);
+function allViews() {
+  const list = (state.settings.views || defaultViews()).filter(Boolean).map((v) => (BUILTIN[v.id] ? { ...v, name: undefined } : v));
   if (!list.some((v) => v.id === 'overview')) list.unshift(defaultViews()[0]);
-  // (v81) views saved before the Routine view existed get it once (unless you deleted it)
-  if (state.settings.views && !state.settings.rtViewGone && !list.some((v) => v.id === 'routine' || (!v.fixed && (v.f?.type || []).join() === 'repeat' && !v.f?.cat?.length))) list.push(defaultViews().find((v) => v.id === 'routine'));
-  return list;
+  const gone = goneViews();
+  for (const id of Object.keys(BUILTIN)) if (!gone.includes(id) && !list.some((v) => v.id === id)) list.push({ ...defaultViews().find((v) => v.id === id), pin: true });
+  return list.filter((v) => !gone.includes(v.id));
 }
-const saveViews = (list) => saveSettings({ views: list });
-export const viewName = (v) => v.name || (v.id === 'routine' && !classic() ? t('vw_saved') : t(`vw_${v.id}`)); // (v83) Routine → Salvate
+export function viewList() { return allViews().filter((v) => appOn(BUILTIN[v.id]?.app)); }
+// Saving keeps the views whose app is away where they were.
+function saveViewsAll(shown) {
+  const all = allViews(); const hidden = all.filter((v) => !shown.some((y) => y.id === v.id));
+  const out = [...shown];
+  for (const h of hidden) { const i = all.indexOf(h); const prev = all.slice(0, i).reverse().find((v) => out.some((y) => y.id === v.id)); out.splice(prev ? out.findIndex((y) => y.id === prev.id) + 1 : out.length, 0, h); }
+  saveSettings({ views: out });
+}
+export function takeAwayView(id) { saveSettings({ viewsGone: [...new Set([...(state.settings.viewsGone || []), id])] }); }
+export function restoreView(id) { saveSettings({ viewsGone: (state.settings.viewsGone || []).filter((x) => x !== id), ...(id === 'routine' ? { rtViewGone: false } : {}) }); }
+const saveViews = (list) => saveViewsAll(list);
+export const viewName = (v) => (BUILTIN[v.id] && !classic() ? `${BUILTIN[v.id].ic} ${t(v.id === 'routine' ? 'vw_saved' : `vw_${v.id}`)}` : v.name || (v.id === 'routine' && !classic() ? t('vw_saved') : t(`vw_${v.id}`))); // (v83) Routine → Salvate; (v91) with its icon
 export function curView() { const l = viewList(); return l.find((v) => v.id === (ui.view2 || state.settings.curView)) || l[0]; }
 export function setView(id) { ui.view2 = id; ui.vTemp = null; ui.openRow = null; saveSettings({ curView: id }); }
 function patchView(id, patch) { saveViews(viewList().map((v) => (v.id === id ? { ...v, ...patch } : v))); }
@@ -80,6 +98,10 @@ export const unsorted = (x) => missing(x).length > 0;
 export const unsortedList = () => allItems().filter(unsorted).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 // (v66) Nothing is "unsorted" any more: what Rivedi goes through, and the badge counts, is what's still to plan:
 // one-off things with no open block from today on (newest first). A missing category or length is fine.
+// (v91) What the Overview flags: things missing the minimum the planner needs, a length and a category.
+export const lacks = (x) => (x.done ? [] : [x.lenSet === false && 'len', !catsOf(x).length && 'cat'].filter(Boolean));
+export const incompleteList = () => allItems().filter((x) => lacks(x).length).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+export const flagCount = () => (classic() ? unsortedList() : incompleteList()).length;
 export const toPlanList = () => allItems().filter((x) => !x.done && typeOf(x) === 'once' && !nextPlanned(x.id)).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 export function matches(x, f = {}) {
   if (f.type?.length && !f.type.includes(typeOf(x))) return false;
@@ -164,7 +186,7 @@ function fullRow(x, ws, sv = false) {
 // ---------- the tab ----------
 function tabs(cur) {
   const l = viewList();
-  const nUn = (classic() ? unsortedList() : toPlanList()).length;
+  const nUn = flagCount();
   const nShop = live(SH()).filter((i) => !i.checked).length;
   const btn = (v) => `<button type="button" role="tab" class="${v.id === cur.id ? 'on' : ''}${v.pin ? '' : ' loose'}" aria-selected="${v.id === cur.id}" data-action="vw-tab" data-id="${esc(v.id)}">${esc(viewName(v))}${v.fixed && nUn ? ` <span class="nbadge">${nUn > 99 ? '99+' : nUn}</span>` : v.shop && nShop ? ` <small>${nShop > 99 ? '99+' : nShop}</small>` : ''}</button>`;
   return `<div class="seg vw-tabs" role="tablist">${l.filter((v) => v.pin).map(btn).join('')}${cur.pin ? '' : btn(cur)}<button type="button" class="vw-edit" data-action="vw-views">✎ ${esc(t('vwViews'))}</button></div>`;
@@ -193,8 +215,8 @@ export function viewImpegni() {
   const tools = `<div class="task-tools">${searchBox({ id: 'task-q', value: ui.taskQ || '' })}
     <button class="btn small tools-btn${n ? ' on' : ''}" type="button" data-action="vw-filters">⇅ ${esc(t('filters'))}${n ? ` · ${n}` : ''}</button>
     <button class="btn small tools-btn" type="button" data-action="vw-sort" aria-label="${esc(t('sortGroup'))}">▤ ${esc(sortLabel(v))}</button></div>`;
-  const nUn = (classic() ? unsortedList() : toPlanList()).length;
-  const card = v.fixed && nUn && !q ? `<div class="vw-card"><b>${esc(t('nToSort', nUn))}</b><button class="btn small primary" type="button" data-action="vw-triage">${esc(t('sortNow'))}</button></div>` : '';
+  const nUn = flagCount();
+  const card = !v.fixed || q ? '' : classic() ? (nUn ? `<div class="vw-card"><b>${esc(t('nToSort', nUn))}</b><button class="btn small primary" type="button" data-action="vw-triage">${esc(t('sortNow'))}</button></div>` : '') : overviewCards();
   const sv = isSalvate(v);
   const groups = groupsOf(list, sv ? 'saved' : v.by || 'when', v.dir ?? 1);
   const hasRep = !v.fixed && list.some((x) => typeOf(x) === 'repeat' && (!sv || x.repeat));
@@ -354,34 +376,71 @@ export function openTriage(ids, i = 0) {
   }, { cls: 'sheet full tri' });
 }
 
+// (v91) Overview: «N da completare» (a length or a category missing) with «Completa»; what's still to plan is a
+// plain card that goes to the Planner, without a badge.
+export function overviewCards({ pane = false } = {}) {
+  const nIn = incompleteList().length; const nPl = toPlanList().length;
+  return `${nIn ? `<div class="vw-card"><span><b>${esc(t('nToComplete', nIn))}</b><small>${esc(t('toCompleteSub'))}</small></span><button class="btn small primary" type="button" data-action="vw-complete">${esc(t('completeBtn'))}</button></div>` : ''}
+    ${nPl ? `<div class="vw-card plain"><b>${esc(t('nToSort', nPl))}</b><a class="btn small" href="#/plan">${esc(t('tabPlan'))} ›</a></div>` : ''}`;
+}
+// «Completa»: one at a time, asking only for what's missing; it moves on by itself once nothing is.
+export function openComplete(ids = incompleteList().map((x) => x.id), i = 0) {
+  const list = ids.map((id) => get('tasks', id)).filter((x) => x && !x.deleted);
+  const x = list[i];
+  if (!x) { modal.close?.(); render(); return; }
+  const mi = lacks(x);
+  if (!mi.length) { openComplete(ids, i + 1); return; }
+  const sec = (k) => `<div class="field-label">${esc(t(k === 'cat' ? 'mGroup' : 'mLen'))}</div><div class="vw-miss big">${pickChips(x, k)}</div>`;
+  openModal(`<p class="hint tri-n">${esc(t('cpN', list.slice(i).filter((y) => lacks(y).length).length))}</p><h2 class="tri-t">${esc(x.title)}</h2>
+    ${mi.includes('len') ? sec('len') : ''}${mi.includes('cat') ? sec('cat') : ''}
+    <p class="hint">${esc(t('cpHint'))}</p>
+    <div class="button-row"><button class="btn" value="skip">${esc(t('cpSkip'))}</button><button class="btn ghost" value="stop">${esc(t('close'))}</button></div>`, (form, action, e) => {
+    e.preventDefault();
+    if (action === 'stop') { modal.close(); render(); return; }
+    if (action === 'skip') { openComplete(ids, i + 1); return; }
+    const r = applyPick(get('tasks', x.id), action);
+    if (r === 'other') { lenOther(get('tasks', x.id), () => openComplete(ids, i)); return; }
+    render(); openComplete(ids, i);
+  }, { cls: 'sheet tri cp' });
+}
+
 // ---------- the sheets: views, filters, order ----------
 export function openViews() {
   const l = viewList();
-  const row = (v, i) => `<li class="vw-li"><label class="check"><input type="checkbox" data-pin="${esc(v.id)}" ${v.pin ? 'checked' : ''} ${v.fixed ? 'disabled' : ''}><span>${esc(viewName(v))}</span></label>
-    <span class="vw-li-btns">${v.fixed ? `<small class="hint">${esc(t('vwFixed'))}</small>` : `<button class="icon" value="up:${esc(v.id)}" ${i <= 1 ? 'disabled' : ''} aria-label="${esc(t('moveUp'))}">▲</button><button class="icon" value="down:${esc(v.id)}" ${i === l.length - 1 ? 'disabled' : ''} aria-label="${esc(t('moveDown'))}">▼</button><button class="icon" value="more:${esc(v.id)}" aria-label="${esc(t('options'))}">⋯</button>`}</span></li>`;
-  openModal(`<h2>✎ ${esc(t('vwViews'))}</h2><p class="hint">${esc(t('vwViewsHint'))}</p>
-    <ul class="list vw-ul">${l.map(row).join('')}</ul>
+  const row = (v) => `<li class="vw-li" ${v.fixed ? '' : `data-sort-key="${esc(v.id)}"`}>${v.fixed ? '<span class="vw-grip off"></span>' : `<button type="button" class="drag-handle vw-grip" aria-label="${esc(t('dragToMove'))}">⠿</button>`}<label class="check"><input type="checkbox" data-pin="${esc(v.id)}" ${v.pin ? 'checked' : ''} ${v.fixed ? 'disabled' : ''}><span>${esc(viewName(v))}${BUILTIN[v.id] ? ` <small class="vw-builtin">${esc(t('vwBuiltin'))}</small>` : ''}</span></label>
+    <span class="vw-li-btns">${v.fixed ? `<small class="hint">${esc(t('vwFixed'))}</small>` : `<button class="icon" value="more:${esc(v.id)}" aria-label="${esc(t('options'))}">⋯</button>`}</span></li>`;
+  const gone = goneViews().filter((id) => appOn(BUILTIN[id].app));
+  const away = allViews().filter((v) => !appOn(BUILTIN[v.id]?.app));
+  openModal(`<h2>✎ ${esc(t('vwViews'))}</h2><p class="hint">${esc(t('vwViewsHint2'))}</p>
+    <ul class="list vw-ul">${row(l[0])}</ul><ul class="list vw-ul vw-sort" data-sortable="views">${l.slice(1).map(row).join('')}</ul>
+    ${gone.length ? `<div class="field-label">${esc(t('vwGone'))}</div><ul class="list vw-ul">${gone.map((id) => `<li class="vw-li gone"><span>${esc(viewName({ id }))}</span><button class="btn small" value="back:${id}">↺ ${esc(t('vwRestore'))}</button></li>`).join('')}</ul>` : ''}
+    ${away.length ? `<p class="hint">${esc(t('vwAway', away.map((v) => viewName(v)).join(', ')))}</p>` : ''}
     <div class="button-row"><button class="btn primary" value="cancel">${esc(t('doneBtn'))}</button></div>`, (form, action, e) => {
     e.preventDefault();
     const [a, id] = action.split(':');
-    const cur = viewList(); const i = cur.findIndex((v) => v.id === id);
-    if ((a === 'up' && i > 1) || (a === 'down' && i < cur.length - 1)) { const j = a === 'up' ? i - 1 : i + 1; [cur[i], cur[j]] = [cur[j], cur[i]]; saveViews(cur); }
     if (a === 'more') { setTimeout(() => openViewMenu(id), 0); return; }
+    if (a === 'back') restoreView(id);
     render(); openViews();
   }, { cls: 'sheet' });
-  modal.querySelector('form').addEventListener('change', (e) => {
+  const form = modal.querySelector('form');
+  form.addEventListener('change', (e) => {
     const id = e.target.dataset.pin; if (!id) return;
     patchView(id, { pin: e.target.checked }); render();
+  });
+  form.addEventListener('sorted', (e) => {
+    const keys = e.detail.keys; const cur = viewList();
+    saveViews([cur[0], ...keys.map((k) => cur.find((v) => v.id === k)).filter(Boolean)]); render();
   });
 }
 function openViewMenu(id) {
   const v = viewList().find((y) => y.id === id); if (!v) return;
+  const bi = Boolean(BUILTIN[id]);
   openModal(`<h2>${esc(viewName(v))}</h2>
-    <label>${esc(t('vwName'))}<input name="name" value="${esc(viewName(v))}" autocomplete="off"></label>
-    <p class="hint">${esc(t('vwDelHint'))}</p>
-    <div class="button-row"><button class="btn primary" value="save">${esc(t('save'))}</button><button class="btn danger" value="del">${esc(t('vwDelete'))}</button><button class="btn ghost" value="back">${esc(t('back'))}</button></div>`, (form, action) => {
-    if (action === 'save' && form.name.value.trim()) patchView(id, { name: form.name.value.trim() });
-    if (action === 'del') { saveViews(viewList().filter((y) => y.id !== id)); if (id === 'routine') saveSettings({ rtViewGone: true }); if (curView().id === id) setView('overview'); }
+    ${bi ? '' : `<label>${esc(t('vwName'))}<input name="name" value="${esc(viewName(v))}" autocomplete="off"></label>`}
+    <p class="hint">${esc(t(bi ? 'vwTakeAwayHint' : 'vwDelHint'))}</p>
+    <div class="button-row">${bi ? '' : `<button class="btn primary" value="save">${esc(t('save'))}</button>`}<button class="btn danger" value="del">${esc(t(bi ? 'vwTakeAway' : 'vwDelete'))}</button><button class="btn ghost" value="back">${esc(t('back'))}</button></div>`, (form, action) => {
+    if (action === 'save' && form.name?.value.trim()) patchView(id, { name: form.name.value.trim() });
+    if (action === 'del') { if (bi) takeAwayView(id); else saveViews(viewList().filter((y) => y.id !== id)); if (curView().id === id) setView('overview'); }
     render(); setTimeout(openViews, 0);
   }, { cls: 'sheet' });
 }

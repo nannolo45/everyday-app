@@ -2076,3 +2076,46 @@ body.is-wide #view > :last-child { margin-bottom: 0; }
 .tv-mins { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; font-size: .85rem; color: var(--muted); }
 .tv-mins .pl-num { width: 64px; }
 .plc-trip { margin-top: 4px; }
+
+/* ---------- v91: Today = Adesso | Giornata; Overview «da completare»; views with a drag handle ---------- */
+.gi-seg { margin: 0 0 12px; }
+.gi-bar { height: 8px; border-radius: 999px; background: var(--field, var(--line)); overflow: hidden; margin: 0 0 12px; }
+.gi-bar i { display: block; height: 100%; background: var(--accent); transition: width .3s; }
+.gi-sec { padding: 12px 14px; margin-bottom: 12px; }
+.gi-sh { display: flex; width: 100%; align-items: center; gap: 8px; background: none; border: none; color: var(--muted); font: inherit; font-size: .74rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; padding: 0; text-align: left; }
+.gi-sh > span:first-child { flex: 1; } .gi-cnt { color: var(--ink); letter-spacing: 0; } .gi-chev { width: 12px; text-align: center; }
+.gi-sum { margin: 6px 0 0; font-size: .88rem; color: var(--muted); } .gi-sum b { color: var(--ink); font-weight: 600; }
+.gi-sb { margin-top: 6px; }
+.gi-row { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 8px 0; border: 0; border-top: 1px solid var(--line); background: none; color: var(--ink); font: inherit; text-align: left; }
+button.gi-row { cursor: pointer; }
+.gi-sb > .gi-row:first-child, .gi-sb > .gi-now:first-child + .gi-row { border-top: 0; }
+.gi-t { width: 46px; flex: none; color: var(--muted); font-variant-numeric: tabular-nums; font-size: .88rem; padding-top: 1px; } .gi-t.late { color: var(--red, #b24a3c); font-weight: 700; }
+.gi-c { flex: 1; min-width: 0; display: flex; gap: 8px; align-items: flex-start; } .gi-i { flex: none; }
+.gi-x { min-width: 0; } .gi-x b { font-weight: 600; font-size: .93rem; } .gi-x small { display: block; color: var(--muted); font-size: .8rem; margin-top: 1px; }
+.gi-r { color: var(--muted); font-size: .8rem; white-space: nowrap; }
+.gi-row.done .gi-x b, .gi-row.done .gi-x small { text-decoration: line-through; color: var(--muted); }
+.gi-row.sub .gi-x b { font-weight: 400; color: var(--muted); font-size: .86rem; }
+.gi-row.sum .gi-x b { font-weight: 400; } .gi-row.sum a { color: var(--accent); }
+.gi-row.cur { background: var(--accent-soft); border-radius: 10px; padding-left: 6px; padding-right: 6px; }
+.gi-row.late .gi-t { color: var(--red, #b24a3c); }
+.gi-warn { color: var(--warn); } .gi-sec .leave, .gi-sum .leave { color: var(--warn); font-weight: 600; }
+.gi-now { position: relative; height: 14px; margin: 2px 0; }
+.gi-now::before { content: ""; position: absolute; left: 0; right: 0; top: 7px; border-top: 2px solid var(--red, #e07a6a); }
+.gi-now span { position: relative; background: var(--surface); color: var(--red, #e07a6a); font-size: .72rem; font-weight: 700; padding-right: 6px; }
+.gi-ck { flex: none; width: 24px; height: 24px; border-radius: 7px; border: 1.5px solid var(--muted); background: none; color: var(--accent-ink); font-weight: 700; padding: 0; cursor: pointer; margin: 0; }
+.gi-ck.on, input.gi-ck:checked { background: var(--accent); border-color: var(--accent); }
+input.gi-ck { appearance: none; -webkit-appearance: none; display: grid; place-content: center; } input.gi-ck:checked::after { content: "✓"; color: var(--accent-ink); font-size: .85rem; }
+.gi-ck.open { border-style: dashed; color: var(--muted); }
+.gi-strip { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; margin: 0 0 12px; }
+.gi-strip .gi-x { flex: 1; }
+.gi-link { display: block; color: var(--accent); font-size: .88rem; padding: 8px 0 0; }
+.gi-edit { display: block; margin: 4px auto 16px; }
+.now-text .pal-heard { display: block; margin-top: 2px; }
+.vw-card.plain { border-color: var(--line); background: var(--surface); }
+.vw-card span small { display: block; color: var(--muted); font-weight: 400; font-size: .8rem; }
+.vw-li { display: flex; align-items: center; gap: 8px; }
+.vw-grip { flex: none; width: 28px; min-height: 36px; border: 0; background: none; color: var(--muted); font-size: 1.1rem; cursor: grab; touch-action: none; padding: 0; }
+.vw-grip.off { cursor: default; display: inline-block; }
+.vw-li .check { flex: 1; } .vw-builtin { color: var(--muted); font-size: .72rem; border: 1px solid var(--line); border-radius: 999px; padding: 1px 6px; margin-left: 4px; }
+.vw-li.gone { justify-content: space-between; color: var(--muted); }
+.vw-sort .vw-li.dragging, .vw-ul .vw-li.dragging { opacity: .6; }
