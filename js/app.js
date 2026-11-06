@@ -39,10 +39,11 @@ import { openWeekGrid } from './weekgrid.js';
 import { goToBlock, goToProposal, openChooser, openPropsList, resumeRoutine, sheetClick } from './finder.js';
 import { setLowPref } from './lowstock.js';
 import { countToast, firstFreeStart, moveBlockTo, openConflictChoice, openDropOn, placeItem, unplanToPane } from './placing.js';
-import { unmarkedToday } from './views/planner.js';
+import { currentView, unmarkedToday } from './views/planner.js';
 import { graphClick } from './graph.js';
 import { scClick } from './views/scaletta.js';
 import { mpClick, mpDragged } from './views/mappa.js';
+import { calOpen, closeCal, openCal } from './datepick.js';
 import { agendaAdd, agendaPlan, onDayTasks, keepFix, keepGhost, openGapFits, planStyle, showSteps } from './views/planner.js';
 import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName } from './views/shop.js';
 import { openTaskTools, taskFilter } from './views/tasks.js';
@@ -72,7 +73,7 @@ document.addEventListener('keydown', (e) => {
 // A time window with a date: its weekdays don't count, so they fade as soon as a date is picked.
 modal.addEventListener('change', (e) => {
   const row = e.target.closest?.('.win-row');
-  if (row && e.target.type === 'date') row.querySelector('.days.mini')?.classList.toggle('off', Boolean(e.target.value));
+  if (row && e.target.dataset && 'dpv' in e.target.dataset) row.querySelector('.days.mini')?.classList.toggle('off', Boolean(e.target.value));
 });
 document.addEventListener('input', (e) => {
   const el = e.target;
@@ -294,9 +295,9 @@ view.addEventListener('click', (e) => {
       warnConflicts(get('blocks', b.id));
       break;
     }
-    case 'pick-date': {
-      const p = $('#day-picker');
-      try { p.showPicker(); } catch { p.focus(); p.click(); }
+    case 'pick-date': { // (v99) our calendar: days, weeks or months, as the view; the busy days underlined
+      if (calOpen() && btn.classList.contains('dp-open')) { closeCal(); break; }
+      openCal(btn, { mode: currentView(), sel: currentDate(), center: true, onPick: (d) => { location.hash = `#/plan/${d}`; } });
       break;
     }
     case 'new-saved': openSavedPicker(currentDate()); break;
@@ -406,6 +407,7 @@ view.addEventListener('click', (e) => {
     case 'event-task-add': { const ev = eventOf(id); if (ev) openEventTaskAdd(ev); break; }
     case 'event-plan': { const ev = eventOf(id); if (ev) planEventTasks(ev); break; }
     case 'open-block': { const b = get('blocks', id); if (b) openBlock(b); break; }
+    case 'mp-addin': openTask(null, null, { event: true, date: btn.dataset.date, start: Number(btn.dataset.start) }); break; // (v99) ＋ inside a block with room
     case 'now-left': { const b = get('blocks', id); if (b) { setStepOutcome(b, btn.dataset.step, 'done'); toast(t('goodTrip')); changed(); } break; }
     case 'now-done': { const b = get('blocks', id); if (b && runningBlock()?.id === id) finishTimer(); else if (b) { if (trySetBlockDone(b, true)) { changed(); countToast(id); } else changed(); } break; }
     case 'now-move': { const b = get('blocks', id); const x = b && get('tasks', b.taskId); if (b && x && !classic()) openWeekGrid(x, { block: b, onClose: () => { modal.close(); render(); } }); else if (b) openBlock(b); break; } // (v81) the same Sposta everywhere
@@ -605,6 +607,12 @@ setupDrag(view, {
   for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) fab.addEventListener(ev, () => clearTimeout(hold));
   fab.addEventListener('contextmenu', (e) => { e.preventDefault(); if (!held) openAddMenu({ fab: true }); held = true; });
   fab.addEventListener('click', () => { if (held) { held = false; return; } hideToast(); openQuickTask({ kind: plusKind() }); });
+  // (v99) N: a new activity, from any view (as the + button); not while typing or with a window open
+  document.addEventListener('keydown', (e) => {
+    if ((e.key !== 'n' && e.key !== 'N') || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+    if (modal.open || calOpen() || e.target.isContentEditable || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+    e.preventDefault(); hideToast(); openQuickTask({ kind: plusKind() });
+  });
 }
 $('#app-title').addEventListener('click', () => {
   if (route().name === 'today') window.scrollTo({ top: 0, behavior: 'smooth' }); else location.hash = '#/today';

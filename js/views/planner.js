@@ -78,11 +78,10 @@ export function viewPlan(date) {
   </div>
   <div class="day-head">
     <a class="round" href="#/plan/${prev}" aria-label="${esc(t('previous'))}">‹</a>
-    <button class="day-title" type="button" data-action="pick-date">
+    <button class="day-title" type="button" data-action="pick-date" aria-haspopup="dialog" title="${esc(t(v === 'week' ? 'dp_pickWeek' : v === 'month' ? 'dp_pickMonth' : 'dp_pickDay'))}">
       <span class="day-name">${esc(title)}</span>${sub ? `<small>${esc(sub)}</small>` : ''}
     </button>
     <a class="round" href="#/plan/${next}" aria-label="${esc(t('next'))}">›</a>
-    <input type="date" id="day-picker" value="${date}" tabindex="-1" aria-hidden="true">
     ${v === 'day' ? loadBar(date) : ''}
   </div>
   ${ag ? (showToday ? `<div class="day-actions"><a class="btn small" href="#/plan/${td}">${esc(t('today'))}</a></div>` : '') : `<div class="day-actions">

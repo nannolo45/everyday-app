@@ -129,7 +129,7 @@ function whenPanel() {
   let body = '';
   if (P.wc === 'pick') {
     const multi = !P.once && P.per === 'giorno' && P.n > 1;
-    const dayIn = `<label class="pl-date">📅 ${dateBox(`<input id="pl-date" type="date" value="${esc(P.date)}" min="${today()}">`, P.date)}</label>`;
+    const dayIn = `<label class="pl-date">${dateBox(`<input id="pl-date" type="date" required value="${esc(P.date)}" min="${today()}">`, P.date)}</label>`;
     body = `<div class="pl-seg">${[[1, 'wm_once'], [0, 'plMore']].map(([v, k]) => `<button class="${Number(P.once) === v ? 'on' : ''}" value="once:${v}" formnovalidate>${esc(t(k))}</button>`).join('')}</div>`;
     if (P.once) body += `<div class="pl-lbl">${esc(t('whichDay'))}</div>${dayIn}`;
     else {
@@ -262,7 +262,7 @@ function optRows() {
   const nm = (l) => l.map((a) => a.title).join(', ');
   return [
     row('imp', t('importance'), '★'.repeat(P.imp), `<div class="pl-stars">${[1, 2, 3, 4, 5].map((i) => `<button class="${i <= P.imp ? 'on' : ''}" value="imp:${i}" formnovalidate aria-label="${i}">★</button>`).join('')}</div><p class="pl-hint">${esc(t(`imp_${P.imp}`))}</p>`),
-    row('due', t('due'), P.due ? relDay(P.due) : '', `<div class="pl-row"><label class="pl-date">📅 ${dateBox(`<input id="pl-due" type="date" value="${esc(P.due)}">`, P.due)}</label>${P.due ? `<button class="pl-chip" value="due:" formnovalidate>${esc(t('none'))}</button>` : ''}</div>`),
+    row('due', t('due'), P.due ? relDay(P.due) : '', `<div class="pl-row"><label class="pl-date">${dateBox(`<input id="pl-due" type="date" value="${esc(P.due)}">`, P.due)}</label>${P.due ? `<button class="pl-chip" value="due:" formnovalidate>${esc(t('none'))}</button>` : ''}</div>`),
     row('place', t('plPlace'), placeLabel(), placeBody()),
     row('room', t('roomL'), roomVal(), roomBody()), // (v95) other things may go inside it
     P.stepObjs ? row('steps', t('steps'), P.stepObjs.length ? `${P.stepObjs.length} · ${fmtDur(stepSum())}` : '', `${P.stepObjs.map((y, i) => `<div class="pl-srow"><span>${i + 1}. ${esc(y.title)}</span><input id="pl-sm${i}" class="pl-num sm" data-sm="${i}" inputmode="numeric" value="${Number(y.minutes) || 10}" aria-label="${esc(t('duration'))}"><span class="pl-mid">min</span><button class="pl-x" value="step-rm:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></div>`).join('')}<input id="pl-step" class="pl-in" placeholder="${esc(t('plStepPh'))}" autocomplete="off">${P.stepObjs.length ? `<p class="pl-hint">${esc(t('plStepsLen'))}</p>` : ''}`)

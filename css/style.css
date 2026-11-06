@@ -141,7 +141,6 @@ h2 small { font-family: var(--sans); font-weight: 400; color: var(--muted); font
 .day-title { flex: 1; min-width: 0; border: 0; background: none; color: inherit; text-align: center; cursor: pointer; padding: 4px; font: inherit; }
 .day-name { display: block; font: 600 1.35rem/1.2 var(--serif); }
 .day-title small { display: block; font-size: .85rem; }
-#day-picker { position: absolute; left: 50%; top: 100%; width: 1px; height: 1px; opacity: 0; pointer-events: none; padding: 0; border: 0; }
 .day-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 12px; }
 
 /* planner layout: tasks beside the timeline on wide screens, above it on phones */
@@ -1098,16 +1097,40 @@ label.check.tall { align-items: flex-start; }
 .mini-badge.day { background: transparent; border: 1px solid color-mix(in srgb, var(--c) 50%, var(--line)); }
 .mini-badge.part { background: color-mix(in srgb, var(--c) 30%, var(--surface)); }
 
-/* v47: date fields read in the app's language: the native field stays (its picker, its value), its own text hidden */
-.date-field { position: relative; display: block; }
-.date-field input[type=date] { width: 100%; color: transparent; }
-.date-field input[type=date]::-webkit-datetime-edit { color: transparent; }
-/* While you type in it (or its picker is open) the field shows its own text; the overlay comes back after */
-.date-field input[type=date]:focus { color: var(--ink); }
-.date-field input[type=date]:focus::-webkit-datetime-edit { color: var(--ink); }
-.date-field input[type=date]:focus + .date-text { visibility: hidden; }
-.date-field .date-text { position: absolute; left: 14px; right: 40px; top: calc(50% + 2.5px); transform: translateY(-50%); text-align: left; font-weight: 400; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); font: inherit; }
-.date-field .date-text.empty { color: var(--muted); }
+/* v99: the app's own date field (datepick.js): dd/mm/yyyy, the weekday and how far, one 📅; a tap anywhere opens the calendar */
+.date-field { position: relative; display: block; container-type: inline-size; cursor: text; }
+.date-field .dp-in { width: 100%; padding-right: 46px; letter-spacing: .02em; }
+.date-field .dp-in::selection { background: var(--accent); color: var(--accent-ink); }
+.date-field .dp-rel { position: absolute; right: 44px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: .8rem; white-space: nowrap; pointer-events: none; }
+.date-field .dp-ic { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: color-mix(in srgb, var(--line) 55%, transparent); font-size: .95rem; cursor: pointer; }
+.date-field.dp-open .dp-in { border-color: var(--accent); }
+@container (max-width: 250px) { .date-field .dp-rel { display: none; } }
+.pl-date .date-field .dp-ic { right: 0; } .pl-date .date-field .dp-in { padding-right: 44px !important; } .pl-date .date-field .dp-in:focus { outline: 0; }
+.dp-pop { position: fixed; z-index: 1000; width: 296px; padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); box-shadow: 0 16px 40px rgba(0,0,0,.45); font-size: .85rem; user-select: none; }
+.dp-pop.dp-week { width: 330px; } .dp-pop.dp-month { width: 320px; }
+.dp-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; } .dp-h b { font-weight: 700; }
+.dp-nav { width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 8px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.dp-g { display: grid; grid-template-columns: 22px repeat(7, 1fr); gap: 2px; text-align: center; }
+.dp-g.wk { grid-template-columns: 26px repeat(7, 1fr) 50px; }
+.dp-wd { color: var(--muted); font-size: .68rem; padding: 2px 0; } .dp-wn { color: var(--muted); font-size: .6rem; align-self: center; opacity: .7; }
+.dp-d { position: relative; height: 34px; border: 0; border-radius: 9px; background: none; color: inherit; font: inherit; cursor: pointer; padding: 0 0 4px; }
+.dp-d:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.dp-d.o { opacity: .4; } .dp-d.t { font-weight: 800; box-shadow: inset 0 0 0 1px var(--line); } .dp-d.s { background: var(--accent); color: var(--accent-ink); } .dp-d:disabled { opacity: .2; cursor: default; }
+.dp-pop i { position: absolute; left: 30%; right: 30%; bottom: 4px; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--accent) 60%, transparent); }
+.dp-pop i.f { background: var(--warn); }
+.dp-row { display: grid; grid-template-columns: 26px repeat(7, 1fr) 50px; align-items: center; width: 100%; border: 0; border-radius: 9px; background: none; color: inherit; font: inherit; text-align: center; padding: 0; cursor: pointer; }
+.dp-row > span { position: relative; height: 32px; line-height: 28px; } .dp-row .o { opacity: .4; } .dp-row .t { font-weight: 800; text-decoration: underline; }
+.dp-row:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); } .dp-row.s { background: var(--accent); color: var(--accent-ink); } .dp-row.s .dp-wn { color: inherit; }
+.dp-row em { position: relative; font-style: normal; font-size: .68rem; padding-bottom: 5px; } .dp-row em::after { content: ''; position: absolute; left: 6px; bottom: 0; height: 3px; width: calc(var(--w) * .8); border-radius: 2px; background: var(--accent); } .dp-row em.f::after { background: var(--warn); }
+.dp-mg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.dp-mg button { border: 1px solid var(--line); border-radius: 10px; background: none; color: inherit; font: inherit; padding: 8px 4px 6px; cursor: pointer; }
+.dp-mg button:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); } .dp-mg button.s { background: var(--accent); color: var(--accent-ink); } .dp-mg button.t b { text-decoration: underline; }
+.dp-mg em { display: block; height: 4px; border-radius: 2px; background: var(--line); margin: 5px 6px 2px; overflow: hidden; } .dp-mg em u { display: block; height: 100%; background: var(--accent); } .dp-mg em.f u { background: var(--warn); }
+.dp-mg small { font-size: .62rem; color: var(--muted); } .dp-mg button.s small { color: inherit; }
+.dp-ft { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.dp-leg { margin-left: auto; color: var(--muted); font-size: .66rem; } .dp-leg i { position: static; display: inline-block; width: 12px; vertical-align: middle; }
+.day-title { border: 1px solid transparent !important; border-radius: 12px; transition: background .12s, border-color .12s; }
+.day-title:hover, .day-title.dp-open { border-color: var(--line) !important; background: var(--surface) !important; }
 .pills.steps-plan { flex-wrap: wrap; overflow: visible; }
 .steps-plan .day-pill span { text-transform: none; min-width: 0; }
 
@@ -1896,7 +1919,6 @@ body.is-wide #view > :last-child { margin-bottom: 0; }
 /* (v82) the + sheet's day box: 📅 and the date on one line (beats .form label) */
 .form label.pl-date { display: flex; flex-direction: row; align-items: center; margin: 0; color: var(--ink); font-weight: 500; }
 .form .pl-date .date-field input { margin-top: 0; }
-.pl-date .date-text { left: 0; }
 .tabs a[hidden] { display: none; }
 /* (v83) Spesa: Ricette's list, read only, and the trips; the trip's Esito */
 .sr-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 4px 0 2px; font-size: 1.05rem; }
@@ -2449,3 +2471,30 @@ body.plan-fs .mp-main { height: calc(100dvh - 330px); min-height: 380px; }
 body:not(.is-wide) .mp-mainw > .mp-info { position: fixed; left: 0; right: 0; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); z-index: 60; margin: 0; max-height: 60vh; overflow: auto; border-radius: 20px 20px 0 0; box-shadow: 0 -12px 30px rgba(0,0,0,.35); padding-top: 14px; }
 body:not(.is-wide) .mp-mainw > .mp-info::before { content: ''; display: block; width: 44px; height: 5px; border-radius: 4px; background: var(--line); margin: -6px auto 8px; }
 body.plan-fs:not(.is-wide) .mp-mainw > .mp-info { bottom: 0; }
+
+/* v99 · the map: the whole card on hover, «Affiancate» with blocks with room inside as dashed backgrounds and a tab,
+   the menu on a block, dragging a block into the pane */
+.mp-n .mp-full { display: none; }
+@media (hover: hover) {
+  .mp-n:not(.mp-room):not(.dragging):hover { z-index: 40; }
+  .mp-n:not(.mp-room):not(.dragging):hover > .mp-full { display: block; }
+  .mp-rtab:hover ~ .mp-full, .mp-room > .mp-full:hover { display: block; }
+}
+.mp-full { position: absolute; left: -6px; top: -6px; min-width: calc(100% + 12px); width: max-content; max-width: 280px; padding: 7px 10px; border: 2px solid var(--c); border-radius: 12px; background: var(--surface); box-shadow: 0 14px 34px rgba(0,0,0,.45); z-index: 41; cursor: pointer; }
+.mp-full b { white-space: normal !important; overflow: visible !important; font-size: .8rem; } .mp-full small { white-space: normal !important; margin-top: 2px; font-size: .7rem; }
+.mp-qa { display: flex; gap: 4px; margin-top: 6px; } .mp-qa > span { display: grid; place-items: center; width: 30px; height: 28px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: .8rem; cursor: pointer; } .mp-qa > span:hover { border-color: var(--accent); }
+.mp-n.short b { font-size: .7rem; } .mp-n.short > small { display: none; }
+.mp-room { border-style: dashed; background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 10%, transparent) 0 8px, transparent 8px 16px); z-index: 1; cursor: default; padding: 0; }
+.mp-room.drag { cursor: grab; }
+.mp-rtab { position: absolute; left: -1.5px; top: -1.5px; writing-mode: vertical-rl; transform: rotate(180deg); max-height: calc(100% - 4px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 8px 3px; border: 1.5px solid var(--c); border-radius: 10px 0 0 10px; background: color-mix(in srgb, var(--c) 28%, var(--surface)); color: var(--ink); font-size: .66rem; font-weight: 700; cursor: pointer; z-index: 3; }
+.mp-rtab:hover, .mp-room.sel .mp-rtab { background: var(--c); color: #fff; }
+.mp-rsub { position: absolute; right: 8px; bottom: 5px; font-size: .62rem; }
+.mp-room > .mp-full { left: calc(100% + 10px); top: 0; min-width: 220px; z-index: 45; }
+.mp-room > .mp-full::before { content: ''; position: absolute; left: -12px; top: 14px; border: 6px solid transparent; border-right-color: var(--c); }
+.mp-room.sel { box-shadow: 0 0 0 2px var(--accent); }
+.mp-ctx { position: absolute; z-index: 60; min-width: 210px; padding: 6px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 14px 34px rgba(0,0,0,.45); display: flex; flex-direction: column; }
+.mp-ctx > b { font-size: .78rem; padding: 4px 8px 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.mp-ctx button { display: flex; align-items: center; gap: 6px; border: 0; background: none; color: var(--ink); font: inherit; font-size: .84rem; text-align: left; padding: 7px 9px; border-radius: 8px; cursor: pointer; } .mp-ctx button:hover { background: var(--accent-soft); }
+.mp-ctx kbd { margin-left: auto; font-size: .66rem; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.mp-chipdrag { position: fixed; z-index: 300; padding: 5px 10px; border: 1.5px solid var(--c, var(--accent)); border-radius: 10px; background: var(--surface); font-size: .78rem; box-shadow: 0 10px 26px rgba(0,0,0,.45); pointer-events: none; }
+.mp-chipdrag b { display: block; } .mp-chipdrag small { color: var(--accent); }

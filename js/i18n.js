@@ -171,6 +171,8 @@ const dict = {
     appPlanWorkout: 'Plan a workout', appPlanMeal: 'Plan a meal', appNewIn: (a) => `New in ${a}`, appStaysHint: 'What you type below stays only in Everyday.', noPalWorkouts: 'No workouts from Palestra yet.',
     agFree: (d) => `Free · ${d}`, agFits: 'what fits?', agToPlan: (n) => `${n} to plan`, agToFix: (n) => `${n} to plan`, agProposals: (n) => `${n} ${n === 1 ? 'proposal' : 'proposals'}`,
     agFitsTitle: (d, h) => `${d} free from ${h}`, agNothingFits: 'Nothing to plan fits here.', agEmpty: 'Nothing planned yet.', agAllPlanned: 'All planned', agWeekFree: 'free',
+    dp_ph: 'dd/mm/yyyy', dp_inDays: (n) => `in ${n} days`, dp_daysAgo: (n) => `${n} days ago`, dp_thisWeek: 'This week', dp_thisMonth: 'This month', dp_none: 'No date', dp_full: 'full day', dp_some: 'something', dp_pickDay: 'Pick a day', dp_pickWeek: 'Pick a week', dp_pickMonth: 'Pick a month',
+    mp_unplan: 'Back to To plan', mp_unplanKey: 'Back to To plan (Del / ⌫)', mp_dropHere: 'let go: back to To plan', mp_ov: 'Same time:', mp_ov_over: 'Overlapping', mp_ov_side: 'Side by side', mp_room: 'room inside', mp_inside: (s) => `Inside: ${s}`, mp_addInside: 'Add something inside',
     planStyleL: 'Planner layout', ps_agenda: 'Agenda (a list, with the free time)', ps_hours: 'By the hour (timeline)',
     // (v98) pane follows the view, drag keeps the time
     smartFor_week: 'this week',
@@ -759,6 +761,8 @@ const dict = {
     appPlanWorkout: 'Pianifica un allenamento', appPlanMeal: 'Pianifica un pasto', appNewIn: (a) => `Nuovo in ${a}`, appStaysHint: 'Quello che scrivi qui sotto resta solo in Everyday.', noPalWorkouts: 'Ancora nessun allenamento da Palestra.',
     agFree: (d) => `Libero · ${d}`, agFits: 'cosa ci sta?', agToPlan: (n) => `${n} da pianificare`, agToFix: (n) => `${n} da pianificare`, agProposals: (n) => `${n} ${n === 1 ? 'proposta' : 'proposte'}`,
     agFitsTitle: (d, h) => `${d} liberi dalle ${h}`, agNothingFits: 'Niente da pianificare ci sta qui.', agEmpty: 'Ancora niente in programma.', agAllPlanned: 'Tutto pianificato', agWeekFree: 'libero',
+    dp_ph: 'gg/mm/aaaa', dp_inDays: (n) => `tra ${n} giorni`, dp_daysAgo: (n) => `${n} giorni fa`, dp_thisWeek: 'Questa settimana', dp_thisMonth: 'Questo mese', dp_none: 'Nessuna data', dp_full: 'giornata piena', dp_some: 'qualcosa', dp_pickDay: 'Scegli un giorno', dp_pickWeek: 'Scegli una settimana', dp_pickMonth: 'Scegli un mese',
+    mp_unplan: 'Rimetti da pianificare', mp_unplanKey: 'Rimetti da pianificare (Canc / ⌫)', mp_dropHere: 'lascia qui: torna da pianificare', mp_ov: 'Cose alla stessa ora:', mp_ov_over: 'Sovrapposte', mp_ov_side: 'Affiancate', mp_room: 'c’è spazio dentro', mp_inside: (s) => `Dentro: ${s}`, mp_addInside: 'Aggiungi qualcosa dentro',
     planStyleL: 'Aspetto del Planner', ps_agenda: 'Agenda (una lista, con il tempo libero)', ps_hours: 'A ore (linea del tempo)',
     // (v98) pane follows the view, drag keeps the time
     smartFor_week: 'questa settimana',
@@ -1343,6 +1347,8 @@ const dict = {
     appPlanWorkout: 'Training planen', appPlanMeal: 'Mahlzeit planen', appNewIn: (a) => `Neu in ${a}`, appStaysHint: 'Was du unten eingibst, bleibt nur in Everyday.', noPalWorkouts: 'Noch keine Trainings aus Palestra.',
     agFree: (d) => `Frei · ${d}`, agFits: 'was passt?', agToPlan: (n) => `${n} zu planen`, agToFix: (n) => `${n} zu planen`, agProposals: (n) => `${n} ${n === 1 ? 'Vorschlag' : 'Vorschläge'}`,
     agFitsTitle: (d, h) => `${d} frei ab ${h}`, agNothingFits: 'Nichts zu Planendes passt hier.', agEmpty: 'Noch nichts geplant.', agAllPlanned: 'Alles geplant', agWeekFree: 'frei',
+    dp_ph: 'TT.MM.JJJJ', dp_inDays: (n) => `in ${n} Tagen`, dp_daysAgo: (n) => `vor ${n} Tagen`, dp_thisWeek: 'Diese Woche', dp_thisMonth: 'Dieser Monat', dp_none: 'Kein Datum', dp_full: 'voller Tag', dp_some: 'etwas', dp_pickDay: 'Tag wählen', dp_pickWeek: 'Woche wählen', dp_pickMonth: 'Monat wählen',
+    mp_unplan: 'Zurück zu Zu planen', mp_unplanKey: 'Zurück zu Zu planen (Entf / ⌫)', mp_dropHere: 'loslassen: zurück zu Zu planen', mp_ov: 'Zur gleichen Zeit:', mp_ov_over: 'Überlappend', mp_ov_side: 'Nebeneinander', mp_room: 'mit Platz darin', mp_inside: (s) => `Darin: ${s}`, mp_addInside: 'Etwas darin hinzufügen',
     planStyleL: 'Planer-Ansicht', ps_agenda: 'Agenda (eine Liste, mit der freien Zeit)', ps_hours: 'Nach Stunden (Zeitleiste)',
     // (v98) pane follows the view, drag keeps the time
     smartFor_week: 'diese Woche',

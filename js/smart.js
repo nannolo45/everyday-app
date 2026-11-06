@@ -107,7 +107,7 @@ export function suggestDay({ tasks, blocks, date, from, settings, leadOf = () =>
     const minutes = t.minutes || 30;
     const lead = leadOf(t);
     const need = lead + minutes;
-    if (load + need > s.maxLoad) { skipped.push({ taskId: t.id, why: 'full' }); continue; }
+    // (v99) the daily limit is a guide, not a wall: past it, things still go where there's room (the load bar turns red)
     const free = freeIntervals(busy, { from, dayStart: s.dayStart, dayEnd: s.dayEnd, buffer: s.buffer });
     const win = WINDOWS[t.when];
     let at = win ? fit(free, need, { snap: s.snap, window: win }) : null;
@@ -322,7 +322,7 @@ export function spreadTasks({ tasks, days, settings, leadOf = () => 0, now = Dat
     const bias = 6 + Math.max(0, importanceOf(t) - 3) * 20 + (t.due ? 25 : 0);
     let best = null; let why = 'full';
     allowed.forEach((d, i) => {
-      if (load.get(d.date) + need > s.maxLoad) return;
+      const over = load.get(d.date) + need > s.maxLoad; // (v99) past the limit: still allowed where there's room, only after the days that have space
       why = 'nofit';
       const from = Math.max(d.from ?? s.dayStart, nb && nb.date === d.date ? nb.minute : 0);
       const dayEnd = d.to ?? s.dayEnd;
@@ -361,10 +361,10 @@ export function spreadTasks({ tasks, days, settings, leadOf = () => 0, now = Dat
         if (at == null) at = fit(free, need, { snap: s.snap });
       }
       if (at == null) return;
-      const cost = load.get(d.date) + i * bias;
+      const cost = load.get(d.date) + i * bias + (over ? 1e6 : 0);
       if (!best || cost < best.cost) best = { d, at, cost };
     });
-    if (!best) { skipped.push({ taskId: out(t), key: t.id, why: minutes > s.maxLoad ? 'toolong' : why }); continue; }
+    if (!best) { skipped.push({ taskId: out(t), key: t.id, why }); continue; }
     // Say so when it landed in its time window or its preferred part of the day.
     const win = WINDOWS[t.when]; const st = best.at + lead;
     const extra = t.windows?.length ? [{ k: 'r_window' }] : t.hours?.length ? [{ k: 'r_open' }] : win && st >= win[0] && st < win[1] ? [{ k: `r_${t.when}` }] : [];

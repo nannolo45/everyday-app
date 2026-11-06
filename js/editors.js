@@ -1591,7 +1591,7 @@ export function openTask(task, draft = null, opts = {}) {
     }
     if (action.startsWith('rm-after:')) { x.after = (x.after || []).filter((_, k) => k !== Number(action.slice(9))); again(); return; }
     if (action === 'open-event' && linkedEvent) { if (isEvent(linkedEvent)) setTimeout(() => openTask(linkedEvent), 0); else setTimeout(() => openEvent(linkedEvent), 0); }
-    if (evMode && !x.planDate && (action === 'ok' || action === 'add-evtask' || action === 'plan-evtasks' || action.startsWith('ev-task:'))) { e.preventDefault(); modal.querySelector('input[name=planDate]')?.focus(); return; }
+    if (evMode && !x.planDate && (action === 'ok' || action === 'add-evtask' || action === 'plan-evtasks' || action.startsWith('ev-task:'))) { e.preventDefault(); modal.querySelector('input[name=planDate]')?.closest('.date-field')?.querySelector('.dp-in')?.focus(); return; }
     const wm = action.match(/^(w_|r(\d+)w_)(add|rm:(\d+))$/);
     if (wm) {
       const list = wm[2] != null ? (x.allRules[Number(wm[2])].windows = x.allRules[Number(wm[2])].windows || []) : (x.windows = x.windows || []);

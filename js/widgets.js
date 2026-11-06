@@ -1,6 +1,6 @@
 // widgets.js: moved from app.js (v36). See app.js for how the modules fit together.
 import { esc, fmtDay, modal, relDay, ui } from './core.js';
-import { t } from './i18n.js';
+import { getLang, t } from './i18n.js';
 import { addDays, fmtDur, fmtTime, parseDate, parseTime, today } from './plan.js';
 import { state } from './store.js';
 
@@ -45,13 +45,28 @@ export const durOptions = (sel, list = [5, 10, 15, 20, 30, 45, 60, 75, 90, 120, 
 
 // Times are typed as 24-hour hh:mm whatever the phone's language (the browser's own time picker
 // would show AM/PM on an English phone). "1900", "930" and "9" work too.
-// A date field that reads in the app's language: the native field (its picker, its ISO value) with the
-// text over it, so it doesn't follow the phone's language and format. app.js keeps the text in step.
+// (v99) The app's own date field (datepick.js does the typing and the calendar): the ISO value in a hidden input that
+// keeps the name and id the forms read, the date as dd/mm/yyyy (dd.mm.yyyy in German) in a text box, the weekday and
+// how far it is, and one 📅. No browser date field: its icon doubled ours and its calendar wouldn't open from the numbers.
 export const dateText = (v) => (v ? fmtDay(v, { weekday: 'short', day: 'numeric', month: 'short', ...(v.slice(0, 4) !== today().slice(0, 4) ? { year: 'numeric' } : {}) }) : '—');
-export const dateBox = (input, v) => `<span class="date-field">${input}<span class="date-text${v ? '' : ' empty'}" aria-hidden="true">${esc(dateText(v))}</span></span>`;
+export const isoOk = (v) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(v || '')) return false; const d = parseDate(v); return !Number.isNaN(d.getTime()) && d.getDate() === Number(v.slice(8)) && d.getMonth() + 1 === Number(v.slice(5, 7)); };
+export const dpText = (v) => (isoOk(v) ? [v.slice(8), v.slice(5, 7), v.slice(0, 4)].join(getLang() === 'de' ? '.' : '/') : '');
+export function dpRel(v) {
+  if (!isoOk(v)) return '';
+  const n = Math.round((parseDate(v) - parseDate(today())) / 864e5);
+  const when = n === 0 ? t('today') : n === 1 ? t('tomorrow') : n === -1 ? t('yesterday') : n > 0 ? t('dp_inDays', n) : t('dp_daysAgo', -n);
+  return `${fmtDay(v, { weekday: 'short' })} · ${when}`;
+}
+export const dateBox = (input, v) => {
+  const req = /\srequired\b/.test(input);
+  const label = (input.match(/aria-label="([^"]*)"/) || [])[1];
+  const hidden = input.replace(/type="date"/, 'type="hidden" data-dpv').replace(/\srequired\b/, '');
+  return `<span class="date-field${v ? '' : ' empty'}" data-dp>${hidden}<input class="dp-in" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" maxlength="24" value="${esc(dpText(v))}" placeholder="${esc(t('dp_ph'))}"${label ? ` aria-label="${label}"` : ''}${req ? ' data-req' : ''}><span class="dp-rel" aria-hidden="true">${esc(dpRel(v))}</span><span class="dp-ic" aria-hidden="true">📅</span></span>`;
+};
+// a hidden date set from code: the text in step
 export function syncDateText(input) {
-  const el = input.parentElement?.querySelector('.date-text'); if (!el) return;
-  el.textContent = dateText(input.value); el.classList.toggle('empty', !input.value);
+  const f = input.closest?.('.date-field'); const inp = f?.querySelector('.dp-in'); if (!inp || document.activeElement === inp) return;
+  inp.value = dpText(input.value); f.classList.toggle('empty', !input.value); const r = f.querySelector('.dp-rel'); if (r) r.textContent = dpRel(input.value);
 }
 export const TIME24 = 'type="text" inputmode="numeric" class="time24" maxlength="8" placeholder="hh:mm" autocomplete="off" pattern="(([01]?[0-9]|2[0-3])[:.]?[0-5][0-9]|[0-9]{1,2})( ?[aApP]\\.?[mM]?\\.?)?"'; // (v82) "3:30 pm" too
 export function tidyTime(el) {
