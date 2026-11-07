@@ -1,5 +1,5 @@
 // views/planner.js: moved from app.js (v36). See app.js for how the modules fit together.
-import { plButton, plOpen, plPanel } from '../pianifica.js';
+import { pickStep, plButton, plOpen, plPanel } from '../pianifica.js';
 import { cardRows, fixAll, slotOptions, toFix, weekCardHtml } from '../weekpick.js';
 import { leadOf, openTasks, plannedTaskIds } from '../model.js';
 import { openAutoPlanner } from '../editors.js';
@@ -709,7 +709,7 @@ export function paneWarnings(date, extra = '') {
   const n = conflicts.length + late.length;
   const v = currentView(); const per = v === 'day' ? (date === td ? t('today').toLowerCase() : relDay(date)) : t(`smartFor_${v}`);
   void per;
-  return `<div class="pw">${plButton('pw-plan')}${plOpen() ? plPanel() : ''}${extra}
+  return `<div class="pw">${plButton('pw-plan')}${plOpen() ? plPanel() : ''}${pickStep() ? '' : extra}
     <div class="field-label">${esc(t('pwTitle'))} <small>${n || ''}</small></div>${n ? `<ul class="pw-list">${cf}${lt}</ul>` : `<p class="hint">✓ ${esc(t('pwNone'))}</p>`}</div>`;
 }
 export function agendaWeek(date) {

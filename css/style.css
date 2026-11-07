@@ -2861,3 +2861,47 @@ body:not(.is-wide) .mx { grid-template-columns: 1fr 1fr; } body:not(.is-wide) .m
 .pf-sw.on { background: var(--accent); } .pf-sw.on::after { left: 19px; background: var(--accent-ink); }
 .pf-themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-bottom: 8px; }
 .pf-sheet > .pf-foot { margin: 0; padding: 10px 14px 14px; border-top: 1px solid var(--line); background: var(--surface); }
+/* v115 · Pianifica in steps (pianifica.js): one question a screen, ← back, dots; «Scegli» with search, a list menu
+   and the tray «Nel giorno» at the bottom */
+.pf-sh { display: flex; align-items: center; gap: 8px; padding: 2px 14px 4px; } .pf-sh b { flex: 1; font-size: 1.02rem; } .pf-back { width: 36px; flex: none; }
+.pf-wide .pf-sh { padding: 0 0 4px; }
+.pf-dots { display: flex; gap: 5px; justify-content: center; padding: 2px 0 8px; } .pf-dots i { width: 6px; height: 6px; border-radius: 3px; background: var(--line); transition: width .2s; } .pf-dots i.on { width: 18px; background: var(--accent); }
+.pf-page { animation: pfIn .26s cubic-bezier(.3,.8,.3,1); } .pf-page.pf-in-l { animation-name: pfInL; }
+@keyframes pfIn { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes pfInL { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+.pf-q { font: 600 1.25rem var(--serif); margin: 4px 2px 2px; } .pf-qs { color: var(--muted); font-size: .84rem; margin: 0 2px 12px; }
+.pf-big { width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; border: 1.5px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 16px; padding: 14px 16px; margin-bottom: 10px; font: inherit; cursor: pointer; }
+.pf-big .pf-bi { font-size: 1.3rem; width: 28px; text-align: center; flex: none; } .pf-big b { font-size: 1rem; } .pf-big.on { border-color: var(--accent); background: var(--accent-soft); } .pf-big:disabled { opacity: .5; }
+.pf-tpls { display: flex; flex-direction: column; gap: 6px; }
+.pf-tpl { width: 100%; display: flex; align-items: center; gap: 10px; text-align: left; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 13px; padding: 10px 12px; font: inherit; cursor: pointer; } .pf-tpl.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.pf-tpls + .pf-more, .pf-page > .pf-more { border: 0; padding: 10px 2px; }
+.pf-sum { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; } .pf-sum button { border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 9px; padding: 4px 9px; font: inherit; font-size: .78rem; font-weight: 600; cursor: pointer; }
+.pf-search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 12px; padding: 0 12px; background: var(--bg); margin-bottom: 8px; } .pf-search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; color: var(--ink); font: inherit; font-size: .95rem; padding: 10px 0; }
+.pf-search:focus-within { border-color: var(--accent); }
+.pf-srow { position: relative; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.pf-dd { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 12px; padding: 9px 12px; font: inherit; font-weight: 600; font-size: .88rem; cursor: pointer; white-space: nowrap; } .pf-dd.on { border-color: var(--accent); }
+.pf-lh { margin-left: auto; font-size: .68rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); } div.pf-lh { display: flex; margin: 4px 2px 8px; }
+.pf-srcm { position: absolute; left: 0; top: 46px; z-index: 30; width: 260px; max-width: 90vw; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 18px 40px rgba(0,0,0,.5); padding: 6px; }
+.pf-srcm button { display: flex; width: 100%; align-items: center; gap: 10px; border: 0; background: none; color: var(--ink); text-align: left; padding: 12px 10px; border-radius: 10px; font: inherit; font-size: .94rem; cursor: pointer; } .pf-srcm button small { margin-left: auto; color: var(--muted); }
+.pf-srcm button.on { background: var(--accent-soft); color: var(--accent); font-weight: 700; } .pf-srcm button.on small { color: var(--accent); } .pf-srcm hr { border: 0; border-top: 1px solid var(--line); margin: 4px 6px; }
+.pf-it { width: 100%; display: flex; align-items: center; gap: 10px; text-align: left; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 12px; padding: 8px 10px 8px 12px; margin-bottom: 6px; font: inherit; cursor: pointer; min-height: 50px; }
+.pf-it .pf-mt b { font-weight: 500; font-size: .92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .pf-it mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: inherit; border-radius: 3px; }
+.pf-len { color: var(--muted); font-size: .76rem; white-space: nowrap; } .pf-add { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line); display: grid; place-items: center; color: var(--accent); flex: none; font-size: 1rem; }
+.pf-it.on .pf-add { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); } .pf-it.fit { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.pf-tray { border-top: 1px solid var(--line); background: var(--surface); padding: 8px 14px 14px; flex: none; }
+.pf-wide .pf-tray { position: sticky; bottom: 0; margin: 8px -12px -10px; padding: 8px 12px 12px; border-radius: 0 0 14px 14px; z-index: 5; }
+.pf-trh { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; color: var(--ink); padding: 4px 2px 8px; font: inherit; cursor: pointer; text-align: left; } .pf-trh b { font-size: .92rem; } .pf-trc { color: var(--danger); font-size: .8rem; font-weight: 700; } .pf-trh .pf-car { margin-left: auto; font-size: .8rem; }
+.pf-bar { display: flex; gap: 3px; margin: 0 2px 8px; } .pf-bar span { flex: 1; height: 6px; border-radius: 3px; background: var(--line); } .pf-bar span.f { background: var(--accent); }
+.pf-trb { max-height: 34vh; overflow: auto; margin-bottom: 4px; }
+.pf-tray .pf-foot { margin-top: 6px; }
+.pf-tm { width: 62px; flex: none; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 8px; padding: 3px 6px; font: inherit; font-size: .84rem; font-variant-numeric: tabular-nums; } .pf-tmr { width: 42px; flex: none; color: var(--muted); font-size: .76rem; font-variant-numeric: tabular-nums; }
+.pf-slot.conf { box-shadow: 0 0 0 2px var(--danger); border-color: transparent; } .pf-cw { color: var(--danger); font-size: .74rem; margin: -1px 4px 6px; } .pf-mv { font-style: normal; color: var(--warn); font-size: .72rem; }
+.pf-sheet .pf-scroll { padding-top: 0; }
+/* the view card: a workout from Palestra, a meal from Ricette */
+.vc-app { border-color: color-mix(in srgb, var(--c) 50%, var(--line)) !important; background: color-mix(in srgb, var(--c) 7%, var(--surface)) !important; } .vc-app .vc-k { color: var(--c); }
+.vc-ex { margin: 4px 0 8px; padding: 0; list-style: none; width: 100%; text-align: left; font-size: .84rem; } .vc-ex li { padding: 3px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.vc-sub { color: var(--muted); margin: -2px 0 8px; } .vc-app a.btn { text-decoration: none; text-align: center; }
+/* Oggi: ◉ Adesso */
+.ox-strip { position: relative; scroll-snap-type: x proximity; } .ox-chip { scroll-snap-align: center; }
+.ox-back { margin-left: auto; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 2px 10px; font: inherit; font-size: .74rem; font-weight: 700; cursor: pointer; letter-spacing: 0; text-transform: none; }
+.ox-back[hidden] { display: none; }

@@ -8,16 +8,17 @@ import { t } from './i18n.js';
 import { addDays, fmtDur, nowMinutes, parseDate, today } from './plan.js';
 import { autoHoursFor, placeGhosts, trayTasks } from './planning.js';
 import { pomodori, TPL_DEFAULT, TPL_ORDER, TPLS, tplAccepts, tplGroup } from './smart.js';
-import { get, saveSettings, state } from './store.js';
+import { get, live, saveSettings, state } from './store.js';
 import { render } from './shell.js';
 import { cardRowsIn } from './weekpick.js';
 import { scheduleTravelRefresh } from './travel-plan.js';
+import { moveBlockTo } from './placing.js';
 import { viewRange } from './finder.js';
 import { isWide } from './views/wide.js';
 
 export const tplOn = () => { const l = state.settings.planTpls; return Array.isArray(l) && l.length ? TPL_ORDER.filter((k) => l.includes(k)) : TPL_DEFAULT; };
 const st = () => {
-  if (!ui.pl) ui.pl = { open: false, mode: null, menu: false, day: null, slots: {} };
+  if (!ui.pl) ui.pl = { open: false, mode: null, menu: false, day: null, slots: {}, step: 0, where: 'free', src: 'toplan', q: '', moves: {}, times: {} };
   return ui.pl;
 };
 export const plOpen = () => Boolean(ui.pl?.open);
@@ -67,59 +68,128 @@ function fill(id) {
   let i = 0; while (m[`${gi}-${i}`]) i++;
   m[`${gi}-${i}`] = id;
 }
-function slotsHtml() {
-  const d = dayOf(); const k = curTpl(); const T = TPLS[k]; const m = slotsOf(d);
-  const row = (key, i, ranked) => { const x = get('tasks', m[key]);
-    return x ? `<div class="pf-slot f"><span class="pf-dot" style="background:${catColor(x)}"></span>${ranked ? `<span class="pf-n">${i}</span>` : ''}<span class="pf-st">${esc(x.title)}</span><small>${esc(T.pomo ? `🍅×${pomodori(x.minutes)}` : fmtDur(x.minutes || 30))}</small><button type="button" class="pf-x" data-action="pl-un" data-id="${esc(key)}" aria-label="${esc(t('remove'))}">✕</button></div>` : ''; };
-  if (k === 'free' || T.pomo) {
-    const keys = Object.keys(m).sort((a, b) => Number(a.split('-')[1]) - Number(b.split('-')[1]));
-    const used = T.pomo ? (usedIn(d)[0] || 0) : keys.length;
-    return `<div class="pf-gh">${esc(T.pomo ? t('tplG_pomo_0') : t('tplG_free_0'))}<span>${T.pomo ? `${used}/8 🍅` : keys.length}</span></div>${keys.map((key, i) => row(key, i + 1)).join('')}<div class="pf-slot next">${esc(t('plTapHint'))}</div>`;
-  }
-  let lit = false; let n = 0;
-  return T.g.map(([, cnt], gi) => {
-    const have = Object.keys(m).filter((key) => key.startsWith(`${gi}-`)).length;
-    const rows = Array.from({ length: cnt }, (_, i) => { n += 1; const key = `${gi}-${i}`;
-      if (m[key]) return row(key, n, T.ranked);
-      const on = !lit; lit = true;
-      return `<div class="pf-slot${on ? ' next' : ''}">${T.ranked ? `<span class="pf-n">${n}</span>` : ''}${on ? esc(t('plTapHint')) : '…'}</div>`; }).join('');
-    return `<div class="pf-gh">${esc(gName(k, gi))}<span>${have}/${cnt}</span></div>${rows}`;
-  }).join('');
-}
 const catColor = (x) => { const c = catsOf(x)[0]; return (c && get('categories', c)?.color) || 'var(--muted)'; };
 
-// ---------- the panel ----------
-export function plPanel({ withFoot = true } = {}) {
-  const s = st(); const k = curTpl(); const days = periodDays();
-  const list = tplOn().includes(k) ? tplOn() : [...tplOn(), k];
-  const menu = `<button type="button" class="pf-menu${s.menu ? ' on' : ''}" data-action="pl-menu" aria-expanded="${s.menu}"><span class="pf-mt"><b>${esc(tName(k))}</b><small>${esc(tLine(k))}</small></span>${shape(k)}<span class="pf-car" aria-hidden="true">▾</span></button>
-    ${s.menu ? `<div class="pf-list">${list.map((id) => `<button type="button" class="${id === k ? 'on' : ''}" data-action="pl-tpl" data-id="${id}"><span class="pf-mt"><b>${esc(tName(id))}</b><small>${esc(tLine(id))}</small></span>${shape(id)}<span class="pf-ck" aria-hidden="true">${id === k ? '✓' : ''}</span></button>`).join('')}
-      <a class="pf-more" href="#/settings/planner">${esc(t('plMore'))} ›</a></div>` : ''}`;
-  const chips = s.mode === 'manual' && days.length > 1 ? `<div class="pf-days">${days.map((d) => { const n = Object.keys(slotsOf(d)).length; return `<button type="button" class="${d === dayOf() ? 'on' : ''}" data-action="pl-day" data-id="${d}"><b>${esc(fmtDay(d, { weekday: 'short', day: 'numeric' }))}</b><small>${esc(t('plNIn', n))}</small></button>`; }).join('')}</div>` : '';
-  const empty = !days.length ? `<p class="hint">${esc(t('plPast'))}</p>` : '';
-  const theme = k === 'theme' && !Object.keys(state.settings.planThemes || {}).length ? `<p class="hint pf-warn">${esc(t('plNoThemes'))} <a href="#/settings/planner">${esc(t('plSetThemes'))} ›</a></p>` : '';
-  const foot = plFoot();
-  return `<div class="pf">
-    <div class="pf-h">${esc(t('plHow'))}</div>
-    <div class="pf-opts"><button type="button" class="pf-opt${s.mode === 'auto' ? ' on' : ''}" data-action="pl-mode" data-id="auto" ${days.length ? '' : 'disabled'}><b>✦ ${esc(t('plAuto'))}</b><small>${esc(t('plAutoSub'))}</small></button>
-      <button type="button" class="pf-opt${s.mode === 'manual' ? ' on' : ''}" data-action="pl-mode" data-id="manual" ${days.length ? '' : 'disabled'}><b>${esc(t('plManual'))}</b><small>${esc(t('plManualSub'))}</small></button></div>
-    <div class="pf-h">${esc(t('plDistr'))}</div>${menu}${theme}${empty}${chips}
-    ${s.mode === 'manual' && days.length ? `<div class="pf-slots">${slotsHtml()}</div>` : ''}${withFoot ? foot : ''}</div>`;
+// ---------- (v115) the steps: Come → Schema → Dove (Manuale) → Scegli ----------
+// One question a screen; a choice slides to the next, ← goes back, the dots say where you are. In «Scegli» the
+// choices made stay on top as small buttons (a tap goes back to that step), a search over everything, a menu
+// for which list (to plan · routines · already planned · saved · all), and a tray «Nel giorno · n di N» at the
+// bottom with the places, their times (All'ora che dico io: anything, overlaps too) and «Metti nel giorno».
+const STEPS = () => (st().mode === 'auto' ? ['how', 'tpl'] : ['how', 'tpl', 'where', 'pick']);
+const stepNow = () => { const s = st(); const l = STEPS(); return l[Math.min(s.step || 0, l.length - 1)]; };
+export const pickStep = () => plOpen() && st().mode === 'manual' && stepNow() === 'pick';
+const SRC = ['toplan', 'routine', 'planned', 'saved', 'all'];
+const live_ = (c) => live(c);
+function srcList(k, d) {
+  const td = today();
+  const toplan = () => trayTasks();
+  const routine = () => live_('tasks').filter((x) => x.repeat && !x.archived && !x.palOut && !x.done);
+  const planned = () => { const seen = new Map();
+    for (const b of live_('blocks').filter((y) => y.taskId && !y.stepId && y.kind !== 'prep' && y.date >= td && y.date !== d && !y.outcome && !y.done).sort((p, q) => (p.date < q.date ? -1 : p.date > q.date ? 1 : p.start - q.start))) {
+      const x = get('tasks', b.taskId); if (x && !x.repeat && !seen.has(x.id)) seen.set(x.id, { x, b }); }
+    return [...seen.values()]; };
+  const saved = () => live_('tasks').filter((x) => x.kind === 'saved' && !x.repeat && !x.archived);
+  const wrap = (l) => l.map((x) => (x.x ? x : { x }));
+  if (k === 'toplan') return wrap(toplan()); if (k === 'routine') return wrap(routine()); if (k === 'planned') return planned(); if (k === 'saved') return wrap(saved());
+  const all = new Map(); for (const it of [...wrap(toplan()), ...planned(), ...wrap(routine()), ...wrap(saved())]) if (!all.has(it.x.id)) all.set(it.x.id, it);
+  return [...all.values()];
 }
-function plFoot() {
+const srcName = (k) => t(`plSrc_${k}`);
+// the places in order, with their times: «spazi liberi» one after another in the free time; «all'ora che dico io»
+// the time you wrote (or, until you do, the next free one)
+function orderedKeys(d) { const k = curTpl(); const m = slotsOf(d); let keys = Object.keys(m).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })); if (TPLS[k].long) keys = keys.sort((a, b) => (get('tasks', m[b])?.minutes || 30) - (get('tasks', m[a])?.minutes || 30)); return keys; }
+function busyOf(d) {
+  const moving = new Set(Object.values(st().moves || {}));
+  const bl = live_('blocks').filter((b) => b.date === d && !b.stepId && !moving.has(b.id) && b.outcome !== 'failed').map((b) => ({ s:b.start, e:b.start + (b.minutes || 0), t:b.title }));
+  const ev = live_('events').filter((e) => e.date === d && !e.allDay && !e.skipped && e.busy !== false).map((e) => ({ s:e.start, e:e.start + (e.minutes || 0), t:e.title }));
+  return [...bl, ...ev];
+}
+function slotTimes(d) {
+  const s = st(); const m = slotsOf(d); const times = (s.times ||= {})[d] ||= {};
+  const td = today(); let from = Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((nowMinutes() + 5) / 5) * 5 : 0);
+  const busy = busyOf(d); const out = [];
+  for (const key of orderedKeys(d)) {
+    const x = get('tasks', m[key]); const min = x?.minutes || 30; let at;
+    if (s.where === 'pick' && times[key] != null) at = times[key];
+    else { at = from; const taken = [...busy, ...out]; let guard = 0; while (guard++ < 200) { const hit = taken.find((o) => at < o.e && o.s < at + min); if (!hit) break; at = hit.e; } if (at + min > 1440) at = Math.max(0, 1440 - min); from = at + min; } // no room left: by the end of the day (it shows as an overlap)
+    out.push({ key, id:m[key], s:at, e:at + min, t:x?.title || '' });
+  }
+  for (const o of out) o.over = [...busy, ...out.filter((q) => q !== o)].find((q) => o.s < q.e && q.s < o.e) || null;
+  return out;
+}
+const fmtHM = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+function tplTotal(k, d) { const T = TPLS[k]; if (k === 'free') return Math.max(1, Object.keys(slotsOf(d)).length); if (T.pomo) return 8; return T.g.reduce((n, [, c]) => n + c, 0); }
+
+function pageHow() {
   const s = st(); const days = periodDays();
-  return s.mode === 'manual' && days.length ? `<div class="pf-foot"><button type="button" class="btn" data-action="pl-clear">${esc(t('plClear'))}</button><button type="button" class="btn primary" data-action="pl-place" ${Object.keys(slotsOf(dayOf())).length ? '' : 'disabled'}>${esc(t('plPlace'))} →</button></div>` : '';
+  return `<p class="pf-q">${esc(t('plHow'))}</p><p class="pf-qs">${esc(t('plFor', periodLabel()))}</p>${!days.length ? `<p class="hint">${esc(t('plPast'))}</p>` : ''}
+    ${[['auto', '✦', t('plAuto'), t('plAutoSub')], ['manual', '✎', t('plManual'), t('plManualSub2')]].map(([k, i, l, d]) => `<button type="button" class="pf-big${s.mode === k ? ' on' : ''}" data-action="pl-mode" data-id="${k}" ${days.length ? '' : 'disabled'}><span class="pf-bi">${i}</span><span class="pf-mt"><b>${esc(l)}</b><small>${esc(d)}</small></span><span class="pf-car">›</span></button>`).join('')}`;
+}
+function pageTpl() {
+  const k = curTpl(); const list = tplOn().includes(k) ? tplOn() : [...tplOn(), k];
+  const theme = k === 'theme' && !Object.keys(state.settings.planThemes || {}).length ? `<p class="hint pf-warn">${esc(t('plNoThemes'))} <a href="#/settings/planner">${esc(t('plSetThemes'))} ›</a></p>` : '';
+  return `<p class="pf-q">${esc(t('plDistr'))}?</p><p class="pf-qs">${esc(t('plDistrSub'))}</p>
+    <div class="pf-tpls">${list.map((id) => `<button type="button" class="pf-tpl${id === k && st().tplSet ? ' on' : ''}" data-action="pl-tpl" data-id="${id}"><span class="pf-mt"><b>${esc(tName(id))}</b><small>${esc(tLine(id))}</small></span>${shape(id)}</button>`).join('')}</div>${theme}
+    <a class="pf-more" href="#/settings/planner">${esc(t('plMore'))} ›</a>`;
+}
+function pageWhere() {
+  const s = st();
+  return `<p class="pf-q">${esc(t('plWhereQ'))}</p><p class="pf-qs">${esc(t('plWhereSub'))}</p>
+    ${[['free', '▤', t('plWhereFree'), t('plWhereFreeSub')], ['pick', '⧉', t('plWherePick'), t('plWherePickSub')]].map(([k, i, l, d]) => `<button type="button" class="pf-big${s.where === k ? ' on' : ''}" data-action="pl-where" data-id="${k}"><span class="pf-bi">${i}</span><span class="pf-mt"><b>${esc(l)}</b><small>${esc(d)}</small></span><span class="pf-car">›</span></button>`).join('')}`;
+}
+function pagePick() {
+  const s = st(); const d = dayOf(); const days = periodDays(); const used = allSlotted(); const q = (s.q || '').trim().toLowerCase();
+  const sum = `<div class="pf-sum"><button type="button" data-action="pl-step" data-id="0">✎ ${esc(t('plManual'))}</button><button type="button" data-action="pl-step" data-id="1">${esc(tName(curTpl()))}</button><button type="button" data-action="pl-step" data-id="2">${esc(s.where === 'pick' ? t('plWherePick') : t('plWhereFree'))}</button></div>`;
+  const chips = days.length > 1 ? `<div class="pf-days">${days.map((x) => `<button type="button" class="${x === d ? 'on' : ''}" data-action="pl-day" data-id="${x}"><b>${esc(fmtDay(x, { weekday:'short', day:'numeric' }))}</b><small>${esc(t('plNIn', Object.keys(slotsOf(x)).length))}</small></button>`).join('')}</div>` : '';
+  const src = SRC.includes(s.src) ? s.src : 'toplan';
+  const list = q ? srcList('all', d).filter(({ x }) => (x.title || '').toLowerCase().includes(q)) : srcList(src, d);
+  const counts = Object.fromEntries(SRC.map((k) => [k, srcList(k, d).length]));
+  const hl = (title) => { if (!q) return esc(title); const i = title.toLowerCase().indexOf(q); return i < 0 ? esc(title) : `${esc(title.slice(0, i))}<mark>${esc(title.slice(i, i + q.length))}</mark>${esc(title.slice(i + q.length))}`; };
+  const row = ({ x, b }) => { const on = used.has(x.id); const fit = !on && fitsNext(x);
+    const meta = b ? t('plMovesHere', `${fmtDay(b.date, { weekday:'short', day:'numeric' })} · ${fmtHM(b.start)}`) : x.repeat ? t('plSrc_routine') : x.kind === 'saved' ? t('plSavedOne') : '';
+    return `<button type="button" class="pf-it${on ? ' on' : ''}${fit ? ' fit' : ''}" data-action="pl-pick" data-id="${esc(x.id)}"${b ? ` data-block="${esc(b.id)}"` : ''}><span class="pf-dot" style="background:${catColor(x)}"></span><span class="pf-mt"><b>${hl(x.title || '')}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</span><small class="pf-len">${esc(fmtDur(x.minutes || 30))}</small><span class="pf-add" aria-hidden="true">${on ? '✓' : '＋'}</span></button>`; };
+  return `${sum}${chips}
+    <label class="pf-search"><span aria-hidden="true">🔍</span><input id="pf-q" type="search" autocomplete="off" placeholder="${esc(t('plSearchAll'))}" value="${esc(s.q || '')}"></label>
+    ${q ? `<div class="pf-lh"><span>${esc(t('plNFound', list.length))}</span></div>` : `<div class="pf-srow"><button type="button" class="pf-dd${s.srcMenu ? ' on' : ''}" data-action="pl-srcmenu" aria-expanded="${Boolean(s.srcMenu)}">${esc(srcName(src))} · ${counts[src]} ▾</button><span class="pf-lh">${esc(t('plTapAdd'))}</span>
+      ${s.srcMenu ? `<div class="pf-srcm" role="menu">${SRC.map((k, i) => `${i === 4 ? '<hr>' : ''}<button type="button" role="menuitem" class="${k === src ? 'on' : ''}" data-action="pl-src" data-id="${k}">${esc(srcName(k))}<small>${counts[k]}</small></button>`).join('')}</div>` : ''}</div>`}
+    <div class="pf-items">${list.slice(0, 80).map(row).join('') || `<p class="hint">${esc(q ? t('noMatch') : t('trayEmpty'))}</p>`}</div>`;
+}
+function trayHtml() {
+  const s = st(); const d = dayOf(); const k = curTpl(); const T = TPLS[k]; const m = slotsOf(d);
+  const tm = slotTimes(d); const byKey = Object.fromEntries(tm.map((o) => [o.key, o])); const nC = tm.filter((o) => o.over).length;
+  const n = T.pomo ? (usedIn(d)[0] || 0) : Object.keys(m).length; const N = tplTotal(k, d);
+  const row = (key, i, ranked) => { const x = get('tasks', m[key]); if (!x) return ''; const o = byKey[key];
+    const time = s.where === 'pick' ? `<input class="time24 pf-tm" data-pltime="${esc(key)}" value="${fmtHM(o.s)}" type="text" inputmode="numeric" maxlength="5" aria-label="${esc(t('start'))}">` : `<span class="pf-tmr">${fmtHM(o.s)}</span>`;
+    return `<div class="pf-slot f${o.over ? ' conf' : ''}"><span class="pf-dot" style="background:${catColor(x)}"></span>${ranked ? `<span class="pf-n">${i}</span>` : ''}${time}<span class="pf-st">${esc(x.title)}${s.moves?.[x.id] ? ` <em class="pf-mv">${esc(t('plMoved'))}</em>` : ''}</span><small>${esc(T.pomo ? `🍅×${pomodori(x.minutes)}` : fmtDur(x.minutes || 30))}</small><button type="button" class="pf-x" data-action="pl-un" data-id="${esc(key)}" aria-label="${esc(t('remove'))}">✕</button></div>${o.over ? `<div class="pf-cw">⚠ ${esc(t('plOverlaps', o.over.t))}</div>` : ''}`; };
+  let body = '';
+  if (s.tray) {
+    if (k === 'free' || T.pomo) body = orderedKeys(d).map((key, i) => row(key, i + 1)).join('');
+    else body = T.g.map(([, cnt], gi) => { const keys = Object.keys(m).filter((key) => key.startsWith(`${gi}-`)).sort((a, b) => a.localeCompare(b, undefined, { numeric:true }));
+      return `<div class="pf-gh">${esc(gName(k, gi))}<span>${keys.length}/${cnt}</span></div>${keys.map((key, i) => row(key, i + 1, T.ranked)).join('')}${keys.length < cnt ? `<div class="pf-slot">${esc(t('plFreePlaces', cnt - keys.length))}</div>` : ''}`; }).join('');
+  }
+  return `<div class="pf-tray"><button type="button" class="pf-trh" data-action="pl-tray" aria-expanded="${Boolean(s.tray)}"><b>${esc(t('plInDay', n, T.pomo ? '8 🍅' : N))}</b>${nC ? `<span class="pf-trc">⚠ ${nC}</span>` : ''}<span class="pf-car">${s.tray ? `▾ ${esc(t('close'))}` : `▴ ${esc(t('plSee'))}`}</span></button>
+    <div class="pf-bar">${Array.from({ length:Math.min(N, 20) }, (_, i) => `<span class="${i < n ? 'f' : ''}"></span>`).join('')}</div>
+    ${s.tray ? `<div class="pf-trb">${body || `<p class="hint">${esc(t('plTapHint2'))}</p>`}</div>` : ''}
+    <div class="pf-foot"><button type="button" class="btn" data-action="pl-clear">${esc(t('plClear'))}</button><button type="button" class="btn primary" data-action="pl-place" ${n ? '' : 'disabled'}>${esc(t('plPlace'))}${nC ? ` · ⚠ ${nC}` : ''} →</button></div></div>`;
+}
+function stepsHtml(withHead) {
+  const s = st(); const l = STEPS(); const i = Math.min(s.step || 0, l.length - 1); const k = l[i];
+  const page = { how:pageHow, tpl:pageTpl, where:pageWhere, pick:pagePick }[k]();
+  const head = `<div class="pf-sh">${i ? `<button type="button" class="icon pf-back" data-action="pl-back" aria-label="${esc(t('previous'))}">←</button>` : '<span class="pf-back"></span>'}<b>${esc(t('planChoose'))} · ${esc(periodLabel())}</b><button type="button" class="icon" data-action="pl-open" aria-label="${esc(t('close'))}">✕</button></div>`;
+  const dots = `<div class="pf-dots" aria-hidden="true">${l.map((_, j) => `<i class="${j === i ? 'on' : ''}"></i>`).join('')}</div>`;
+  return { top:`${withHead ? head : ''}${dots}`, page:`<div class="pf-page pf-in-${s.dir || 'r'}" data-step="${k}">${page}</div>`, tray:k === 'pick' ? trayHtml() : '' };
+}
+export function plPanel() {
+  const x = stepsHtml(true);
+  return `<div class="pf pf-wide">${x.top}${x.page}${x.tray}</div>`;
 }
 // the button (pane and phone card) — the period on screen, no ✦
 export const plButton = (cls = '') => `<button class="btn primary pf-btn ${cls}" type="button" data-action="pl-open" aria-expanded="${plOpen()}">${esc(t('planChoose'))} <span>· ${esc(periodLabel())}</span><i aria-hidden="true">${plOpen() ? '▴' : '▾'}</i></button>`;
-// The phone's sheet: the panel and, for Manuale, the things to plan.
+// The phone's sheet
 export function plSheet() {
   if (isWide() || !plOpen() || route().name !== 'plan') return '';
-  const s = st(); const used = allSlotted();
-  const list = s.mode === 'manual' ? trayTasks().map((x) => { const u = used.has(x.id); const fit = !u && fitsNext(x); return `<button type="button" class="pf-pt${u ? ' used' : ''}${fit ? ' fit' : ''}" data-action="fd-pick" data-id="${esc(x.id)}"><span class="pf-dot" style="background:${catColor(x)}"></span><span class="pf-st">${esc(x.title)}</span><small>${esc(fmtDur(x.minutes || 30))}</small></button>`; }).join('') : '';
-  return `<div class="pf-bg" data-action="pl-open"></div><div class="pf-sheet" role="dialog" aria-label="${esc(t('planChoose'))}"><div class="pf-grab" aria-hidden="true"></div>
-    <div class="pf-sh"><b>${esc(t('planChoose'))} · ${esc(periodLabel())}</b><button type="button" class="icon" data-action="pl-open" aria-label="${esc(t('close'))}">✕</button></div>
-    <div class="pf-scroll">${plPanel({ withFoot: false })}${list ? `<div class="pf-h">${esc(t('pnTabTodo'))} <small>${esc(t('plFitHint'))}</small></div>${list}` : ''}</div>${plFoot()}</div>`;
+  const x = stepsHtml(true);
+  return `<div class="pf-bg" data-action="pl-open"></div><div class="pf-sheet" role="dialog" aria-label="${esc(t('planChoose'))}"><div class="pf-grab" aria-hidden="true"></div>${x.top}<div class="pf-scroll">${x.page}</div>${x.tray}</div>`;
 }
 
 // ---------- running ----------
@@ -136,28 +206,47 @@ function runAuto() {
   scheduleTravelRefresh();
 }
 function placeDay() {
-  const d = dayOf(); const k = curTpl(); const T = TPLS[k]; const m = slotsOf(d);
-  let keys = Object.keys(m).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  if (T.long) keys = keys.sort((a, b) => (get('tasks', m[b])?.minutes || 30) - (get('tasks', m[a])?.minutes || 30));
-  const ids = keys.map((key) => m[key]).filter((id) => get('tasks', id));
-  if (!ids.length) return;
+  const s = st(); const d = dayOf(); const m = slotsOf(d); const tm = slotTimes(d);
+  if (!tm.length) return;
   if (!ui.assign) ui.assign = { sel: new Set(), ghosts: [], range: null, opts: false, open: false, q: '' };
-  const td = today(); const from = Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((nowMinutes() + 5) / 5) * 5 : 0);
-  st().slots[d] = {};
-  if (!isWide()) st().open = false;
-  placeGhosts(ids, [d], from);
+  const moves = s.moves || {};
+  // things already planned on another day move here (their block moves); the rest become proposals to keep
+  for (const o of tm) { const bid = moves[o.id]; if (bid && get('blocks', bid)) moveBlockTo(bid, d, o.s); }
+  const rest = tm.filter((o) => !moves[o.id]);
+  if (s.where === 'pick') {
+    ui.assign.ghosts.push(...rest.map((o) => ({ taskId:o.id, stepId:null, date:d, start:o.s, minutes:o.e - o.s, lead:0, reasons:[] })));
+    if (rest.length) toast(t('spreadPreview', rest.length));
+  }
+  s.slots[d] = {}; if (s.times) s.times[d] = {}; for (const o of tm) delete moves[o.id];
+  if (!isWide()) s.open = false;
+  if (s.where !== 'pick' && rest.length) { const td = today(); const from = Math.max(autoHoursFor(d)[0], d === td ? Math.ceil((nowMinutes() + 5) / 5) * 5 : 0); placeGhosts(rest.map((o) => o.id), [d], from); }
+  else render();
 }
+const go = (step, dir = 'r') => { const s = st(); s.step = step; s.dir = dir; s.srcMenu = false; render(); };
 // Taps; true when handled.
 export function plClick(btn) {
   const { action, id } = btn.dataset; const s = st();
   switch (action) {
-    case 'pl-open': s.open = !s.open; s.menu = false; render(); return true;
-    case 'pl-menu': s.menu = !s.menu; render(); return true;
-    case 'pl-tpl': saveSettings({ dayRule: id }); s.menu = false; s.slots = {}; if (s.mode === 'auto') runAuto(); else render(); return true;
-    case 'pl-mode': s.mode = id; s.slots = {}; if (id === 'auto') { if (!isWide()) s.open = false; runAuto(); } else { if (ui.assign) { ui.assign.ghosts = []; ui.assign.fix = null; } render(); } return true;
+    case 'pl-open': s.open = !s.open; s.srcMenu = false; if (s.open && !s.mode) s.step = 0; render(); return true;
+    case 'pl-back': go(Math.max(0, (s.step || 0) - 1), 'l'); return true;
+    case 'pl-step': go(Number(id), 'l'); return true;
+    case 'pl-mode': s.mode = id; s.slots = {}; s.moves = {}; s.times = {}; if (ui.assign) { ui.assign.ghosts = []; ui.assign.fix = null; } go(1); return true;
+    case 'pl-tpl': saveSettings({ dayRule: id }); s.tplSet = true; s.slots = {}; s.times = {};
+      if (s.mode === 'auto') { if (!isWide()) s.open = false; runAuto(); return true; }
+      go(2); return true;
+    case 'pl-where': s.where = id; s.times = {}; go(3); return true;
     case 'pl-day': s.day = id; render(); return true;
-    case 'pl-un': delete slotsOf(dayOf())[id]; render(); return true;
-    case 'pl-clear': s.slots[dayOf()] = {}; render(); return true;
+    case 'pl-srcmenu': s.srcMenu = !s.srcMenu; render(); return true;
+    case 'pl-src': s.src = id; s.srcMenu = false; render(); return true;
+    case 'pl-tray': s.tray = !s.tray; render(); return true;
+    case 'pl-pick': {
+      const d = dayOf(); const m = slotsOf(d); const key = Object.keys(m).find((k2) => m[k2] === id);
+      if (key) { delete m[key]; if (s.moves) delete s.moves[id]; render(); return true; }
+      fill(id); if (btn.dataset.block && Object.values(m).includes(id)) (s.moves ||= {})[id] = btn.dataset.block;
+      render(); return true;
+    }
+    case 'pl-un': { const m = slotsOf(dayOf()); if (s.moves) delete s.moves[m[id]]; delete m[id]; render(); return true; }
+    case 'pl-clear': s.slots[dayOf()] = {}; if (s.times) s.times[dayOf()] = {}; s.moves = {}; render(); return true;
     case 'pl-place': placeDay(); return true;
     case 'pl-ton': {
       const on = tplOn(); const next = on.includes(id) ? on.filter((k) => k !== id) : [...on, id];
@@ -168,6 +257,14 @@ export function plClick(btn) {
     default: return false;
   }
 }
+// the search and the times in the tray
+document.addEventListener('input', (e) => { if (e.target.id !== 'pf-q') return; st().q = e.target.value; st().srcMenu = false; render(); });
+document.addEventListener('change', (e) => {
+  const key = e.target.dataset?.pltime; if (!key) return;
+  const mm = /^(\d{1,2})[:.]?(\d{2})$/.exec(e.target.value.trim()); if (!mm) return;
+  const d = dayOf(); ((st().times ||= {})[d] ||= {})[key] = Math.min(23, Number(mm[1])) * 60 + Math.min(59, Number(mm[2])); render();
+});
+document.addEventListener('click', (e) => { const s = ui.pl; if (s?.srcMenu && !e.target.closest?.('.pf-srcm, [data-action=pl-srcmenu]')) { s.srcMenu = false; if (!e.target.closest?.('[data-action]')) render(); } }, true);
 // Impostazioni › Planner: the schemi and the week's themes.
 export function plSettingsHtml(categories, catName) {
   const on = tplOn(); const th = state.settings.planThemes || {};

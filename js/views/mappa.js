@@ -1,18 +1,17 @@
-// views/mappa.js (v96): the Planner as a map (Settings → Planner → Aspetto). (v109) The same axes in every view: the
-// time down the side (the hours, the days, the weeks), a column per category across (or your lanes, in the day),
-// and the columns share the whole width. Two shapes for each view: Riquadri (a card per thing; in the month a box
-// per category and week) or Linee (a line per category like a metro map; things at the same time make one stop).
+// views/mappa.js (v96): the Planner as a map (Settings → Planner → Aspetto). Day: the hours down, a column per
+// category, each thing as tall as it lasts. Week: seven day columns (morning · afternoon · evening). Month: a row
+// per week with a box per category (Settimane) or a line per category like a metro map (Linee).
 // Tap a thing: its 7 ports around it (⤷ Prepara on top, 🔒 Prima serve left, ↓ Poi below, ‖ In parallelo right,
 // ✓ bottom-left, ✕ bottom-right, ⏰ top-right). Tap a port: the ghost node (a new thing or one you have);
 // drag a port onto another thing: the preview, with the guardrails.
 import { catColor, catName, categories, esc, fmtDay, planSettings, relDay, toast, ui } from '../core.js';
 import { t } from '../i18n.js';
-import { checklistOf, conflictsOn, conflictText, outcomeOf, roomy, stepTimes } from '../model.js';
+import { checklistOf, conflictsOn, conflictText, outcomeOf, roomy } from '../model.js';
 import { addDays, fmtDur, fmtTime, nowMinutes, parseDate, today } from '../plan.js';
 import { changed, render } from '../shell.js';
 import { get, live, saveSettings, state, upsert } from '../store.js';
 import { dropOn, ghostHtml, LT, linkPill, linksFor, lname, node, PORT_POS, PORTS, when } from '../graph.js';
-import { agItems, behindCard, conflictBanner, currentView, dayBand, ghostTitle, ghostWhy, planCard, prepareDays, stepName, weekStart } from './planner.js';
+import { agItems, behindCard, conflictBanner, currentView, dayBand, ghostTitle, ghostWhy, planCard, prepareDays, weekStart } from './planner.js';
 import { isWide } from './wide.js';
 import { moveBlockTo, unplanToPane } from '../placing.js';
 import { dayNodes, loadMin, nodeColor, overlays, rawId } from './scaletta.js';
@@ -35,38 +34,20 @@ function curve(ax, ay, bx, by, tt, label, hz) {
 const svgOf = (s) => `<svg class="mp-links" width="10" height="10">${s}</svg>`;
 function nodeHtml(n, r, conf, links, extra = '') {
   const sel = S().sel; const near = sel && links.some((l) => (l.a === sel && l.b === n.id) || (l.b === sel && l.a === n.id));
-  const cls = `mp-n${n.fixed ? ' appt' : ''}${n.kind === 'event' ? ' gcal' : ''}${stCls(pastOf(n))}${conf.has(rawId(n)) ? ' conflict' : ''}${sel === n.id ? ' sel' : ''}${sel && sel !== n.id && !near ? ' dim' : ''}${r.h < 34 ? ' short' : ''}${r.h >= 90 ? ' tall' : ''}${extra}`;
+  const cls = `mp-n${n.fixed ? ' appt' : ''}${n.kind === 'event' ? ' gcal' : ''}${n.out ? ` is-${n.out}` : ''}${conf.has(rawId(n)) ? ' conflict' : ''}${sel === n.id ? ' sel' : ''}${sel && sel !== n.id && !near ? ' dim' : ''}${r.h < 34 ? ' short' : ''}${extra}`;
   return `<div role="button" tabindex="0" class="${cls}" data-action="mp-sel" data-id="${esc(n.id)}" data-mpn="${esc(n.id)}" style="--c:${esc(nodeColor(n))};left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px"><b>${n.fixed ? '📅 ' : ''}${n.out === 'done' ? '✓ ' : ''}${esc(n.title)}</b><small>${esc(fmtTime(n.start))}${r.h > 34 ? `–${esc(fmtTime(n.start + n.minutes))}` : ''}</small>${fullCard(n)}</div>`;
 }
 // (v99) on hover the whole card comes forward: the full title, the time, the checklist and three quick actions
-// (v109) a past thing says so: «Passato · fatto» muted (solid, nothing shows through), «Passato · da segnare» dashed
-// and bright, with «Com'è andata?». The same card floats beside a stop of the Linee (o.float).
-function fullCard(n, inside = '', o = {}) {
-  const b = n.kind === 'block' ? n.b : null; const cl = b ? checklistOf(b) : []; const ps = pastOf(n); const id = b ? esc(b.id) : '';
-  const acts = b && ps === 'pend' ? `<span class="mp-ask"><i>${esc(t('mp_howWent'))}</i><span class="mp-qa mp-qaw"><span role="button" data-action="behind-done" data-id="${id}">✓ ${esc(t('esDone'))}</span><span role="button" data-action="behind-fail" data-id="${id}">✕ ${esc(t('esFail'))}</span><span role="button" data-action="mp-unplan" data-id="${id}" title="${esc(t('mp_unplan'))}">↩ ${esc(t('mp_later'))}</span></span></span>`
-    : b && n.out ? `<span class="mp-qa mp-qaw"><span role="button" data-action="block-reset" data-id="${id}">↺ ${esc(t('mp_reopen'))}</span></span>`
-    : b && !ps ? `<span class="mp-qa"><span role="button" data-action="sc-done" data-id="${id}" title="${esc(t('esDone'))}">✓</span><span role="button" data-action="now-move" data-id="${id}" title="${esc(t('moveBtn'))}">🕒</span><span role="button" data-action="mp-unplan" data-id="${id}" title="${esc(t('mp_unplan'))}">↩</span>${inside !== '' && n.date ? `<span role="button" data-action="mp-addin" data-date="${esc(n.date)}" data-start="${n.start}" title="${esc(t('mp_addInside'))}">＋</span>` : ''}</span>` : '';
-  const style = o.float ? ` style="--c:${esc(nodeColor(n))};${o.style || ''}"` : '';
-  return `<span class="mp-full${ps ? ` is-past${ps === 'pend' ? ' pend' : ''}` : ''}${o.float ? ' mp-float' : ''}${o.cls || ''}"${style}${o.float ? '' : ' aria-hidden="true"'}>${ps ? `<em class="mp-pt">${esc(t(`mp_past_${ps}`))}</em>` : ''}<b>${n.fixed ? '📅 ' : ''}${n.out === 'done' ? '✓ ' : ''}${esc(n.title)}</b><small>${o.day ? `${esc(o.day)} · ` : ''}${esc(fmtTime(n.start))}–${esc(fmtTime(n.start + n.minutes))} · ${esc(fmtDur(n.minutes))}</small>${cl.length ? `<small>☑ ${esc(cl.slice(0, 4).join(' · '))}${cl.length > 4 ? ' …' : ''}</small>` : ''}${inside.trim() ? `<small>${esc(t('mp_inside', inside))}</small>` : ''}${acts}</span>`;
+function fullCard(n, inside = '') {
+  const b = n.kind === 'block' ? n.b : null; const cl = b ? checklistOf(b) : []; const act = b && !n.out;
+  return `<span class="mp-full" aria-hidden="true"><b>${n.fixed ? '📅 ' : ''}${esc(n.title)}</b><small>${esc(fmtTime(n.start))}–${esc(fmtTime(n.start + n.minutes))} · ${esc(fmtDur(n.minutes))}</small>${cl.length ? `<small>☑ ${esc(cl.slice(0, 4).join(' · '))}${cl.length > 4 ? ' …' : ''}</small>` : ''}${inside.trim() ? `<small>${esc(t('mp_inside', inside))}</small>` : ''}${act ? `<span class="mp-qa"><span role="button" data-action="sc-done" data-id="${esc(b.id)}" title="${esc(t('esDone'))}">✓</span><span role="button" data-action="now-move" data-id="${esc(b.id)}" title="${esc(t('moveBtn'))}">🕒</span><span role="button" data-action="mp-unplan" data-id="${esc(b.id)}" title="${esc(t('mp_unplan'))}">↩</span>${inside !== '' && n.date ? `<span role="button" data-action="mp-addin" data-date="${esc(n.date)}" data-start="${n.start}" title="${esc(t('mp_addInside'))}">＋</span>` : ''}</span>` : ''}</span>`;
 }
-// (v102) «Il blocco fiorisce»: one ＋ beside the selected block instead of the seven ports; it opens the menu of the
-// kinds of link (tap one, then the other thing; or drag the item onto it). Its steps come out to the right as petals.
+// the 7 ports around the selected thing (P4: Prepara top, Prima serve left, Poi bottom, In parallelo right,
+// ✓ bottom-left, ✕ bottom-right, ⏰ top-right)
 const PXY = { top:[0.5, 0], left:[0, 0.5], bottom:[0.5, 1], right:[1, 0.5], bl:[0, 1], br:[1, 1], tr:[1, 0] };
-function plusHtml(n, r) {
-  if (n.kind !== 'block' || !n.x || n.out) return '';
-  const x = r.x + r.w + 8, y = r.y + Math.min(r.h, 60) / 2 - 14; const open = S().plus === n.id;
-  return `<button type="button" class="mp-plus${open ? ' on' : ''}" data-action="mp-plus" data-id="${esc(n.id)}" style="left:${x}px;top:${y}px" title="${esc(t('mp_link'))}" aria-label="${esc(t('mp_link'))}" aria-expanded="${open}">＋</button>${open ? `<div class="mp-plusm" style="left:${x + 36}px;top:${y}px" role="menu">${PORTS.map((k) => `<button type="button" data-action="gr-port" data-id="${esc(`${n.id}~${k}`)}" data-port="${esc(`${n.id}~${k}`)}" style="--pc:${LT[k].c}"><i>${LT[k].i}</i>${esc(lname(k))}</button>`).join('')}<hr><button type="button" data-action="block-edit" data-id="${esc(n.b.id)}"><i>▤</i>${esc(t('mp_editSteps'))}</button></div>` : ''}`;
-}
-function petalsHtml(n, r) {
-  if (n.kind !== 'block') return { html:'', svg:'', right:0 };
-  const ys = stepTimes(n.b); if (ys.length < 2) return { html:'', svg:'', right:0 };
-  const cy = r.y + Math.min(r.h, 60) / 2; const x0 = r.x + r.w; const px = x0 + 52; let html = '', svg = '';
-  ys.forEach((y, i) => {
-    const py = cy + (i - (ys.length - 1) / 2) * 30 - 12; const dn = y.state === 'done' || n.out === 'done';
-    svg += `<path d="M${x0},${cy} C${x0 + 26},${cy} ${px - 26},${py + 12} ${px},${py + 12}" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="3 4" fill="none" opacity=".8"/>`;
-    html += `<button type="button" class="mp-pet${dn ? ' done' : ''}${y.travel ? ' trv' : ''}" data-action="ag-step" data-block="${esc(n.b.id)}" data-step="${esc(y.id)}" style="left:${px}px;top:${py}px" ${n.out ? 'disabled' : ''}><span class="ck" aria-hidden="true">${dn ? '✓' : ''}</span>${esc(stepName(y))}<small>${esc(fmtTime(y.start))}</small></button>`;
-  });
-  return { html, svg, right:px + 190 };
+function portsHtml(n, r) {
+  if (n.kind !== 'block' || !n.x) return '';
+  return PORTS.map((k) => { const [fx, fy] = PXY[PORT_POS[k]]; return `<button type="button" class="mp-port" data-action="gr-port" data-id="${esc(`${n.id}~${k}`)}" data-port="${esc(`${n.id}~${k}`)}" style="--pc:${LT[k].c};left:${r.x + fx * r.w}px;top:${r.y + fy * r.h}px" title="${esc(lname(k))}" aria-label="${esc(lname(k))}">${LT[k].i}</button>`; }).join('');
 }
 // B3: the ghost node, out from the port it came from
 function ghostNode(R) {
@@ -77,17 +58,6 @@ function ghostNode(R) {
   return `<div class="mp-ghostn" style="--pc:${LT[g.k].c};left:${gx}px;top:${gy}px;width:${gw}px;height:${gh}px">${LT[g.k].i} ${esc(g.q || '…')}</div>${svgOf(`<path d="M${px},${py} L${gx + gw / 2},${gy + gh / 2}" stroke="${LT[g.k].c}" stroke-width="2" stroke-dasharray="4 4" fill="none"/>`)}`;
 }
 const confSet = (dates) => new Set(dates.flatMap((d) => conflictsOn(d).filter((c) => c.type === 'overlap' || c.type === 'order').flatMap((c) => c.ids)));
-// (v109) where a thing stands once its time is over: its outcome (done · failed · partial), «over» (an event or an
-// appointment: nothing to mark) or «pend» (a past block still without an outcome: «Com'è andata?»)
-export function pastOf(n) {
-  if (!n || !n.date || n.prop) return null; if (n.out) return n.out;
-  const td = today(); if (n.date > td || (n.date === td && n.start + (n.minutes || 0) > nowMinutes())) return null;
-  return n.kind === 'block' && !n.fixed ? 'pend' : 'over';
-}
-const stCls = (ps) => (ps === 'pend' ? ' pend' : ps ? ` is-${ps}` : '');
-const isRt = (n) => n.kind === 'block' && (n.b.kind === 'meal' || Boolean(n.x?.repeat)); // routines: a dashed rhythm in Linee
-// (v109) the map fills the width: its columns share what's there at the current zoom
-function availW() { const m = document.getElementById('mp-main'); const w = m?.clientWidth || ((document.getElementById('view')?.clientWidth || window.innerWidth) - 24); S().lastW = w; return (w - 14) / (S().pan.k || 1); }
 
 // ---------- day: the hours down, and lanes you choose (v97) ----------
 // The lanes are only guides: their names are yours (Settings keeps them: mapLanes), or none, or numbers. A block
@@ -95,8 +65,7 @@ function availW() { const m = document.getElementById('mp-main'); const w = m?.c
 // Dragging a block up or down moves it in time (15-minute steps), sideways into another lane.
 export const lanes = () => { const l = state.settings.mapLanes; return Array.isArray(l) && l.length ? l : ['', '', '']; };
 const laneMode = () => state.settings.mapLaneLabels || 'custom';
-export const lanesBy = () => (state.settings.mapLanesBy === 'cat' ? 'cat' : 'mine'); // (v102) your lanes, or one per category
-let LW = 170; const LX0 = 56, TOP = 92, PPMD = 0.8; // (v109) LW: the lanes share the width
+const LW = 170, LX0 = 56, TOP = 92, PPMD = 0.8;
 function placeLanes(list, n) {
   const used = Array.from({ length:n }, () => []); const at = new Map(); let extra = n;
   const fits = (l, it) => !(used[l] || []).some((o) => Boolean(o.room) === Boolean(it.room) && o.start < it.start + it.minutes && it.start < o.start + o.minutes); // (v99) side by side: a block with room inside is a background
@@ -144,20 +113,16 @@ function mapDay(date) {
   const h0 = Math.floor(minS / 60) * 60, h1 = Math.ceil(maxE / 60) * 60;
   const links = linksFor(ns.filter((n) => n.kind === 'block').map((n) => n.b)); const conf = confSet([date]);
   const confTxt = {}; for (const c of conflictsOn(date)) for (const id of c.ids) (confTxt[id] ||= []).push(conflictText(c));
-  const Y = (m) => TOP + (m - h0) * PPMD; const byCat = lanesBy() === 'cat';
-  const TH = byCat ? orderThreads(new Set(all.map((n) => thread(n)))) : null;
-  const L = byCat ? TH.map(threadName) : lanes(); const mode = byCat ? 'cat' : laneMode();
+  const Y = (m) => TOP + (m - h0) * PPMD; const L = lanes(); const mode = laneMode();
   const sideBy = ovMode() === 'side'; const isRoom = (n) => sideBy && n.kind === 'block' && roomy(n.b);
-  const { at, total } = placeLanes(all.map((n) => ({ id:n.id, start:n.start, minutes:n.minutes, lane:byCat ? TH.indexOf(thread(n)) : n.kind === 'block' ? n.b.lane : null, room:isRoom(n) })), L.length);
-  LW = Math.max(150, Math.floor((availW() - LX0 - (byCat ? 16 : 130)) / Math.max(1, total)));
+  const { at, total } = placeLanes(all.map((n) => ({ id:n.id, start:n.start, minutes:n.minutes, lane:n.kind === 'block' ? n.b.lane : null, room:isRoom(n) })), L.length);
   let h = '', svg = ''; const R = {};
   const H = Y(h1) + 30;
   for (let i = 0; i < total; i++) {
     h += `<div class="mp-lanebg${i % 2 ? ' alt' : ''}${i >= L.length ? ' over' : ''}" style="left:${LX0 + i * LW}px;width:${LW}px;height:${H}px"></div>`;
-    if (byCat) h += `<div class="mp-lanel bycat" style="left:${LX0 + i * LW}px;width:${LW}px;--c:${esc(threadColor(TH[i]))}"><span>${esc(L[i])}</span></div>`;
-    else if (i < L.length && mode !== 'none') h += `<div class="mp-lanel" style="left:${LX0 + i * LW}px;width:${LW}px">${mode === 'num' ? `<span>${i + 1}</span>` : `<input data-lanename="${i}" value="${esc(L[i])}" placeholder="${esc(t('mp_laneN', i + 1))}" aria-label="${esc(t('mp_laneName'))}">`}${L.length > 1 ? `<button type="button" data-action="mp-lrm" data-id="${i}" title="${esc(t('mp_laneRm'))}" aria-label="${esc(t('mp_laneRm'))}">✕</button>` : ''}</div>`;
+    if (i < L.length && mode !== 'none') h += `<div class="mp-lanel" style="left:${LX0 + i * LW}px;width:${LW}px">${mode === 'num' ? `<span>${i + 1}</span>` : `<input data-lanename="${i}" value="${esc(L[i])}" placeholder="${esc(t('mp_laneN', i + 1))}" aria-label="${esc(t('mp_laneName'))}">`}${L.length > 1 ? `<button type="button" data-action="mp-lrm" data-id="${i}" title="${esc(t('mp_laneRm'))}" aria-label="${esc(t('mp_laneRm'))}">✕</button>` : ''}</div>`;
   }
-  if (!byCat) h += `<button type="button" class="mp-laneadd" data-action="mp-ladd" style="left:${LX0 + total * LW + 8}px">＋ ${esc(t('mp_laneAdd'))}</button>`;
+  h += `<button type="button" class="mp-laneadd" data-action="mp-ladd" style="left:${LX0 + total * LW + 8}px">＋ ${esc(t('mp_laneAdd'))}</button>`;
   for (let m = h0; m <= h1; m += 60) h += `<div class="mp-hline" style="top:${Y(m)}px"><span>${esc(fmtTime(m % 1440))}</span></div>`;
   if (date === td) h += `<div class="mp-hline mp-now" style="top:${Y(nowMinutes())}px"></div>`;
   const NW = LW - 16;
@@ -168,63 +133,58 @@ function mapDay(date) {
     if (n.prop) { h += propHtml(n, r); continue; }
     if (r.room) { h += roomHtml(n, r, conf, all.filter((o) => o !== n && !isRoom(o) && o.start >= n.start && o.start < n.start + n.minutes).map((o) => o.title).join(' · ')); continue; }
     const msgs = confTxt[rawId(n)] || [];
-    h += nodeHtml(n, r, conf, links, `${n.kind === 'block' && !n.out ? ' drag' : ''}${total === 1 ? ' edge-in' : at.get(n.id) === total - 1 ? ' edge-r' : ''}`).replace('<b>', `${msgs.length ? `<span class="mp-bdg" title="${esc(msgs.join('\n'))}">!</span>` : ''}<b>`).replace('data-action="mp-sel"', `data-action="mp-sel"${msgs.length ? ` title="${esc(msgs.join(' · '))}"` : ''}`);
+    h += nodeHtml(n, r, conf, links, n.kind === 'block' && !n.out ? ' drag' : '').replace('<b>', `${msgs.length ? `<span class="mp-bdg" title="${esc(msgs.join('\n'))}">!</span>` : ''}<b>`).replace('data-action="mp-sel"', `data-action="mp-sel"${msgs.length ? ` title="${esc(msgs.join(' · '))}"` : ''}`);
   }
-  // (v102) linked things: with a block selected, only its links, labelled, and what's on other days (or unplanned)
-  // as dashed cards out to its right; with nothing selected, the links stay as faint lines
-  const sid = S().sel; const selR = sid ? R[sid] : null; const bottom = H + 10;
-  const pet = selR ? petalsHtml(selR.n, selR) : { html:'', svg:'', right:0 };
-  const mine = sid ? links.filter((l) => l.a === sid || l.b === sid) : links;
-  let gi = 0, sr = 0;
-  for (const l of mine) {
-    if (!selR) break;
-    const oid = l.a === sid ? l.b : l.a; if (R[oid]) continue; const o = node(oid); if (!o) continue;
-    const x = (pet.right || selR.x + selR.w + 52) + 16; const y = selR.y - 30 + gi * 52; gi++;
-    R[oid] = { x, y, w:NW, h:42, n:o, stub:true }; sr = Math.max(sr, x + NW);
+  // linked things on other days (above: before, below: after); branches and unplanned on the right, level with it
+  let up = 0, dn = 0, side = 0; const bottom = H + 10; const xr = LX0 + (total + 1) * LW;
+  for (const l of links) {
+    const ia = Boolean(R[l.a]), ib = Boolean(R[l.b]); if (ia === ib) continue;
+    const here = R[ia ? l.a : l.b]; const oid = ia ? l.b : l.a; if (R[oid]) continue; const o = node(oid); if (!o) continue;
+    const before = o.date && o.date < date; let x = here.x, y;
+    if (!o.date) { x = xr; y = here.y + side++ * 6; } else if (before) { y = TOP - 84; x = here.x + up++ * 8; } else y = bottom + dn++ * 50;
+    R[oid] = { x, y, w:NW, h:42, n:o };
     const sub = o.kind === 'pot' ? t('sc_branchSub', lname(l.t)) : o.date ? `${relDay(o.date)} ${fmtTime(o.start)} · ${t('mp_go')}` : t('gr_unplanned');
-    h += o.date ? `<a class="mp-n stub bloom" href="#/plan/${esc(o.date)}" data-mpn="${esc(oid)}" style="--c:${esc(nodeColor(o))};left:${x}px;top:${y}px;width:${NW}px;height:42px"><b>${LT[l.t].i} ${esc(o.title)}</b><small>${esc(sub)}</small></a>`
-      : `<div class="mp-n stub bloom${o.kind === 'pot' ? ' pot' : ''}" data-mpn="${esc(oid)}" style="--c:${esc(nodeColor(o))};left:${x}px;top:${y}px;width:${NW}px;height:42px"><b>${LT[l.t].i} ${esc(o.title)}</b><small>${esc(sub)}</small></div>`;
+    h += o.date ? `<a class="mp-n stub" href="#/plan/${esc(o.date)}" data-mpn="${esc(oid)}" style="--c:${esc(nodeColor(o))};left:${x}px;top:${y}px;width:${NW}px;height:42px"><b>${esc(o.title)}</b><small>${esc(sub)}</small></a>`
+      : `<div class="mp-n stub${o.kind === 'pot' ? ' pot' : ''}" data-mpn="${esc(oid)}" style="--c:${esc(nodeColor(o))};left:${x}px;top:${y}px;width:${NW}px;height:42px"><b>${LT[l.t].i} ${esc(o.title)}</b><small>${esc(sub)}</small></div>`;
   }
-  let faint = '';
-  for (const l of mine) { const a = R[l.a], b = R[l.b]; if (!a || !b) continue; const hz = l.t === 'par' || Math.abs(a.y - b.y) < 20 || a.stub || b.stub; const bad = l.t !== 'par' && a.n.date && b.n.date && (a.n.date > b.n.date || (a.n.date === b.n.date && a.n.start + a.n.minutes > b.n.start)) && !l.b.startsWith('pot:');
-    const tt = bad ? 'ko' : l.t; const lab = selR ? `${LT[l.t].i}${bad ? ' ⚠' : ''}${l.l ? ` ${l.l}` : ''} ${lname(l.t)}` : '';
-    const stb = a.stub ? a : b.stub ? b : null; const ra = stb ? R[sid] : a; const rb = stb || b;
-    const c = stb ? curve(ra.x + ra.w, ra.y + Math.min(ra.h, 60) / 2 - 8, rb.x, rb.y + 21, tt, lab, true) : hz ? curve(ra.x + ra.w, ra.y + Math.min(ra.h, 60) / 2, rb.x, rb.y + Math.min(rb.h, 42) / 2, tt, lab, true) : ra.y <= rb.y ? curve(ra.x + ra.w / 2, ra.y + ra.h, rb.x + rb.w / 2, rb.y, tt, lab, false) : curve(ra.x + ra.w / 2, ra.y, rb.x + rb.w / 2, rb.y + rb.h, tt, lab, false);
-    if (selR) svg += c; else faint += c; }
-  svg += pet.svg;
+  for (const l of links) { const a = R[l.a], b = R[l.b]; if (!a || !b) continue; const hz = l.t === 'par' || Math.abs(a.y - b.y) < 20; const bad = l.t !== 'par' && a.n.date && b.n.date && (a.n.date > b.n.date || (a.n.date === b.n.date && a.n.start + a.n.minutes > b.n.start)) && !l.b.startsWith('pot:');
+    const tt = bad ? 'ko' : l.t; const lab = `${LT[l.t].i}${bad ? ' ⚠' : ''}${l.l ? ` ${l.l}` : ''}`;
+    svg += hz ? curve(a.x + a.w, a.y + a.h / 2, b.x, b.y + b.h / 2, tt, lab, true) : a.y <= b.y ? curve(a.x + a.w / 2, a.y + a.h, b.x + b.w / 2, b.y, tt, lab, false) : curve(a.x + a.w / 2, a.y, b.x + b.w / 2, b.y + b.h, tt, lab, false); }
   const sel = R[S().sel];
-  geo = { Y, h0, total, date, cat:byCat };
-  return { html:(faint ? `<svg class="mp-links faint" width="10" height="10">${faint}</svg>` : '') + svgOf(svg) + h + pet.html + (sel && !sel.n.prop ? plusHtml(sel.n, sel) : '') + ghostNode(R), w:Math.max(LX0 + total * LW + (byCat ? 16 : 130), pet.right + 40, sr + 20, 340), h:bottom + 40, R, links, geo:{ Y, h0, LW, LX0, total, date }, focusY:all.length ? Y(Math.max(h0, Math.min(...all.map((n) => n.start)) - 30)) : Y(ps.dayStart) };
+  geo = { Y, h0, total, date };
+  return { html:svgOf(svg) + h + (sel && !sel.n.prop ? portsHtml(sel.n, sel) : '') + ghostNode(R), w:Math.max(xr + LW, 340), h:bottom + dn * 50 + 40, R, links, geo:{ Y, h0, LW, LX0, total, date }, focusY:all.length ? Y(Math.max(h0, Math.min(...all.map((n) => n.start)) - 30)) - (links.some((l) => R[l.a]?.y < TOP || R[l.b]?.y < TOP) ? 100 : 0) : Y(ps.dayStart) };
 }
 
-// ---------- week (v109): a row per day, a column per category ----------
+// ---------- week ----------
 function mapWeek(date) {
   const w0 = weekStart(date); const days = Array.from({ length:7 }, (_, i) => addDays(w0, i)); const td = today();
+  const CW = 112, NW = 102, NH = 40, X0 = 74; let h = '', svg = ''; const R = {};
+  const part = (m) => (m < 13 * 60 ? 'am' : m < 18 * 60 ? 'pm' : 'eve'); const PH = { am:0, pm:0, eve:0 };
   const byDay = days.map((d) => [...dayNodes(d).filter((n) => !(n.kind === 'block' && n.b.kind === 'prep')), ...propNodes(d)].sort((a, b) => a.start - b.start));
-  const all = byDay.flat(); const TH = orderThreads(new Set(all.map(thread)));
-  const X0 = 104, Y0 = 34, NH = 40, G = 6; const CW = Math.max(118, (availW() - X0 - 8) / Math.max(1, TH.length)); const NW = CW - 12; const right = X0 + TH.length * CW;
-  let h = '', svg = ''; const R = {}; const links = linksFor(all.filter((n) => n.kind === 'block').map((n) => n.b)); const conf = confSet(days); const max = planSettings().maxLoad;
-  TH.forEach((th, j) => { h += `<div class="mp-thh" style="left:${X0 + j * CW}px;width:${CW}px;color:${esc(threadColor(th))}">${esc(threadName(th))}</div>`; });
-  let y = Y0;
+  for (const ns of byDay) for (const p of Object.keys(PH)) PH[p] = Math.max(PH[p], ns.filter((n) => part(n.start) === p).length);
+  let y = 54; const PY = {}; for (const p of ['am', 'pm', 'eve']) { PY[p] = y; y += Math.max(1, PH[p]) * (NH + 8) + 16; }
+  const H = y + 10; const all = byDay.flat(); const links = linksFor(all.filter((n) => n.kind === 'block').map((n) => n.b)); const conf = confSet(days);
+  for (const p of ['am', 'pm', 'eve']) h += `<div class="mp-part" style="top:${PY[p] - 14}px;width:${X0 + 7 * CW + 140}px">${esc(t(`mp_${p}`))}</div>`;
+  const max = planSettings().maxLoad;
   days.forEach((d, i) => {
-    const cells = TH.map((th) => byDay[i].filter((n) => thread(n) === th)); const RH = Math.max(1, ...cells.map((c) => c.length)) * (NH + G) + 12; const ld = loadMin(d);
-    h += `<div class="mp-wrow${d === td ? ' cur' : ''}${i > 4 ? ' we' : ''}" style="top:${y}px;height:${RH}px;width:${right + 4}px"></div><button type="button" class="mp-wlab mp-dlab${d === td ? ' is-today' : ''}" data-action="view-day" data-id="${d}" style="top:${y + 8}px"><b>${esc(fmtDay(d, { weekday:'short' }))} ${parseDate(d).getDate()}</b><small>${esc(fmtDur(ld) || '—')}${d === td ? ` · ${esc(t('today').toLowerCase())}` : ''}</small><i><u class="${ld > max ? 'veryfull' : ''}" style="width:${Math.min(100, (ld / max) * 100)}%"></u></i></button>`;
-    cells.forEach((c, j) => c.forEach((n, k) => { R[n.id] = { x:X0 + j * CW + 6, y:y + 6 + k * (NH + G), w:NW, h:NH, n, j }; }));
-    y += RH;
+    const x = X0 + i * CW; const ld = loadMin(d);
+    h += `<div class="mp-colbg${d === td ? ' is-today' : ''}${i > 4 ? ' we' : ''}" style="left:${x - 4}px;width:${CW}px;height:${H}px"></div><button type="button" class="mp-colh${d === td ? ' is-today' : ''}" data-action="view-day" data-id="${d}" style="left:${x - 4}px;width:${CW}px">${esc(fmtDay(d, { weekday:'short' }))}<b>${parseDate(d).getDate()}</b><i><u style="width:${Math.min(100, (ld / max) * 100)}%" class="${ld > max ? 'over' : ''}"></u></i></button>`;
+    const cnt = { am:0, pm:0, eve:0 };
+    for (const n of byDay[i]) { const p = part(n.start); const ny = PY[p] + cnt[p]++ * (NH + 8); R[n.id] = { x, y:ny, w:NW, h:NH, n }; }
   });
-  const H = y;
-  for (const r of Object.values(R)) h += r.n.prop ? propHtml(r.n, r) : nodeHtml(r.n, r, conf, links, TH.length === 1 ? ' edge-in' : r.j === TH.length - 1 || (TH.length > 3 && r.j === TH.length - 2) ? ' edge-r' : '');
-  // linked things outside the week: a row of stubs under it
-  let sx = X0;
+  for (const r of Object.values(R)) h += r.n.prop ? propHtml(r.n, r) : nodeHtml(r.n, r, conf, links);
+  let lb = 0, rb = 0;
   for (const l of links) {
     const ia = Boolean(R[l.a]), ib = Boolean(R[l.b]); if (ia === ib) continue; const oid = ia ? l.b : l.a; if (R[oid]) continue; const o = node(oid); if (!o) continue;
-    const yy = H + 14; R[oid] = { x:sx, y:yy, w:NW, h:40, n:o }; sx += CW;
-    h += o.date ? `<a class="mp-n stub" href="#/plan/${esc(o.date)}" data-mpn="${esc(oid)}" style="--c:${esc(nodeColor(o))};left:${R[oid].x}px;top:${yy}px;width:${NW}px;height:40px"><b>${esc(o.title)}</b><small>${esc(shortDay(o.date))}</small></a>`
-      : `<div class="mp-n stub pot" data-mpn="${esc(oid)}" style="--c:${esc(nodeColor(o))};left:${R[oid].x}px;top:${yy}px;width:${NW}px;height:40px"><b>${LT[l.t].i} ${esc(o.title)}</b><small>${esc(o.kind === 'pot' ? lname(l.t) : t('gr_unplanned'))}</small></div>`;
+    const left = o.date && o.date < w0; const pot = !o.date; const here = R[ia ? l.a : l.b];
+    const x = pot ? here.x : left ? 4 : X0 + 7 * CW + 6; const yy = pot ? H + 6 + rb * 0 : 54 + (left ? lb++ : rb++) * 48; const ww = pot ? NW : 64;
+    R[oid] = { x, y:yy, w:ww, h:40, n:o };
+    h += o.date ? `<a class="mp-n stub" href="#/plan/${esc(o.date)}" data-mpn="${esc(oid)}" style="--c:${esc(nodeColor(o))};left:${x}px;top:${yy}px;width:${ww}px;height:40px"><b>${esc(o.title)}</b><small>${esc(shortDay(o.date))}</small></a>`
+      : `<div class="mp-n stub pot" data-mpn="${esc(oid)}" style="--c:${esc(nodeColor(o))};left:${x}px;top:${yy}px;width:${ww}px;height:40px"><b>${LT[l.t].i} ${esc(o.title)}</b><small>${esc(o.kind === 'pot' ? lname(l.t) : t('gr_unplanned'))}</small></div>`;
   }
-  for (const l of links) { const a = R[l.a], b = R[l.b]; if (!a || !b) continue; const hz = Math.abs(a.y - b.y) < NH; svg += hz ? (a.x < b.x ? curve(a.x + a.w, a.y + a.h / 2, b.x, b.y + b.h / 2, l.t, LT[l.t].i, true) : curve(a.x, a.y + a.h / 2, b.x + b.w, b.y + b.h / 2, l.t, LT[l.t].i, true)) : a.y < b.y ? curve(a.x + a.w / 2, a.y + a.h, b.x + b.w / 2, b.y, l.t, LT[l.t].i, false) : curve(a.x + a.w / 2, a.y, b.x + b.w / 2, b.y + b.h, l.t, LT[l.t].i, false); }
+  for (const l of links) { const a = R[l.a], b = R[l.b]; if (!a || !b) continue; const hz = Math.abs(a.x - b.x) > 20; svg += hz ? (a.x < b.x ? curve(a.x + a.w, a.y + a.h / 2, b.x, b.y + b.h / 2, l.t, LT[l.t].i, true) : curve(a.x, a.y + a.h / 2, b.x + b.w, b.y + b.h / 2, l.t, LT[l.t].i, true)) : curve(a.x + a.w / 2, a.y + a.h, b.x + b.w / 2, b.y, l.t, LT[l.t].i, false); }
   const sel = R[S().sel];
-  return { html:svgOf(svg) + h + (sel ? plusHtml(sel.n, sel) : '') + ghostNode(R), w:Math.max(right + 10, sx), h:H + (sx > X0 ? 80 : 30), R, links };
+  return { html:svgOf(svg) + h + (sel ? portsHtml(sel.n, sel) : '') + ghostNode(R), w:X0 + 7 * CW + 80, h:H + 60, R, links };
 }
 
 // ---------- month ----------
@@ -236,139 +196,45 @@ function monthData(date) {
   return { ws, days, items, ths:orderThreads([...new Set(items.map(thread))]), links:linksFor(items.filter((n) => n.kind === 'block').map((n) => n.b)).filter((l) => !l.b.startsWith('pot:')) };
 }
 const weekLoad = (w) => Array.from({ length:7 }, (_, i) => loadMin(addDays(w, i))).reduce((a, b) => a + b, 0);
-const weekLab = (w, y, extra = '') => { const td = today(); const L = weekLoad(w); return `<button type="button" class="mp-wlab" data-action="mp-week" data-id="${w}" style="top:${y}px" title="${esc(t('sc_openWeek'))}"><b>${parseDate(w).getDate()}–${parseDate(addDays(w, 6)).getDate()}</b><small>${esc(fmtDur(L) || '—')} · ${esc(t(`sc_wl_${wlevel(L)}`))}${extra}</small><i><u class="${wlevel(L)}" style="width:${Math.min(100, (L / (30 * 60)) * 100)}%"></u></i></button>${weekStart(td) === w ? '' : ''}`; };
 function mapMonthWeeks(date) {
-  const { ws, items, ths, links } = monthData(date); const td = today(); const LW0 = 112, RH = 84, Y0 = 30; const CW = Math.max(100, (availW() - LW0 - 8) / Math.max(1, ths.length)); const BW = CW - 8, BH = RH - 16;
-  let h = '', svg = ''; const C = {};
+  const { ws, items, ths, links } = monthData(date); const td = today(); const LW = 82, CW = 82, RH = 80, Y0 = 28; let h = '', svg = ''; const C = {};
   const conf = confSet(items.map((n) => n.date).filter((d, i, a) => a.indexOf(d) === i));
-  ths.forEach((th, j) => { h += `<div class="mp-thh" style="left:${LW0 + j * CW}px;width:${BW}px;color:${esc(threadColor(th))}">${esc(threadName(th))}</div>`; });
+  ths.forEach((th, j) => { h += `<div class="mp-thh" style="left:${LW + j * CW}px;color:${esc(threadColor(th))}">${esc(threadName(th))}</div>`; });
   ws.forEach((w, r) => {
-    const y = Y0 + r * RH; const cur = weekStart(td) === w; const cf = items.some((n) => n.date >= w && n.date <= addDays(w, 6) && conf.has(rawId(n)));
-    h += `<div class="mp-wrow${cur ? ' cur' : ''}" style="top:${y - 4}px;height:${RH}px;width:${LW0 + Math.max(1, ths.length) * CW + 4}px"></div>${weekLab(w, y + 6, cf ? ' · <em>⚠</em>' : '')}`;
+    const y = Y0 + r * RH; const L = weekLoad(w); const cur = weekStart(td) === w; const cf = items.some((n) => n.date >= w && n.date <= addDays(w, 6) && conf.has(rawId(n)));
+    h += `<div class="mp-wrow${cur ? ' cur' : ''}" style="top:${y - 4}px;height:${RH}px;width:${LW + Math.max(1, ths.length) * CW + 10}px"></div>
+      <button type="button" class="mp-wlab" data-action="mp-week" data-id="${w}" style="top:${y + 6}px"><b>${parseDate(w).getDate()}–${parseDate(addDays(w, 6)).getDate()}</b><small>${esc(fmtDur(L) || '—')} · ${esc(t(`sc_wl_${wlevel(L)}`))}${cf ? ' · <em>⚠</em>' : ''}</small><i><u class="${wlevel(L)}" style="width:${Math.min(100, (L / (30 * 60)) * 100)}%"></u></i></button>`;
     ths.forEach((th, j) => {
       const its = items.filter((n) => thread(n) === th && n.date >= w && n.date <= addDays(w, 6)); if (!its.length) return;
-      const x = LW0 + j * CW; const key = `${w}|${th}`; C[key] = { x, y, w:BW, h:BH };
+      const x = LW + j * CW; const key = `${w}|${th}`; C[key] = { x, y, w:76, h:64 };
       const ap = its.filter((n) => n.fixed).length; const warn = its.some((n) => conf.has(rawId(n))); const inner = links.filter((l) => its.some((n) => n.id === l.a) && its.some((n) => n.id === l.b)).length;
-      const pss = its.map(pastOf); const anyPend = pss.includes('pend'); const allPast = pss.every(Boolean);
-      const tt = its.length > 1 && BW >= 140 ? [...new Set(its.filter((n) => !isRt(n)).map((n) => n.title))].slice(0, 3).join(', ') : '';
-      const card = listCard([...its].sort((p, q) => (p.date < q.date ? -1 : p.date > q.date ? 1 : p.start - q.start)), { th, byDay:true, max:12, title:`${threadName(th)} · ${parseDate(w).getDate()}–${parseDate(addDays(w, 6)).getDate()}`, sub:t('mp_things', its.length), foot:`<span role="button" class="mp-go" data-action="mp-week" data-id="${w}">${esc(t('sc_openWeek'))} ›</span>` });
-      const edge = j === ths.length - 1 || (ths.length > 3 && j === ths.length - 2) ? ' edge-r' : '';
-      h += `<div role="button" tabindex="0" class="mp-cl${S().cl === key ? ' sel' : ''}${warn ? ' warn' : ''}${anyPend ? ' pend' : allPast ? ' is-past' : ''}${edge}" data-action="mp-cl" data-id="${esc(key)}" style="--c:${esc(threadColor(th))};left:${x}px;top:${y}px;width:${BW}px;height:${BH}px">${card}<b>${its.length === 1 ? esc(its[0].title) : esc(t('mp_things', its.length))}</b><small>${ap ? `📅 ${ap} · ` : ''}${esc(fmtDur(its.reduce((s2, n) => s2 + n.minutes, 0)))}${inner ? ` · ${esc(t('mp_links', inner))}` : ''}</small>${tt ? `<small class="tt">${esc(tt)}</small>` : ''}<span class="dots">${Array.from({ length:7 }, (_, i) => { const q = its.filter((n) => n.date === addDays(w, i)); return `<span class="${q.length ? (q.some((n) => n.fixed) ? 'ap' : 'on') : ''}"></span>`; }).join('')}</span></div>`;
+      h += `<button type="button" class="mp-cl${S().cl === key ? ' sel' : ''}${warn ? ' warn' : ''}" data-action="mp-cl" data-id="${esc(key)}" style="--c:${esc(threadColor(th))};left:${x}px;top:${y}px"><b>${its.length === 1 ? esc(its[0].title) : esc(t('mp_things', its.length))}</b><small>${ap ? `📅 ${ap} · ` : ''}${esc(fmtDur(its.reduce((s, n) => s + n.minutes, 0)))}${inner ? ` · ${esc(t('mp_links', inner))}` : ''}</small><span class="dots">${Array.from({ length:7 }, (_, i) => { const q = its.filter((n) => n.date === addDays(w, i)); return `<span class="${q.length ? (q.some((n) => n.fixed) ? 'ap' : 'on') : ''}"></span>`; }).join('')}</span></button>`;
     });
   });
   const agg = {};
   for (const l of links) { const a = node(l.a), b = node(l.b); if (!a?.date || !b?.date) continue; const wa = weekStart(a.date), wb = weekStart(b.date); if (wa === wb && thread(a) === thread(b)) continue; const k = `${wa}|${thread(a)}>${wb}|${thread(b)}`; (agg[k] ||= { from:`${wa}|${thread(a)}`, to:`${wb}|${thread(b)}`, n:0, t:l.t }).n++; }
   for (const g of Object.values(agg)) { const A = C[g.from], B = C[g.to]; if (!A || !B) continue; svg += A.y === B.y ? curve(A.x + A.w, A.y + 30, B.x, B.y + 30, g.t, g.n > 1 ? `${g.n}` : LT[g.t].i, true) : curve(A.x + A.w / 2, A.y + A.h, B.x + B.w / 2, B.y, g.t, g.n > 1 ? t('mp_links', g.n) : LT[g.t].i, false); }
-  return { html:svgOf(svg) + h, w:LW0 + Math.max(1, ths.length) * CW + 10, h:Y0 + ws.length * RH + 10 };
+  return { html:svgOf(svg) + h, w:LW + Math.max(1, ths.length) * CW + 20, h:Y0 + ws.length * RH + 10 };
 }
-
-// ---------- (v109) Linee, in every view: the time down the side, a line per category ----------
-// Things in the same day (the same few minutes, in the day view) make one stop with their number; routines are a thin
-// dashed rhythm; a stop opens its card on hover (a tap pins it); links show only for the pinned stop.
-let STN = {};
-function linesMap(v, date) {
-  const s = S(); const td = today(); const HEAD = 34, DH = 22, RH = 80; STN = {}; // (v111) bigger stops, taller day rows in the month
-  let items = [], yOf, H, days = [], ws = [], h0 = 0, P = 0.9;
-  if (v === 'day') {
-    items = dayNodes(date).filter((n) => !(n.kind === 'block' && n.b.kind === 'prep'));
-    const ps = planSettings(); h0 = Math.floor(Math.min(ps.dayStart, ...items.map((n) => n.start)) / 60) * 60; const h1 = Math.ceil(Math.max(ps.dayEnd, ...items.map((n) => n.start + n.minutes)) / 60) * 60;
-    yOf = (n) => HEAD + 14 + (n.start - h0) * P; H = HEAD + 14 + (h1 - h0) * P + 24; days = [date];
-  } else if (v === 'week') {
-    const w0 = weekStart(date); days = Array.from({ length:7 }, (_, i) => addDays(w0, i));
-    items = days.flatMap((d) => dayNodes(d).filter((n) => !(n.kind === 'block' && n.b.kind === 'prep')));
-    yOf = (n) => HEAD + days.indexOf(n.date) * RH + RH / 2; H = HEAD + 7 * RH + 16;
-  } else { const md = monthData(date); ws = md.ws; days = md.days; items = md.items; yOf = (n) => HEAD + days.indexOf(n.date) * DH + DH / 2; H = HEAD + days.length * DH + 16; }
-  const TH = orderThreads(new Set(items.map(thread))); const X0 = v === 'month' ? 116 : v === 'week' ? 104 : 60;
-  const CW = Math.max(110, (availW() - X0 - 8) / Math.max(1, TH.length)); const WW = X0 + Math.max(1, TH.length) * CW + 8;
-  s.worldW = WW; s.worldH = H;
-  let h = '', svg = '';
-  TH.forEach((th, j) => { h += `<div class="mp-thh" style="left:${X0 + j * CW}px;width:${CW}px;color:${esc(threadColor(th))}">${esc(threadName(th))}</div>`; });
-  // the time down the side
-  if (v === 'day') {
-    const h1 = h0 + (H - HEAD - 38) / P;
-    for (let m = h0; m <= h1 + 1; m += 60) h += `<div class="mp-hline" style="top:${HEAD + 14 + (m - h0) * P}px"><span>${esc(fmtTime(m % 1440))}</span></div>`;
-    if (date === td) h += `<div class="mp-hline mp-now" style="top:${HEAD + 14 + (nowMinutes() - h0) * P}px"></div>`;
-  } else if (v === 'week') {
-    const max = planSettings().maxLoad;
-    days.forEach((d, i) => { const ld = loadMin(d); h += `<div class="mp-wrow${d === td ? ' cur' : ''}${i > 4 ? ' we' : ''}" style="top:${HEAD + i * RH}px;height:${RH}px;width:${WW}px"></div><button type="button" class="mp-wlab mp-dlab${d === td ? ' is-today' : ''}" data-action="view-day" data-id="${d}" style="top:${HEAD + i * RH + 10}px"><b>${esc(fmtDay(d, { weekday:'short' }))} ${parseDate(d).getDate()}</b><small>${esc(fmtDur(ld) || '—')}</small><i><u class="${ld > max ? 'veryfull' : ''}" style="width:${Math.min(100, (ld / max) * 100)}%"></u></i></button>`; });
-    const ti = days.indexOf(td); if (ti >= 0) { const ps = planSettings(); const f = Math.max(0, Math.min(1, (nowMinutes() - ps.dayStart) / Math.max(60, ps.dayEnd - ps.dayStart))); h += `<div class="mp-hline mp-now" style="top:${HEAD + ti * RH + 8 + f * (RH - 16)}px;left:${X0 - 8}px"></div>`; }
-  } else {
-    ws.forEach((w, r) => { h += `<div class="mp-wrow${weekStart(td) === w ? ' cur' : ''}" style="top:${HEAD + r * 7 * DH}px;height:${7 * DH}px;width:${WW}px"></div>${weekLab(w, HEAD + r * 7 * DH + 6)}`; });
-    days.forEach((d, i) => { h += `<button type="button" class="mp-dtk${d === td ? ' is-today' : ''}" data-action="view-day" data-id="${d}" style="top:${HEAD + i * DH}px;left:${X0 - 30}px;height:${DH}px">${parseDate(d).getDate()}</button>`; });
-    const ti = days.indexOf(td); if (ti >= 0) h += `<div class="mp-hline mp-now" style="top:${HEAD + ti * DH + DH / 2}px;left:${X0 - 6}px"></div>`;
-  }
-  const conf = confSet(days); const pos = {}; const pin = s.pin;
-  TH.forEach((th, j) => {
-    const x = X0 + j * CW + 26; const c = threadColor(th);
-    const its = items.filter((n) => thread(n) === th).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.start - b.start));
-    const groups = [];
-    for (const n of its) { const y = yOf(n); const g = groups[groups.length - 1]; if (g && (v === 'day' ? y - g.y < 22 : g.date === n.date)) g.ns.push(n); else groups.push({ y, date:n.date, ns:[n] }); }
-    const full = groups.filter((g) => !g.ns.every(isRt)); const rt = groups.filter((g) => g.ns.every(isRt));
-    if (full.length > 1) h += `<div class="mp-trk" style="--c:${esc(c)};left:${x}px;top:${full[0].y}px;height:${full[full.length - 1].y - full[0].y}px"></div>`;
-    if (rt.length > 1) h += `<div class="mp-rhy" style="--c:${esc(c)};left:${x}px;top:${rt[0].y}px;height:${rt[rt.length - 1].y - rt[0].y}px"></div>`;
-    let lastL = -1e9;
-    groups.forEach((g, gi) => {
-      const key = `${th}|${g.date}|${gi}`; const n = g.ns.length; const tiny = g.ns.every(isRt);
-      const pss = g.ns.map(pastOf); const pend = pss.includes('pend'); const done = !pend && pss.every(Boolean); const fx = g.ns.find((q) => q.fixed); const cf = g.ns.some((q) => conf.has(rawId(q)));
-      const sz = v === 'month' ? (tiny ? 10 : n === 1 ? 18 : Math.min(24, 19 + n)) : tiny ? 12 : n === 1 ? (fx ? 26 : 24) : Math.min(40, 28 + n * 2);
-      STN[key] = { ids:g.ns.map((q) => q.id), date:g.date, x, y:g.y, th, sz }; for (const q of g.ns) pos[q.id] = key;
-      h += `<button type="button" class="mp-sta${tiny ? ' rt' : ''}${fx ? ' appt' : ''}${done ? ' is-past' : ''}${pend ? ' pend' : ''}${cf ? ' conf' : ''}${pin === key ? ' sel' : ''}" data-action="mp-stn" data-id="${esc(key)}" data-mpk="${esc(key)}" style="--c:${esc(c)};left:${x}px;top:${g.y}px;width:${sz}px;height:${sz}px" aria-label="${esc(g.ns.map((q) => q.title).join(', '))}">${n > 1 && !tiny ? n : ''}</button>`;
-      const f = g.ns[0]; let lab = '';
-      if (v === 'month') { if (fx && g.y - lastL >= DH * 3) lab = `${esc(fx.title)}${n > 1 ? ` <small>+${n - 1}</small>` : ''}`; }
-      else if (!tiny) lab = n === 1 ? `${esc(f.title)} <small>· ${esc(fmtTime(f.start))}</small>` : `${esc((fx || f).title)} <small>+${n - 1}${v === 'day' ? ` · ${esc(fmtTime(f.start))}` : ''}</small>`;
-      if (lab) { lastL = g.y; h += `<span class="mp-stal${done ? ' is-past' : ''}" style="left:${x + sz / 2 + 7}px;top:${g.y}px;max-width:${Math.max(40, CW - sz / 2 - 36)}px">${lab}</span>`; }
-    });
+function mapMonthLines(date) {
+  const { ws, days, items, ths, links } = monthData(date); const td = today(); const DX = 17, X0 = 70, Y0 = 74, LH = 52;
+  const idx = (d) => days.indexOf(d); const xOf = (d) => X0 + idx(d) * DX; let h = '', svg = ''; const P = {};
+  const conf = confSet(days.filter((d) => d >= addDays(td, -7)));
+  for (const w of ws) { const L = weekLoad(w); const cur = weekStart(td) === w; h += `<button type="button" class="mp-wk${cur ? ' cur' : ''}" data-action="mp-week" data-id="${w}" style="left:${xOf(w) - DX / 2}px;width:${7 * DX}px"><b>${parseDate(w).getDate()}–${parseDate(addDays(w, 6)).getDate()}</b><small>${esc(fmtDur(L) || '—')}</small><span class="bar"><u class="${wlevel(L)}" style="width:${Math.min(100, (L / (30 * 60)) * 100)}%"></u></span></button>`; }
+  for (const d of days) h += `<span class="mp-dtick" style="left:${xOf(d)}px;top:${Y0 - 12}px">${parseDate(d).getDate()}</span>`;
+  if (idx(td) >= 0) h += `<div class="mp-todayv" style="left:${xOf(td)}px;top:${Y0 - 4}px;height:${ths.length * LH + 10}px"></div>`;
+  ths.forEach((th, j) => {
+    const y = Y0 + 14 + j * LH; const its = items.filter((n) => thread(n) === th).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.start - b.start));
+    if (its.length) svg += `<path d="M${xOf(its[0].date)},${y} L${xOf(its[its.length - 1].date)},${y}" stroke="${esc(threadColor(th))}" stroke-width="5" stroke-linecap="round" opacity=".75"/>`;
+    h += `<span class="mp-lname" style="top:${y - 24}px;color:${esc(threadColor(th))}">${esc(threadName(th))}</span>`;
+    const seen = {};
+    for (const n of its) { const off = (seen[n.date] = (seen[n.date] || 0) + 1) - 1; const px = xOf(n.date) + off * 8; P[n.id] = { x:px, y };
+      h += `<button type="button" class="mp-st${n.fixed ? ' appt' : ''}${n.out ? ' done' : ''}${conf.has(rawId(n)) ? ' conf' : ''}${S().sel === n.id ? ' sel' : ''}" data-action="mp-sel" data-id="${esc(n.id)}" data-mpn="${esc(n.id)}" style="--c:${esc(threadColor(th))};left:${px}px;top:${y}px" title="${esc(`${n.title} · ${shortDay(n.date)} ${fmtTime(n.start)}`)}" aria-label="${esc(n.title)}"></button>`;
+      if (n.fixed) h += `<span class="mp-stl" style="left:${px}px;top:${y + 12}px">${esc(n.title.split(' ').slice(0, 2).join(' '))}</span>`; }
   });
-  if (pin && STN[pin]) {
-    const g = STN[pin]; const ls = linksFor(g.ids.map(node).filter((q) => q?.kind === 'block').map((q) => q.b));
-    for (const l of ls) { const mine = g.ids.includes(l.a) ? l.a : g.ids.includes(l.b) ? l.b : null; if (!mine) continue; const ok = pos[mine === l.a ? l.b : l.a]; const o = ok && STN[ok]; if (!o || ok === pin) continue; svg += curve(g.x, g.y, o.x, o.y, l.t, LT[l.t].i, Math.abs(g.y - o.y) < 20); }
-    h += stnCard(pin, true);
-  } else if (pin) s.pin = null;
-  return { html:svgOf(svg) + h, w:WW, h:H, R:items.length ? { any:1 } : {} };
+  for (const l of links) { const a = P[l.a], b = P[l.b]; if (!a || !b || a.y === b.y) continue; svg += curve(a.x, a.y + 9, b.x, b.y - 9, l.t, LT[l.t].i, false); }
+  return { html:svgOf(svg) + h, w:X0 + days.length * DX + 40, h:Y0 + ths.length * LH + 40 };
 }
-// the card of a stop: one thing → its card; more → the list (✓ ✕ ↺ on each row), «Apri il giorno»
-function stnCard(key, pin = false) {
-  const g = STN[key]; if (!g) return ''; const ns = g.ids.map(node).filter(Boolean); if (!ns.length) return '';
-  const s = S(); const v = currentView(); const day = v === 'day' ? '' : shortDay(g.date);
-  const fx = g.x + 310 > (s.worldW || 9999); const fy = g.y + 230 > (s.worldH || 9999) && g.y > 230;
-  const o2 = (g.sz || 18) / 2 + 10; const style = `left:${fx ? g.x - o2 : g.x + o2}px;top:${fy ? g.y + 14 : g.y - 16}px;${fx || fy ? `transform:${fx ? 'translateX(-100%)' : ''} ${fy ? 'translateY(-100%)' : ''};` : ''}`;
-  const cls = pin ? ' pin' : '';
-  if (ns.length === 1) return fullCard(ns[0], '', { float:true, style, day, cls });
-  return listCard(ns, { th:g.th, cls:` mp-float${cls}`, style, title:`${t('mp_things', ns.length)}${day ? ` · ${day}` : ''}`, foot:v !== 'day' ? `<span role="button" class="mp-go" data-action="view-day" data-id="${g.date}">${esc(t('mp_openDay'))} ›</span>` : '' });
-}
-// (v111) a row of a list card: its time and title (a tap opens it) and, on hover, ✓ 🕒 · ✓ ✕ (to mark) · ↺ (done)
-function rowHtml(q) {
-  const ps = pastOf(q); const b = q.kind === 'block' ? q.b : null; const id = b ? esc(b.id) : '';
-  const qa = !b ? '' : ps === 'pend' ? `<span role="button" data-action="behind-done" data-id="${id}" title="${esc(t('esDone'))}">✓</span><span role="button" data-action="behind-fail" data-id="${id}" title="${esc(t('esFail'))}">✕</span>`
-    : q.out ? `<span role="button" data-action="block-reset" data-id="${id}" title="${esc(t('mp_reopen'))}">↺</span>` : ps ? '' : `<span role="button" data-action="sc-done" data-id="${id}" title="${esc(t('esDone'))}">✓</span><span role="button" data-action="now-move" data-id="${id}" title="${esc(t('moveBtn'))}">🕒</span>`;
-  const open = b ? `data-action="open-block" data-id="${id}"` : q.kind === 'event' ? `data-action="event" data-id="${esc(q.raw)}"` : '';
-  return `<span class="mp-hr${ps === 'pend' ? ' pend' : ps ? ' is-past' : ''}"><span role="button" class="mp-hro" ${open}><i>${esc(fmtTime(q.start))}</i><em>${q.fixed ? '📅 ' : ''}${q.out === 'done' ? '✓ ' : ''}${esc(q.title)}</em></span>${qa ? `<span class="mp-hq">${qa}</span>` : ''}</span>`;
-}
-// a list card: a stop with more things, a box of the month (by day, with o.byDay)
-function listCard(ns, o) {
-  const pss = ns.map(pastOf); const allPast = pss.every(Boolean); const np = pss.filter((p) => p === 'pend').length; const tot = ns.reduce((a, q) => a + (q.minutes || 0), 0);
-  let rows = ''; let last = ''; const shown = ns.slice(0, o.max || 99);
-  for (const q of shown) { if (o.byDay && q.date !== last) { rows += `<span class="mp-dh">${esc(shortDay(q.date))}</span>`; last = q.date; } rows += rowHtml(q); }
-  if (ns.length > shown.length) rows += `<span class="mp-dh">${esc(t('mp_more', ns.length - shown.length))}</span>`;
-  return `<span class="mp-full mp-multi${allPast ? ` is-past${np ? ' pend' : ''}` : ''}${o.cls || ''}" style="--c:${esc(threadColor(o.th))};${o.style || ''}"${o.cls?.includes('mp-float') ? '' : ' aria-hidden="true"'}>${allPast ? `<em class="mp-pt">${esc(t(np ? 'mp_past_pend' : 'mp_past_over'))}</em>` : ''}<b>${esc(o.title)}</b><small>${o.sub ? `${esc(o.sub)} · ` : `${esc(threadName(o.th))} · `}${esc(fmtDur(tot))}${np ? ` · <span class="mp-np">${esc(t('mp_nPend', np))}</span>` : ''}</small><span class="mp-rows">${rows}</span>${o.foot || ''}</span>`;
-}
-// hover (a mouse): the card of the stop under the pointer; it stays while the pointer moves into it
-let hovT = 0;
-document.addEventListener('pointerover', (e) => {
-  if (e.pointerType !== 'mouse') return;
-  if (e.target.closest?.('#mp-hov')) { clearTimeout(hovT); return; }
-  const st = e.target.closest?.('#mp-world .mp-sta'); if (!st) return;
-  const key = st.dataset.mpk; clearTimeout(hovT); if (S().pin === key) return;
-  const old = document.getElementById('mp-hov'); if (old?.dataset.k === key) return; old?.remove();
-  const html = stnCard(key); const w = document.getElementById('mp-world'); if (!html || !w) return;
-  w.insertAdjacentHTML('beforeend', html); const el = w.lastElementChild; el.id = 'mp-hov'; el.dataset.k = key;
-});
-document.addEventListener('pointerout', (e) => {
-  if (e.pointerType !== 'mouse') return;
-  const from = e.target.closest?.('#mp-world .mp-sta, #mp-hov'); if (!from) return;
-  const to = e.relatedTarget; if (to && (to.closest?.('#mp-hov') || from.contains(to))) return;
-  clearTimeout(hovT); hovT = setTimeout(() => document.getElementById('mp-hov')?.remove(), 160);
-});
 
 // ---------- what's selected ----------
 function infoHtml(v) {
@@ -382,19 +248,18 @@ function infoHtml(v) {
   const n = s.sel && node(s.sel); if (!n) return '';
   const links = n.kind === 'block' ? linksFor([n.b]).filter((l) => l.a === n.id || l.b === n.id) : [];
   const conf = n.date ? conflictsOn(n.date).filter((c) => c.ids.includes(rawId(n))) : [];
-  return `<div class="mp-info"><h4>${n.fixed ? '📅 ' : ''}${esc(n.title)}<button type="button" class="icon mp-ix" data-action="mp-x" aria-label="${esc(t('close'))}">✕</button></h4><small>${esc(n.date ? `${relDay(n.date)} · ${fmtTime(n.start)}–${fmtTime(n.start + n.minutes)} · ${fmtDur(n.minutes)}` : t('gr_unplanned'))}${conf.length ? ` · ⚠ ${esc(t('nConflicts', conf.length))}` : ''}</small>
+  return `<div class="mp-info"><h4>${n.fixed ? '📅 ' : ''}${esc(n.title)}</h4><small>${esc(n.date ? `${relDay(n.date)} · ${fmtTime(n.start)}–${fmtTime(n.start + n.minutes)} · ${fmtDur(n.minutes)}` : t('gr_unplanned'))}${conf.length ? ` · ⚠ ${esc(t('nConflicts', conf.length))}` : ''}</small>
     ${links.length ? `<div class="mp-ls">${links.map((l) => { const o = node(l.a === n.id ? l.b : l.a); return o ? `<div class="mp-lk">${linkPill(l)}<span>${l.a === n.id ? '→' : '←'} ${esc(o.title)} <small>${esc(o.kind === 'pot' ? t('sc_branchSub', lname(l.t)) : when(o))}</small></span></div>` : ''; }).join('')}</div>` : ''}
     ${n.kind === 'block' ? blockExtras(n) : ''}
-    <div class="mp-row">${v !== 'day' && n.date ? `<button type="button" class="btn small primary" data-action="view-day" data-id="${n.date}">${esc(t('mp_openDay'))} ›</button>` : ''}${n.kind === 'block' ? `<button type="button" class="btn small ghost" data-action="open-block" data-id="${esc(n.id)}">${esc(t('sc_details'))} ›</button>` : n.kind === 'event' ? `<button type="button" class="btn small" data-action="event" data-id="${esc(n.raw)}">${esc(t('sc_details'))} ›</button>` : ''}</div></div>`;
+    <div class="mp-row">${v !== 'day' && n.date ? `<button type="button" class="btn small primary" data-action="view-day" data-id="${n.date}">${esc(t('mp_openDay'))} ›</button>` : ''}${n.kind === 'block' ? `<button type="button" class="btn small ghost" data-action="open-block" data-id="${esc(n.id)}">${esc(t('sc_details'))} ›</button>` : n.kind === 'event' ? `<button type="button" class="btn small" data-action="event" data-id="${esc(n.raw)}">${esc(t('sc_details'))} ›</button>` : ''}<button type="button" class="btn small ghost" data-action="mp-x">${esc(t('close'))}</button></div></div>`;
 }
 // (v98) a block's details (in the side pane on a wide screen, in a sheet on the phone): checklist, the 7 ports as
 // buttons, and the Esito / Sposta
 function blockExtras(n) {
-  const b = n.b; const st = outcomeOf(b); const cl = checklistOf(b); const ck = b.checked || []; const ys = stepTimes(b);
-  return `${ys.length > 1 ? `<div class="mp-chk">${ys.map((y) => `<label><input type="checkbox" data-action="step-done" data-block="${esc(b.id)}" data-step="${esc(y.id)}" ${y.state === 'done' || st === 'done' ? 'checked' : ''} ${st ? 'disabled' : ''}> <span>${esc(stepName(y))} <small>${esc(fmtTime(y.start))}</small></span></label>`).join('')}</div>` : ''}
-    ${cl.length ? `<div class="mp-chk">${cl.map((c, i) => `<label><input type="checkbox" data-ci="${i}" data-block="${esc(b.id)}" ${ck[i] ? 'checked' : ''} ${st ? 'disabled' : ''}> <span>${esc(c)}</span></label>`).join('')}</div>` : ''}
-    <div class="mp-row mp-acts">${!st ? `<button type="button" class="btn small primary" data-action="sc-done" data-id="${esc(b.id)}">✓ ${esc(t('esDone'))}</button><button type="button" class="btn small" data-action="block-fail" data-id="${esc(b.id)}" title="${esc(t('esFail'))}" aria-label="${esc(t('esFail'))}">✕</button><button type="button" class="btn small" data-action="now-move" data-id="${esc(b.id)}" title="${esc(t('moveBtn'))}" aria-label="${esc(t('moveBtn'))}">🕒</button><button type="button" class="btn small" data-action="mp-unplan" data-id="${esc(b.id)}" title="${esc(t('mp_unplanKey'))}" aria-label="${esc(t('mp_unplan'))}">↩</button>` : `<button type="button" class="btn small" data-action="block-reset" data-id="${esc(b.id)}">↺ ${esc(t('sc_undo'))}</button>`}</div>
-    ${n.x && !st ? `<div class="mp-row"><button type="button" class="btn small" data-action="mp-plus" data-id="${esc(n.id)}">＋ ${esc(t('mp_link'))}</button></div>` : ''}`;
+  const b = n.b; const st = outcomeOf(b); const cl = checklistOf(b); const ck = b.checked || [];
+  return `${cl.length ? `<div class="mp-cl">${cl.map((c, i) => `<label><input type="checkbox" data-ci="${i}" data-block="${esc(b.id)}" ${ck[i] ? 'checked' : ''} ${st ? 'disabled' : ''}> <span>${esc(c)}</span></label>`).join('')}</div>` : ''}
+    ${n.x && !st ? `<div class="mp-lb">${esc(t('sc_links'))} <small>${esc(t('sc_linksHint'))}</small></div><div class="sc-ports">${PORTS.map((k) => `<button type="button" class="sc-port" data-action="gr-port" data-id="${esc(`${b.id}~${k}`)}" style="--pc:${LT[k].c}">${LT[k].i} ${esc(lname(k))}</button>`).join('')}</div>` : ''}
+    <div class="mp-row">${!st ? `<button type="button" class="btn small primary" data-action="sc-done" data-id="${esc(b.id)}">✓ ${esc(t('esDone'))}</button><button type="button" class="btn small" data-action="block-fail" data-id="${esc(b.id)}">✕ ${esc(t('esFail'))}</button><button type="button" class="btn small" data-action="now-move" data-id="${esc(b.id)}">🕒 ${esc(t('moveBtn'))}…</button><button type="button" class="btn small" data-action="mp-unplan" data-id="${esc(b.id)}" title="${esc(t('mp_unplanKey'))}">↩ ${esc(t('mp_unplan'))}</button>` : `<button type="button" class="btn small" data-action="block-reset" data-id="${esc(b.id)}">↺ ${esc(t('sc_undo'))}</button>`}</div>`;
 }
 // (v99) right click (a long press on the phone) on a block: what you can do with it
 function ctxHtml() {
@@ -403,22 +268,22 @@ function ctxHtml() {
   return `<div class="mp-ctx" style="left:${c.x}px;top:${c.y}px" role="menu"><b>${esc(b.title)}</b>${!st ? `<button type="button" data-action="sc-done" data-id="${id}">✓ ${esc(t('esDone'))}</button><button type="button" data-action="now-move" data-id="${id}">🕒 ${esc(t('moveBtn'))}…</button><button type="button" data-action="mp-unplan" data-id="${id}">↩ ${esc(t('mp_unplan'))} <kbd>⌫</kbd></button>` : ''}<button type="button" data-action="open-block" data-id="${id}">${esc(t('sc_details'))} ›</button></div>`;
 }
 export const mapPaneHtml = () => { const h = infoHtml(currentView()); return h ? `<div class="mp-pane"><div class="field-label">${esc(t('mp_selected'))}</div>${h}</div>` : ''; };
-// (v102) above the map: ⚠ (to the warnings in the pane), your lanes ↔ by category, and ⚙ Vista with the rest
-function dayTools() { return ''; } // (v106) the view's options live in the Planner's view button (planner.js pvRow)
 export function viewMappa(v, date) {
-  const s = S(); const form = state.settings.mapForm === 'lines' ? 'lines' : 'boxes';
-  const key = `${v}|${v === 'day' ? date : v === 'week' ? weekStart(date) : date.slice(0, 7)}|${form}`;
-  const fresh = s.key !== key; if (fresh && s.key) { s.sel = null; s.cl = null; s.pin = null; ui.gr = null; ui.grPill = null; }
-  if (ui.mpSelNext) { if (v === 'day') s.sel = ui.mpSelNext; ui.mpSelNext = null; }
+  const s = S(); const ms = v === 'month' ? s.mstyle : v;
+  const key = `${v}|${v === 'day' ? date : v === 'week' ? weekStart(date) : date.slice(0, 7)}|${ms}`;
+  const fresh = s.key !== key; if (fresh && s.key) { s.sel = null; s.cl = null; ui.gr = null; ui.grPill = null; }
   if (v === 'day') prepareDays([date]); else if (v === 'week') prepareDays(Array.from({ length:7 }, (_, i) => addDays(weekStart(date), i)).filter((d) => d >= today()));
-  if (fresh) { // (v109) from the top left; the columns fill the width at this zoom (a phone starts a little smaller)
-    const narrow = (document.getElementById('view')?.clientWidth || window.innerWidth) < 700;
-    s.pan = { k:narrow ? (v === 'day' && form === 'boxes' ? 0.8 : 0.7) : (v === 'day' && form === 'boxes' ? 0.85 : 1), x:6, y:4 }; s.key = key;
+  const m = v === 'day' ? mapDay(date) : v === 'week' ? mapWeek(date) : s.mstyle === 'lines' ? mapMonthLines(date) : mapMonthWeeks(date);
+  if (fresh) {
+    const vw = Math.min(window.innerWidth || 390, document.getElementById('view')?.clientWidth || 9999) - 20;
+    const k = v === 'day' ? 0.8 : v === 'week' ? 0.7 : Math.min(1, Math.max(0.55, vw / m.w));
+    s.pan = { k, x:6, y:4 }; s.key = key; // (v97) from the top: the lane names show
   }
-  const m = form === 'lines' ? linesMap(v, date) : v === 'day' ? mapDay(date) : v === 'week' ? mapWeek(date) : mapMonthWeeks(date);
-  if (m.w * s.pan.k <= (s.lastW || 0) + 2) s.pan.x = 6; // it fits: no sideways pan to keep
-  const usedW = s.lastW; setTimeout(() => { const el = document.getElementById('mp-main'); if (el && usedW && Math.abs(el.clientWidth - usedW) > 24 && S().key === key) render(); }, 0); // the first guess of the width was off
-  return `<section class="plan-main mp-mainw">${planCard()}${v === 'day' ? behindCard(date) + (isWide() ? '' : conflictBanner(date)) + dayBand(date) : ''}
+  const sub = v === 'month' ? `<div class="mp-seg">${['weeks', 'lines'].map((k) => `<button type="button" class="${s.mstyle === k ? 'on' : ''}" data-action="mp-ms" data-id="${k}">${esc(t(`mp_ms_${k}`))}</button>`).join('')}</div>`
+    : v === 'day' ? `<div class="mp-tools"><span>${esc(t('mp_laneNames'))}</span><div class="mp-seg">${['custom', 'none', 'num'].map((k) => `<button type="button" class="${laneMode() === k ? 'on' : ''}" data-action="mp-lab" data-id="${k}">${esc(t(`mp_lab_${k}`))}</button>`).join('')}</div>
+      <span>${esc(t('mp_ov'))}</span><div class="mp-seg">${['over', 'side'].map((k) => `<button type="button" class="${ovMode() === k ? 'on' : ''}" data-action="mp-ov" data-id="${k}">${k === 'over' ? '⧉' : '▥'} ${esc(t(`mp_ov_${k}`))}</button>`).join('')}</div>
+      <span class="mp-sp"></span><span>${esc(t('mp_dragging'))}</span><div class="mp-seg"><button type="button" class="${ui.mpTime ? '' : 'on'}" data-action="mp-time" data-id="0">↔ ${esc(t('mp_laneOnly'))}</button><button type="button" class="${ui.mpTime ? 'on time' : ''}" data-action="mp-time" data-id="1">⇅ ${esc(t('mp_alsoTime'))}</button></div>${isWide() ? `<small>${esc(t('mp_orCtrl'))}</small>` : ''}</div>` : '';
+  return `<section class="plan-main mp-mainw">${planCard()}${v === 'day' ? behindCard(date) + conflictBanner(date) + dayBand(date) : ''}${sub}
     <div class="mp-main" id="mp-main"><div class="mp-world" id="mp-world" style="transform:translate(${s.pan.x}px,${s.pan.y}px) scale(${s.pan.k});width:${m.w}px;height:${m.h}px">${m.html}</div>
     <div class="mp-zoom"><button type="button" data-action="mp-z" data-id="1" aria-label="${esc(t('mp_zoomIn'))}">＋</button><button type="button" data-action="mp-z" data-id="-1" aria-label="${esc(t('mp_zoomOut'))}">－</button><button type="button" data-action="mp-fit" aria-label="${esc(t('mp_fit'))}" title="${esc(t('mp_fit'))} (0)">⤢</button><button type="button" data-action="mp-fs" aria-label="${esc(t(document.body.classList.contains('plan-fs') ? 'mp_fsOff' : 'mp_fs'))}" title="${esc(t(document.body.classList.contains('plan-fs') ? 'mp_fsOff' : 'mp_fs'))} (F)">${document.body.classList.contains('plan-fs') ? '✕' : '⛶'}</button><span class="mp-pct" id="mp-pct">${Math.round(s.pan.k * 100)}%</span></div>
     ${m.R && !Object.keys(m.R).length ? `<p class="mp-empty">${esc(t('agEmpty'))}</p>` : ''}${ctxHtml()}</div>
@@ -430,14 +295,10 @@ export function mpClick(btn) {
   const { action, id } = btn.dataset; if (!action?.startsWith('mp-')) return false;
   const s = S();
   switch (action) {
-    case 'mp-sel': s.sel = s.sel === id ? null : id; s.plus = null; s.cl = null; if (ui.gr && ui.gr.from !== id) ui.gr = null; render(); return true;
-    case 'mp-x': s.sel = null; s.plus = null; s.cl = null; ui.gr = null; render(); return true;
-    case 'mp-plus': if (s.sel !== id) s.sel = id; s.plus = s.plus === id ? null : id; render(); return true;
-    case 'mp-lby': saveSettings({ mapLanesBy:id }); render(); return true;
-    case 'mp-warn': { const el = document.querySelector('.pane .pw-list'); if (el) { el.scrollIntoView({ block:'center', behavior:'smooth' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } return true; }
+    case 'mp-sel': s.sel = s.sel === id ? null : id; s.cl = null; if (ui.gr && ui.gr.from !== id) ui.gr = null; render(); return true;
+    case 'mp-x': s.sel = null; s.cl = null; ui.gr = null; render(); return true;
     case 'mp-cl': s.cl = s.cl === id ? null : id; s.sel = null; render(); return true;
-    case 'mp-form': saveSettings({ mapForm:id === 'lines' ? 'lines' : 'boxes' }); s.pin = null; render(); return true;
-    case 'mp-stn': s.pin = s.pin === id ? null : id; document.getElementById('mp-hov')?.remove(); render(); return true;
+    case 'mp-ms': s.mstyle = id; render(); return true;
     case 'mp-week': ui.view = 'week'; location.hash = `#/plan/${id}`; render(); return true;
     case 'mp-z': { const mn = document.getElementById('mp-main'); const r = mn?.getBoundingClientRect(); const cx = r ? r.width / 2 : 180, cy = r ? r.height / 2 : 200; const k0 = s.pan.k; const k = Math.max(0.3, Math.min(1.6, k0 + Number(id) * 0.12)); s.pan.x = cx - ((cx - s.pan.x) / k0) * k; s.pan.y = cy - ((cy - s.pan.y) / k0) * k; s.pan.k = k; render(); return true; }
     case 'mp-fit': s.key = `fit${s.key}`; render(); return true;
@@ -472,7 +333,7 @@ document.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'touch') { const id = nd.dataset.id, x = e.clientX, y = e.clientY; clearTimeout(drag.hold); drag.hold = setTimeout(() => { if (drag.node?.id === id && !drag.moved) { drag.node = null; drag.moved = true; openCtx(id, x, y); } }, 550); } // a long press: the menu
     return;
   }
-  if (e.target.closest('button,a,.mp-n,.mp-zoom,input,.mp-full')) return;
+  if (e.target.closest('button,a,.mp-n,.mp-zoom,input')) return;
   const s = S(); drag.pan = { sx:e.clientX, sy:e.clientY, ox:s.pan.x, oy:s.pan.y };
 });
 document.addEventListener('pointermove', (e) => {
@@ -513,13 +374,12 @@ document.addEventListener('pointermove', (e) => {
   }
 }, { passive:false });
 document.addEventListener('pointerup', (e) => {
-  if (drag.pan) { const moved = drag.moved; drag.pan = null; setTimeout(() => { drag.moved = false; }, 0); const s = S(); if (!moved && (s.sel || s.plus || s.pin || ui.gr)) { s.sel = null; s.plus = null; s.pin = null; ui.gr = null; render(); } return; } // (v102) a tap on the empty map closes the selection
+  if (drag.pan) { drag.pan = null; setTimeout(() => { drag.moved = false; }, 0); return; }
   if (drag.node) {
     const d = drag.node; drag.node = null; clearTimeout(drag.hold); d.chip?.remove(); document.querySelector('.pane.dnd-over')?.classList.remove('dnd-over'); if (!drag.moved) return;
     setTimeout(() => { drag.moved = false; }, 0);
     if (d.over) { if (S().sel === d.id) S().sel = null; if (!unplanToPane(d.id)) render(); return; }
     const b = get('blocks', d.id); if (!b || d.lane == null) { render(); return; }
-    if (geo.cat) d.lane = b.lane; // (v102) lanes by category: dragging only moves the time
     if (d.lane !== b.lane) upsert('blocks', { ...b, lane:d.lane }, { silent:true });
     ui.mpTime = false; // the phone's switch is for one move
     if (d.start !== b.start) moveBlockTo(b.id, b.date, d.start); else { if (d.lane !== b.lane) toast(t('mp_laneMoved', b.title, lanes()[d.lane] || t('mp_laneN', d.lane + 1), fmtTime(b.start))); changed(); }
@@ -538,19 +398,13 @@ document.addEventListener('pointerup', (e) => {
 // (v97) the mouse wheel: Ctrl + wheel (or a pinch on a trackpad) zooms where the pointer is; the wheel alone scrolls
 document.addEventListener('wheel', (e) => {
   const m = e.target.closest?.('#mp-main'); if (!m) return;
-  if (e.target.closest?.('.mp-rows')) return; // a stop's list scrolls
   e.preventDefault(); const s = S(); const r = m.getBoundingClientRect();
   if (e.ctrlKey || e.metaKey) {
     const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY; const k0 = s.pan.k; const k = Math.max(0.3, Math.min(2.2, k0 * Math.exp(-d * (Math.abs(d) < 20 ? 0.01 : 0.0015))));
     const cx = e.clientX - r.left, cy = e.clientY - r.top; s.pan.x = cx - ((cx - s.pan.x) / k0) * k; s.pan.y = cy - ((cy - s.pan.y) / k0) * k; s.pan.k = k;
   } else { s.pan.x -= e.shiftKey && !e.deltaX ? e.deltaY : e.deltaX; s.pan.y -= e.shiftKey ? 0 : e.deltaY; }
   applyPan(); const p = document.getElementById('mp-pct'); if (p) p.textContent = `${Math.round(s.pan.k * 100)}%`;
-  if (e.ctrlKey || e.metaKey) relayout();
 }, { passive:false });
-// (v109) after a zoom or a resize the columns share the width again
-let zT = 0;
-function relayout() { clearTimeout(zT); zT = setTimeout(() => { if (document.getElementById('mp-main')) render(); }, 220); }
-window.addEventListener('resize', () => { if (document.getElementById('mp-main')) relayout(); });
 // full screen: the map and the side pane fill the screen (the header, the tabs and the rail go away); Esc leaves
 export function toggleFs(on = !document.body.classList.contains('plan-fs')) {
   document.body.classList.toggle('plan-fs', on);
@@ -561,11 +415,8 @@ document.addEventListener('fullscreenchange', () => { if (!document.fullscreenEl
 document.addEventListener('keydown', (e) => {
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('#mp-main [role="button"][data-action]')) { e.preventDefault(); e.target.click(); return; }
   if (!document.getElementById('mp-main') || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
-  const s = S(); const m = document.getElementById('mp-main').getBoundingClientRect(); const z = (f) => { const k0 = s.pan.k; const k = Math.max(0.3, Math.min(2.2, k0 * f)); s.pan.x = m.width / 2 - ((m.width / 2 - s.pan.x) / k0) * k; s.pan.y = m.height / 2 - ((m.height / 2 - s.pan.y) / k0) * k; s.pan.k = k; applyPan(); relayout(); };
+  const s = S(); const m = document.getElementById('mp-main').getBoundingClientRect(); const z = (f) => { const k0 = s.pan.k; const k = Math.max(0.3, Math.min(2.2, k0 * f)); s.pan.x = m.width / 2 - ((m.width / 2 - s.pan.x) / k0) * k; s.pan.y = m.height / 2 - ((m.height / 2 - s.pan.y) / k0) * k; s.pan.k = k; applyPan(); };
   if (e.key === 'Escape' && s.ctx) { s.ctx = null; render(); return; }
-  if (e.key === 'Escape' && s.pin) { s.pin = null; render(); return; }
-  if (e.key === 'Escape' && (s.plus || s.vopts)) { s.plus = null; s.vopts = false; render(); return; }
-  if (e.key === 'Escape' && s.sel && !ui.gr && !ui.grPill) { s.sel = null; render(); return; } // (v102) Esc closes the selection first
   if ((e.key === 'Delete' || e.key === 'Backspace') && s.sel) { const n = node(s.sel); if (n?.kind === 'block') { e.preventDefault(); s.sel = null; s.ctx = null; if (!unplanToPane(n.b.id)) render(); } return; } // (v99) off the plan
   if (e.key === 'f' || e.key === 'F') toggleFs();
   else if (e.key === 'Escape' && document.body.classList.contains('plan-fs') && !ui.gr && !ui.grPill) toggleFs(false);
@@ -582,10 +433,6 @@ document.addEventListener('contextmenu', (e) => {
   const n = e.target.closest?.('#mp-main [data-mpn]'); if (!n) return; const id = n.dataset.mpn; if (!get('blocks', id)) return;
   e.preventDefault(); clearTimeout(drag.hold); openCtx(id, e.clientX, e.clientY);
 });
-document.addEventListener('click', (e) => {
-  const v = ui.mp; if (v?.vopts && !e.target.closest?.('.mp-vpop, [data-action=mp-vopts]')) { v.vopts = false; if (!e.target.closest?.('[data-action]')) render(); }
-  if (v?.plus && !e.target.closest?.('.mp-plusm, [data-action=mp-plus]')) { v.plus = null; if (!e.target.closest?.('[data-action]')) render(); }
-}, true);
 document.addEventListener('click', (e) => {
   const s = ui.mp; if (!s?.ctx) return;
   const inMenu = e.target.closest?.('.mp-ctx'); if (inMenu && !e.target.closest('[data-action]')) return;

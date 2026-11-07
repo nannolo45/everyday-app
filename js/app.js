@@ -33,6 +33,7 @@ import { fixAll, fixOcc, fixTimes, hideStripToday, laterWeek, openStuck, skipOcc
 import { openEventFilters, prepareEvents } from './views/events.js';
 import { placePicked, wideClick } from './views/wide.js';
 import { plClick } from './pianifica.js';
+import './timefield.js';
 import { applyTheme } from './theme.js';
 applyTheme();
 import { classic, curView, openComplete, openFilters, openPick, openSort, openTriage, openViews, setView, setWeekly, setWhen, viewList } from './views/impegni.js';

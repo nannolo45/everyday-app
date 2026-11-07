@@ -172,7 +172,7 @@ export function render() {
   document.body.classList.toggle('pane-hid', wide && html.includes(' pane-hid'));
   // Nothing changed (e.g. a sync that found no news): leave the page alone. Replacing it
   // anyway is what made the screen flicker and fields lose what you were typing.
-  if (html === ui.lastHtml && view.childElementCount) { positionNow(); settleScroll(r); return; }
+  if (html === ui.lastHtml && view.childElementCount) { positionNow(); settleScroll(r); oxSettle(r); return; }
   ui.lastHtml = html;
   view.innerHTML = html;
   document.body.classList.toggle('has-tray', Boolean(view.querySelector('.tray')));
@@ -190,6 +190,24 @@ export function render() {
     }
   }
   settleScroll(r);
+  oxSettle(r);
+}
+
+// (v115) Oggi follows what's on now: opening it starts at the top (the «now» card whole) and «Il resto di oggi»
+// centred on the thing in progress; scroll away and «◉ Adesso» brings it back. It re-centres when the thing changes.
+function oxCenter(st, smooth) { const cur = st.querySelector('.is-now'); if (!cur) return; st.scrollTo({ left:cur.offsetLeft - (st.clientWidth - cur.offsetWidth) / 2, behavior:smooth ? 'smooth' : 'auto' }); }
+export function oxSettle(r) {
+  if (r.name !== 'today') { ui.oxNow = null; ui.oxIn = false; return; }
+  if (!ui.oxIn) { ui.oxIn = true; window.scrollTo(0, 0); }
+  const st = document.querySelector('.ox-strip'); if (!st) return;
+  const cur = st.querySelector('.is-now'); const key = cur?.dataset.id || '';
+  if (ui.oxNow !== key) { ui.oxNow = key; oxCenter(st, false); }
+  const back = document.querySelector('[data-ox-back]');
+  if (back && !st.dataset.wired) {
+    st.dataset.wired = '1';
+    const check = () => { const c = st.querySelector('.is-now'); if (!c) return; const want = Math.max(0, Math.min(st.scrollWidth - st.clientWidth, c.offsetLeft - (st.clientWidth - c.offsetWidth) / 2)); back.hidden = Math.abs(st.scrollLeft - want) < 50; };
+    st.addEventListener('scroll', check, { passive:true }); back.onclick = () => oxCenter(st, true); check();
+  }
 }
 
 // Opening the plan (or switching to the Day view) shows today's "now"; another day starts at the

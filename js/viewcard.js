@@ -8,13 +8,15 @@ import { isEvent } from './kinds.js';
 import { checklistOf, isApptLike, outcomeOf, stepTimes } from './model.js';
 import { fmtDur, fmtTime, nowMinutes, today } from './plan.js';
 import { changed } from './shell.js';
-import { get, live, upsert } from './store.js';
+import { get, live, state, upsert } from './store.js';
 import { geocode, MODE_ICON } from './travel.js';
 import { originFor, realSteps, travelCache, travelDest, travelMode } from './travel-plan.js';
 import { runningBlock, sizeOfMinutes } from './timer.js';
 import { focusMiniHtml, planFor, planWords, sizeOf, sizeWord, workMinutes } from './focus.js';
 import { stepName } from './views/planner.js';
 import { openModal } from './widgets.js';
+import { appLink, isPalestra, startLink } from './palestra.js';
+import { RICETTE_APP } from './views/impegni.js';
 
 let V = null; // { kind:'block'|'task', id, page }
 const act = (action, id, extra = {}) => { // run one of the app's actions (the same as tapping it in the page)
@@ -90,8 +92,29 @@ function focusBox(b, x) {
   const run = runningBlock()?.id === b.id ? runningBlock() : null;
   if (run?.focus) return `<div class="vc-focus">${focusMiniHtml(run)}<button type="button" class="btn primary" data-vc="focus-open">${esc(t('vc_openTimer'))}</button></div>`;
   if (run) return `<div class="vc-focus col"><b>⏱ ${esc(t('vc_running'))}</b><button type="button" class="btn primary" data-vc="focus-start" data-id="${esc(b.id)}">▶ ${esc(t('vc_toFocus'))}</button></div>`;
+  const app = appBox(b, x); if (app) return app;
   const plan = planFor(b);
   return `<div class="vc-focus col"><span class="vc-k">${esc(t('vc_focusSug'))}</span><b>${esc(planWords(plan))}</b><button type="button" class="btn primary" data-vc="focus-start" data-id="${esc(b.id)}">▶ ${esc(t('vc_startFocus'))}</button>${b.date === today() ? `<button type="button" class="linkish" data-vc="now-start" data-id="${esc(b.id)}">${esc(t('vc_noTimer'))}</button>` : ''}</div>`;
+}
+// (v115) a workout from Palestra or a meal from Ricette: open it in its app (the timer stays, as a small link)
+export const recipesOf = (b) => (b?.recipes || []).map((r) => get('r_recipes', r.recipeId)).filter(Boolean);
+export const recipeLink = (r) => `${RICETTE_APP}#/recipe/${encodeURIComponent(r.id)}`;
+function appBox(b, x) {
+  const timer = `<button type="button" class="linkish" data-vc="focus-start" data-id="${esc(b.id)}">${esc(t('vc_orTimer'))}</button>`;
+  if (isPalestra(x)) {
+    const r = (state.p_routines || []).find((y) => y?.id === x.palestraId);
+    const ex = (r?.exercises || []).map((e) => e?.name || e?.title).filter(Boolean);
+    const today_ = b.date === today();
+    return `<div class="vc-focus col vc-app" style="--c:var(--danger)"><span class="vc-k">${esc(t('vc_fromPal'))}</span><b>${esc(ex.length ? t('vc_nEx', ex.length, fmtDur(b.minutes)) : fmtDur(b.minutes))}</b>${ex.length ? `<ul class="vc-ex">${ex.slice(0, 6).map((n) => `<li>${esc(n)}</li>`).join('')}${ex.length > 6 ? `<li>…</li>` : ''}</ul>` : ''}
+      ${today_ ? `<button type="button" class="btn primary" data-vc="pal-start" data-id="${esc(b.id)}">▶ ${esc(t('palStart'))}</button>` : `<a class="btn primary" href="${esc(appLink(x))}" target="_blank" rel="noopener">${esc(t('vc_openIn', 'Palestra'))} ↗</a>`}${timer}</div>`;
+  }
+  const recs = b.kind === 'meal' ? recipesOf(b) : [];
+  if (recs.length) {
+    const r = recs[0];
+    return `<div class="vc-focus col vc-app" style="--c:var(--warn)"><span class="vc-k">${esc(t('vc_fromRic'))}</span><b>${esc(recs.map((y) => y.title).join(' · '))}</b><small class="vc-sub">${esc(t('vc_servings', b.servings || 2))}</small>
+      <a class="btn primary" href="${esc(recipeLink(r))}" target="_blank" rel="noopener">🍳 ${esc(t('vc_openRecipe'))} ↗</a>${recs.length > 1 ? recs.slice(1).map((y) => `<a class="linkish" href="${esc(recipeLink(y))}" target="_blank" rel="noopener">${esc(y.title)} ↗</a>`).join('') : ''}${timer}</div>`;
+  }
+  return '';
 }
 function headHtml(color, cat, title, line, chip) {
   return `<div class="vc-head"><span class="vc-dot" style="--c:${esc(color)}"></span><div class="vc-hx"><small>${esc(cat)}</small><h2>${esc(title)}</h2><small>${line}</small>${chip}</div><button type="button" class="icon vc-x" data-vc="close" aria-label="${esc(t('close'))}" title="${esc(t('close'))}">✕</button></div>`;
@@ -169,6 +192,7 @@ modal.addEventListener('click', (e) => {
     case 'reset': close(); V = null; act('block-reset', id); return;
     case 'move': close(); V = null; setTimeout(() => act('now-move', id), 0); return;
     case 'focus-start': close(); V = null; act('focus-start', id); return;
+    case 'pal-start': close(); V = null; act('pal-start', id); return;
     case 'focus-task': close(); V = null; act('focus-task', id); return;
     case 'focus-open': close(); V = null; act('focus-open'); return;
     case 'now-start': close(); V = null; act('now-start', id); return;

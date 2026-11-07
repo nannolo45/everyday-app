@@ -14,6 +14,7 @@ import { stepName } from './planner.js';
 import { MODE_ICON } from '../travel.js';
 import { eveningMode, behindCard, loadBar, prepareDays, weekStart } from './planner.js';
 import { classic } from './impegni.js';
+import { recipeLink, recipesOf } from '../viewcard.js';
 
 // ---------- Today: the home tab ----------
 // "What do I do now?" first: the next move with its leave and start times. Then the day, what is
@@ -159,6 +160,7 @@ function heroHtml(b, now, run) {
   if (b.isEvent) acts = `<button class="btn" type="button" ${openAct(b)}>${esc(t('giOpen'))} ›</button>`;
   else if (isRun && run.focus) acts = `<button class="btn primary" type="button" data-action="${run.pausedAt ? 'timer-resume' : 'timer-pause'}">${run.pausedAt ? `▶ ${esc(t('timerResume'))}` : `❚❚ ${esc(t('timerPause'))}`}</button><button class="btn" type="button" data-action="timer-stop">✓ ${esc(t('esDone'))}</button><button class="btn" type="button" data-action="focus-open">${esc(t('giOpen'))}</button>`;
   else if (isPalestra(task) && !b.startedAt && !leaving) acts = `<button class="btn primary" type="button" data-action="pal-start" data-id="${esc(b.id)}">▶ ${esc(t('palStart'))}</button><button class="btn" type="button" ${openAct(b)}>${esc(t('giOpen'))}</button>`;
+  else if (!leaving && b.kind === 'meal' && recipesOf(b).length && !b.startedAt) acts = `<a class="btn primary" href="${esc(recipeLink(recipesOf(b)[0]))}" target="_blank" rel="noopener">🍳 ${esc(t('vc_openRecipe'))} ↗</a><button class="btn" type="button" ${openAct(b)}>${esc(t('giOpen'))}</button>`; // (v115) a meal: its recipe in Ricette
   else if (leaving) acts = `<button class="btn primary" type="button" data-action="now-left" data-id="${esc(b.id)}" data-step="${esc(lg.step.id)}">${esc(t('leftNow'))}</button><button class="btn" type="button" data-action="now-move" data-id="${esc(b.id)}">${esc(t('move'))}</button>`;
   else if (started || isRun) acts = `<button class="btn primary" type="button" data-action="now-done" data-id="${esc(b.id)}">✓ ${esc(t('esDone'))}</button>${isRun ? '' : `<button class="btn" type="button" data-action="focus-start" data-id="${esc(b.id)}">▶ ${esc(planLabel(b))}</button>`}<button class="btn" type="button" ${openAct(b)}>${esc(t('giOpen'))}</button>`;
   else acts = `<button class="btn primary" type="button" data-action="focus-start" data-id="${esc(b.id)}">▶ ${esc(t('ox_focus', planLabel(b)))}</button><button class="btn" type="button" data-action="now-move" data-id="${esc(b.id)}">${esc(t('move'))}</button>`;
@@ -182,7 +184,7 @@ function oggiA(td, now, { run, curBlock, current, next, open, upcoming, old }) {
   }
   const keys = keyMoments(td, now); const all = dayItems(td, now, keys, otherBlocks(td, keys));
   const past = all.filter((k) => k.done || (k.ev && k.end <= now));
-  const chips = all.length > 1 ? `<div class="sec-mini"><span>${esc(t('ox_rest'))}</span></div><div class="ox-strip">${all.map((k) => { const b = k.b || null; const c = k.ev ? (eventsOn(td).find((e) => e.id === k.id)?.color || '#6b7280') : catColor(b?.category) || 'var(--accent)';
+  const chips = all.length > 1 ? `<div class="sec-mini"><span>${esc(t('ox_rest'))}</span><button type="button" class="ox-back" data-ox-back hidden>◉ ${esc(t('ox_nowBack'))}</button></div><div class="ox-strip">${all.map((k) => { const b = k.b || null; const c = k.ev ? (eventsOn(td).find((e) => e.id === k.id)?.color || '#6b7280') : catColor(b?.category) || 'var(--accent)';
     return `<button type="button" class="ox-chip${k.done || (k.ev && k.end <= now) ? ' done' : ''}${k.id === hero.id ? ' is-now' : ''}" ${k.ev ? `data-action="event" data-id="${esc(k.id)}"` : `data-action="open-block" data-id="${esc(k.id)}"`} style="--c:${esc(c)}"><small><i></i>${fmtTime(k.leave ?? k.start)}</small><b>${esc(k.title)}</b></button>`; }).join('')}</div>` : '';
   const fold = past.length ? `<button type="button" class="ox-fold" data-action="gi-past" aria-expanded="${Boolean(ui.giPast)}"><span>✓ ${esc(t('giPastDone', past.length))} · ${fmtTime(Math.min(...past.map((k) => k.leave ?? k.start)))}–${fmtTime(Math.max(...past.map((k) => k.end)))}</span><span aria-hidden="true">${ui.giPast ? '▾' : '›'}</span></button>${ui.giPast ? `<div class="ox-past">${past.map((k) => `<button type="button" class="ox-prow${k.failed ? ' failed' : ''}" ${k.ev ? `data-action="event" data-id="${esc(k.id)}"` : `data-action="open-block" data-id="${esc(k.id)}"`}><span>${fmtTime(k.start)}</span><b>${esc(k.title)}</b><small>${k.failed ? '✕' : '✓'}</small></button>`).join('')}</div>` : ''}` : '';
   return `${heroHtml(hero, now, run)}${nextLine}${chips}${fold}`;
