@@ -14,6 +14,7 @@ import { curView } from './views/impegni.js';
 import { gcalNow } from './connections.js';
 import { hydratePhotos } from './editors.js';
 import { lateBannerHtml, timerBarHtml } from './timer.js';
+import { focusScreenHtml } from './focus.js';
 import { todayRows, weekCardHtml } from './weekpick.js';
 import { viewSettings } from './views/settings.js';
 import { viewTasks } from './views/tasks.js';
@@ -162,6 +163,7 @@ export function render() {
   // (v56) Wide screens: a rail on the left and a pane on the right (views/wide.js).
   const wide = isWide(); document.body.classList.toggle('is-wide', wide);
   if (wide) html = wideWrap(html);
+  html += focusScreenHtml(); // (v100) the focus timer, over everything
   document.body.classList.toggle('wide-pane', wide && !html.includes('<div class="wide no-pane'));
   // Nothing changed (e.g. a sync that found no news): leave the page alone. Replacing it
   // anyway is what made the screen flicker and fields lose what you were typing.

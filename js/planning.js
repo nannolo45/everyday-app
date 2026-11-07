@@ -410,11 +410,11 @@ export function skipNote(skipped) {
     const title = get('tasks', x.taskId)?.title || '';
     if (seen.has(x.taskId)) continue; seen.add(x.taskId);
     if (x.why === 'needs') { parts.push(t('whyNeeds', title, x.name)); continue; }
-    const k = ['window', 'toolong', 'waiting', 'closed'].includes(x.why) ? x.why : 'full';
+    const k = ['window', 'toolong', 'waiting', 'closed', 'rule'].includes(x.why) ? x.why : 'full';
     if (!byWhy.has(k)) byWhy.set(k, []);
     byWhy.get(k).push(title);
   }
-  const KEY = { window: 'whyWindow', toolong: 'whyLong', waiting: 'whyWaiting', full: 'whyFull', closed: 'whyClosed' };
+  const KEY = { window: 'whyWindow', toolong: 'whyLong', waiting: 'whyWaiting', full: 'whyFull', closed: 'whyClosed', rule: 'whyRule' };
   for (const [k, titles] of byWhy) {
     const names = titles.length > 3 ? t('andMore', titles.slice(0, 2).join(', '), titles.length - 2) : titles.join(', ');
     parts.push(t(KEY[k], names));

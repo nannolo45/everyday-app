@@ -28,7 +28,7 @@ import { applySharedSettings, COLLECTIONS, get, live, load, onChange, remove, RI
 import { isConfigured, isSyncing, removeCalendarData } from './sync.js';
 import { applyTravel, ensureLegTasks, LEGS, legTemplate, pruneCache, scheduleTravelRefresh, setLegTask, travelBusy, travelCache, travelCfg, travelTimer } from './travel-plan.js';
 import { setupTrayDrag } from './tray.js';
-import { elapsedText, pauseTimer, resumeTimer, runningBlock, startBlock } from './timer.js';
+import { elapsedText, focusSkip, pauseTimer, resumeTimer, runningBlock, startBlock } from './timer.js';
 import { fixAll, fixOcc, fixTimes, hideStripToday, laterWeek, openStuck, skipOcc } from './weekpick.js';
 import { openEventFilters, prepareEvents } from './views/events.js';
 import { placePicked, wideClick } from './views/wide.js';
@@ -44,6 +44,8 @@ import { graphClick } from './graph.js';
 import { scClick } from './views/scaletta.js';
 import { mpClick, mpDragged } from './views/mappa.js';
 import { calOpen, closeCal, openCal } from './datepick.js';
+import { openTaskView, openView } from './viewcard.js';
+import { startFocus, startFocusTask } from './focus.js';
 import { agendaAdd, agendaPlan, onDayTasks, keepFix, keepGhost, openGapFits, planStyle, showSteps } from './views/planner.js';
 import { leaveShop, onSorted, openShopInfo, setListMode, shareShopList, shopAdd, shopChange, shopClick, shopName } from './views/shop.js';
 import { openTaskTools, taskFilter } from './views/tasks.js';
@@ -406,7 +408,16 @@ view.addEventListener('click', (e) => {
     case 'event-new': openTask(null, null, { event: true, date: btn.dataset.date || currentDate(), start: btn.dataset.start ? Number(btn.dataset.start) : null }); break;
     case 'event-task-add': { const ev = eventOf(id); if (ev) openEventTaskAdd(ev); break; }
     case 'event-plan': { const ev = eventOf(id); if (ev) planEventTasks(ev); break; }
-    case 'open-block': { const b = get('blocks', id); if (b) openBlock(b); break; }
+    case 'open-block': { const b = get('blocks', id); if (b) openView(b); break; } // (v100) the card to look at it; ✎ for the editor
+    case 'block-edit': { const b = get('blocks', id); if (b) openBlock(b); break; }
+    case 'task-view': { const x = get('tasks', id); if (x) openTaskView(x); break; }
+    case 'focus-start': { const b = get('blocks', id); if (b) { startFocus(b); changed(); } break; } // (v100) focus with a pomodoro rhythm
+    case 'focus-task': { const x = get('tasks', id); if (x) { startFocusTask(x); changed(); } break; }
+    case 'focus-open': ui.focusOpen = true; render(); break;
+    case 'focus-close': ui.focusOpen = false; render(); break;
+    case 'focus-skip': { const b = runningBlock(); if (b) { focusSkip(b); changed(); } break; }
+    case 'task-done-x': { const x = get('tasks', id); if (x) { if (checklistLeft(x.checklist || [], x.checked) > 0) openTaskChecklist(x); else { setTaskDone(x, true); changed(); } } break; }
+    case 'imp-quick': ui.impQuick = !ui.impQuick; render(); break;
     case 'mp-addin': openTask(null, null, { event: true, date: btn.dataset.date, start: Number(btn.dataset.start) }); break; // (v99) ＋ inside a block with room
     case 'now-left': { const b = get('blocks', id); if (b) { setStepOutcome(b, btn.dataset.step, 'done'); toast(t('goodTrip')); changed(); } break; }
     case 'now-done': { const b = get('blocks', id); if (b && runningBlock()?.id === id) finishTimer(); else if (b) { if (trySetBlockDone(b, true)) { changed(); countToast(id); } else changed(); } break; }

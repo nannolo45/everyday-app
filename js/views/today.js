@@ -4,11 +4,13 @@ import { isPalestra } from '../palestra.js';
 import { catColor, esc, fmtDay, planSettings, relDay, ui } from '../core.js';
 import { t } from '../i18n.js';
 import { isEvent } from '../kinds.js';
-import { blocksOn, roomy, isApptLike, eventsOn, ISSUE_SEC, issueText, legTimes, openTasks, outcomeOf, plannedTaskIds, readinessText, taskIssues, timedEventsOn } from '../model.js';
+import { blocksOn, roomy, isApptLike, eventsOn, ISSUE_SEC, issueText, legTimes, openTasks, outcomeOf, plannedTaskIds, readinessText, stepTimes, taskIssues, timedEventsOn } from '../model.js';
 import { addDays, dayTotals, fmtDur, fmtTime, importanceOf, nowMinutes, today } from '../plan.js';
 import { morningReflow } from '../planning.js';
 import { get, state } from '../store.js';
-import { blockDetail, giornataHtml } from './giornata.js';
+import { blockDetail, dayCount, dayItems, giornataHtml, keyMoments, otherBlocks } from './giornata.js';
+import { focusMiniHtml, planLabel } from '../focus.js';
+import { stepName } from './planner.js';
 import { MODE_ICON } from '../travel.js';
 import { eveningMode, behindCard, loadBar, prepareDays, weekStart } from './planner.js';
 import { classic } from './impegni.js';
@@ -53,7 +55,7 @@ export function viewToday() {
   const runLine = running && card !== running ? `<div class="now-run"><span class="now-dot" aria-hidden="true"></span><span><b>${esc(t('inProgress'))}:</b> ${esc(running.title)} · ${esc(t('untilTime', fmtTime(running.start + running.minutes)))}</span>${running.isEvent ? '' : `<button class="btn small ghost" type="button" data-action="now-done" data-id="${esc(running.id)}">${esc(t('markDone'))}</button>`}</div>` : '';
   // (v94) what's running shows its steps (the current one), its checklist to tick and its notes
   const liveB = classic() ? null : running && !running.isEvent ? running : card && !card.isEvent && card.start <= now ? card : null;
-  const liveDetail = liveB ? blockDetail(liveB) : '';
+  const liveDetail = liveB && classic() ? blockDetail(liveB) : '';
   const lg = card && !card.isEvent ? legTimes(card) : null;
   const task = card && !card.isEvent && card.taskId ? get('tasks', card.taskId) : null;
   const place = task?.place || '';
@@ -95,14 +97,16 @@ export function viewToday() {
     return `<div class="pr-row"><span class="pr-dot ${late ? 'late' : x.due ? 'soon' : 'fix'}"></span><button class="pr-text" type="button" data-action="edit-task" data-id="${esc(x.id)}"><span>${esc(x.title)}</span><small>${esc([why, fmtDur(x.minutes || 30)].join(' · '))}</small></button>
       ${iss.length && !late ? `<button class="btn small" type="button" data-action="task-fix" data-id="${esc(x.id)}" data-sec="${ISSUE_SEC[iss[0]]}">${esc(t('fix'))}</button>` : `<button class="btn small primary-ghost" type="button" data-action="plan-task" data-id="${esc(x.id)}" data-date="${td}">${esc(t('today'))}</button>`}</div>`;
   };
-  // (v92) one page: what's running and what's next, then the day (views/giornata.js)
+  // (v100) Oggi «Adesso e poi»: one big card (what's on, or what's next), one line for what comes after, the rest
+  // of the day as chips, what's done folded; the other sections below, closed. Tapping opens the card to look at it.
   if (!classic()) {
-    const body = eveningMode(td) ? `${behindCard(td)}${nowCard}${giornataHtml(td)}` : `${nowCard}${behindCard(td)}${giornataHtml(td)}`; // (v94) «Com'è andata?» on top in the evening
+    const body = oggiA(td, now, { run, curBlock, current, next, open, upcoming, old });
     return `<div class="today">
-      <div class="today-head"><h1>${esc(fmtDay(td))}</h1><small>${esc(totals.planned ? t('plannedSum', fmtDur(totals.planned)) : t('nothingPlanned'))}${items.filter((b) => b.isEvent).length ? ` · ${esc(t('nEvents', items.filter((b) => b.isEvent).length))}` : ''}</small></div>
+      <div class="today-head"><h1>${esc(fmtDay(td))}</h1><small>${esc(totals.planned ? t('plannedSum', fmtDur(totals.planned)) : t('nothingPlanned'))}${dayCount(td).n ? ` · ${esc(t('ox_doneOf', dayCount(td).d, dayCount(td).n))}` : ''}</small></div>
       ${eventsOn(td).filter((e) => e.allDay).length ? `<div class="today-allday">${eventsOn(td).filter((e) => e.allDay).map((e) => `<button class="allday-chip" type="button" data-action="event" data-id="${esc(e.id)}" style="--c:${esc(e.color)}">📅 ${esc(e.title)}</button>`).join('')}</div>` : ''}
       ${ui.reflow ? `<div class="reflow"><span>${esc(t('reflowMoved', ui.reflow.moved))}</span><button class="linkish" type="button" data-action="reflow-undo">${esc(t('undo'))}</button><button class="icon" type="button" data-action="reflow-ok" aria-label="${esc(t('close'))}">✕</button></div>` : ''}
-      ${body}</div>`;
+      ${eveningMode(td) ? `${behindCard(td)}${body}` : `${body}${behindCard(td)}`}
+      ${giornataHtml(td, { skip: ['brief'], closed: true, bar: false })}</div>`;
   }
   const ws = weekStart(td);
   const week = Array.from({ length: 7 }, (_, i) => addDays(ws, i));
@@ -129,4 +133,57 @@ export function mapsHref(task) {
   if (!task) return '#';
   if (task.link) return task.link;
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(task.place || '')}`;
+}
+
+// ---------- (v100) Oggi «Adesso e poi» ----------
+const colorOf = (b) => (b.isEvent ? b.color || '#6b7280' : catColor(b.category) || 'var(--accent)');
+const openAct = (b) => (b.isEvent ? `data-action="event" data-id="${esc(b.id)}"` : `data-action="open-block" data-id="${esc(b.id)}"`);
+function stepLine(b, now) {
+  if (b.isEvent) return '';
+  const ys = stepTimes(b); if (ys.length < 2) return '';
+  const cur = ys.find((y) => y.state !== 'done' && y.start <= now && now < y.end) || ys.find((y) => y.state !== 'done');
+  if (!cur) return '';
+  return `<button type="button" class="ox-step" ${openAct(b)}><span>${esc(t('vc_ofN', ys.indexOf(cur) + 1, ys.length))} · <b>${esc(stepName(cur))}</b></span><span aria-hidden="true">›</span></button>`;
+}
+function heroHtml(b, now, run) {
+  const task = !b.isEvent && b.taskId ? get('tasks', b.taskId) : null;
+  const started = b.start <= now; const end = b.start + b.minutes;
+  const lg = b.isEvent ? null : legTimes(b); const legDone = lg && b.stepState?.[lg.step.id] === 'done';
+  const leaving = lg && lg.trip > 0 && !legDone && now < lg.start;
+  const isRun = run?.id === b.id;
+  const k = isRun && run.pausedAt ? `❚❚ ${t('timerPaused')}` : started ? `● ${t('inProgress')} · ${t('untilTime', fmtTime(end))}` : leaving ? `${MODE_ICON[lg.step.mode] || '🚌'} ${t('leaveAt', fmtTime(lg.leave))} · ${t('leaveIn', fmtDur(Math.max(0, lg.leave - now)))}` : `${t('nextMove')} · ${t('startsIn', fmtDur(Math.max(0, b.start - now)))}`;
+  const place = task?.place ? task.place.split(',')[0] : b.isEvent ? b.location || '' : '';
+  const sub = [place ? `📍 ${place}` : '', started ? '' : `${fmtTime(lg && lg.trip > 0 ? lg.start : b.start)}–${fmtTime(end)}`, b.isEvent ? b.calendar || t('calendar') : ''].filter(Boolean).join(' · ');
+  const prog = isRun && run.focus ? focusMiniHtml(run) : started ? `<div class="ox-prog"><span><i style="width:${Math.min(100, Math.round(((now - b.start) / Math.max(1, b.minutes)) * 100))}%"></i></span><small>${esc(t('vc_nowLeft', fmtDur(Math.max(0, end - now))))}</small></div>` : '';
+  let acts = '';
+  if (b.isEvent) acts = `<button class="btn" type="button" ${openAct(b)}>${esc(t('giOpen'))} ›</button>`;
+  else if (isRun && run.focus) acts = `<button class="btn primary" type="button" data-action="${run.pausedAt ? 'timer-resume' : 'timer-pause'}">${run.pausedAt ? `▶ ${esc(t('timerResume'))}` : `❚❚ ${esc(t('timerPause'))}`}</button><button class="btn" type="button" data-action="timer-stop">✓ ${esc(t('esDone'))}</button><button class="btn" type="button" data-action="focus-open">${esc(t('giOpen'))}</button>`;
+  else if (isPalestra(task) && !b.startedAt && !leaving) acts = `<button class="btn primary" type="button" data-action="pal-start" data-id="${esc(b.id)}">▶ ${esc(t('palStart'))}</button><button class="btn" type="button" ${openAct(b)}>${esc(t('giOpen'))}</button>`;
+  else if (leaving) acts = `<button class="btn primary" type="button" data-action="now-left" data-id="${esc(b.id)}" data-step="${esc(lg.step.id)}">${esc(t('leftNow'))}</button><button class="btn" type="button" data-action="now-move" data-id="${esc(b.id)}">${esc(t('move'))}</button>`;
+  else if (started || isRun) acts = `<button class="btn primary" type="button" data-action="now-done" data-id="${esc(b.id)}">✓ ${esc(t('esDone'))}</button>${isRun ? '' : `<button class="btn" type="button" data-action="focus-start" data-id="${esc(b.id)}">▶ ${esc(planLabel(b))}</button>`}<button class="btn" type="button" ${openAct(b)}>${esc(t('giOpen'))}</button>`;
+  else acts = `<button class="btn primary" type="button" data-action="focus-start" data-id="${esc(b.id)}">▶ ${esc(t('ox_focus', planLabel(b)))}</button><button class="btn" type="button" data-action="now-move" data-id="${esc(b.id)}">${esc(t('move'))}</button>`;
+  return `<section class="ox-hero${started || isRun ? ' live' : ''}" style="--c:${esc(colorOf(b))}" aria-label="${esc(t('nextMove'))}">
+    <div class="ox-k">${esc(k)}</div>
+    <button type="button" class="ox-title" ${openAct(b)}>${isApptLike(task) ? '📅 ' : ''}${esc(b.title)}</button>
+    ${sub ? `<small class="ox-sub">${esc(sub)}</small>` : ''}
+    ${prog}${stepLine(b, now)}
+    <div class="ox-acts">${acts}${task?.place && !isRun ? `<a class="btn icon-btn" href="${esc(mapsHref(task))}" target="_blank" rel="noopener" aria-label="${esc(t('openMaps'))}">📍</a>` : ''}</div></section>`;
+}
+function oggiA(td, now, { run, curBlock, current, next, open, upcoming, old }) {
+  const hero = (run && open.find((b) => b.id === run.id)) || curBlock || current || old;
+  if (!hero) return `<section class="ox-hero empty"><div class="ox-k">${esc(t('nextMove'))}</div><p>${esc(open.length || upcoming.length ? t('dayDone') : t('nothingToday'))}</p><div class="ox-acts"><a class="btn" href="#/plan">${esc(t('openPlanner'))}</a></div></section>`;
+  const after = upcoming.find((b) => b !== hero && b.start > now && b.start >= hero.start);
+  let nextLine = '';
+  if (after) {
+    const lg = after.isEvent ? null : legTimes(after); const ys = after.isEvent ? [] : stepTimes(after);
+    const sub = [lg && lg.trip > 0 ? `${MODE_ICON[lg.step.mode] || '🚌'} ${t('leaveAt', fmtTime(lg.leave))}` : '', fmtDur(after.minutes), ys.length > 1 ? t('ox_nSteps', ys.length) : ''].filter(Boolean).join(' · ');
+    nextLine = `<div class="sec-mini"><span>${esc(t('ox_then'))}</span><span>${esc(t('ox_inTime', fmtDur(Math.max(0, (lg && lg.trip > 0 ? lg.leave : after.start) - now))))}</span></div>
+      <button type="button" class="ox-next" ${openAct(after)} style="--c:${esc(colorOf(after))}"><b class="ox-nt">${fmtTime(after.start)}</b><span class="ox-nx"><b>${esc(after.title)}</b><small>${esc(sub)}</small></span><span aria-hidden="true">›</span></button>`;
+  }
+  const keys = keyMoments(td, now); const all = dayItems(td, now, keys, otherBlocks(td, keys));
+  const past = all.filter((k) => k.done || (k.ev && k.end <= now));
+  const chips = all.length > 1 ? `<div class="sec-mini"><span>${esc(t('ox_rest'))}</span></div><div class="ox-strip">${all.map((k) => { const b = k.b || null; const c = k.ev ? (eventsOn(td).find((e) => e.id === k.id)?.color || '#6b7280') : catColor(b?.category) || 'var(--accent)';
+    return `<button type="button" class="ox-chip${k.done || (k.ev && k.end <= now) ? ' done' : ''}${k.id === hero.id ? ' is-now' : ''}" ${k.ev ? `data-action="event" data-id="${esc(k.id)}"` : `data-action="open-block" data-id="${esc(k.id)}"`} style="--c:${esc(c)}"><small><i></i>${fmtTime(k.leave ?? k.start)}</small><b>${esc(k.title)}</b></button>`; }).join('')}</div>` : '';
+  const fold = past.length ? `<button type="button" class="ox-fold" data-action="gi-past" aria-expanded="${Boolean(ui.giPast)}"><span>✓ ${esc(t('giPastDone', past.length))} · ${fmtTime(Math.min(...past.map((k) => k.leave ?? k.start)))}–${fmtTime(Math.max(...past.map((k) => k.end)))}</span><span aria-hidden="true">${ui.giPast ? '▾' : '›'}</span></button>${ui.giPast ? `<div class="ox-past">${past.map((k) => `<button type="button" class="ox-prow${k.failed ? ' failed' : ''}" ${k.ev ? `data-action="event" data-id="${esc(k.id)}"` : `data-action="open-block" data-id="${esc(k.id)}"`}><span>${fmtTime(k.start)}</span><b>${esc(k.title)}</b><small>${k.failed ? '✕' : '✓'}</small></button>`).join('')}</div>` : ''}` : '';
+  return `${heroHtml(hero, now, run)}${nextLine}${chips}${fold}`;
 }

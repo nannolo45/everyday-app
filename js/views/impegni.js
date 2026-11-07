@@ -4,6 +4,8 @@
 // the top (three to a row). Overview is always first: everything, newest first, with what isn't sorted
 // yet tagged "to sort". Views and their order are kept on this device (Settings).
 import { catName, catsOf, categories, esc, modal, relDay, ui } from '../core.js';
+import { sizeBars, sizeOf, sizeWord } from '../focus.js';
+import { realSteps } from '../travel-plan.js';
 import { t } from '../i18n.js';
 import { isTodo } from '../kinds.js';
 import { countedOf, nextPlanned, noRhythm, outcomeOf, taskIcon } from '../model.js';
@@ -26,11 +28,11 @@ export const RICETTE_APP = 'https://nannolo45.github.io/ricette-app/';
 export const TYPES = ['once', 'repeat'];
 export const STATES = ['toplan', 'planned', 'done'];
 export const WHENS = ['today', 'week', 'later', 'none'];
-export const SORTS = ['added', 'when', 'cat', 'type'];
+export const SORTS = ['due', 'added', 'when', 'cat', 'type'];
 
 export function defaultViews() {
   return [
-    { id: 'overview', fixed: true, pin: true, f: {}, by: 'added', dir: -1 },
+    { id: 'overview', fixed: true, pin: true, f: {}, by: classic() ? 'added' : 'due', dir: classic() ? -1 : 1 }, // (v100) by deadline
     { id: 'week', pin: true, f: { when: ['today', 'week'] }, by: 'when', dir: 1 },
     { id: 'shop', pin: true, shop: true, f: {} },
     { id: 'workout', pin: true, f: { cat: ['health'] }, app: 'palestra', by: 'when', dir: 1 },
@@ -128,6 +130,7 @@ function addedKey(x, td) {
   const s = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   return s === td ? 'today' : s === addDays(td, -1) ? 'yesterday' : s >= addDays(td, -6) ? 'week' : 'earlier';
 }
+const DUE_GROUPS = ['late', 'soon', 'week', 'later', 'none'];
 export function groupsOf(list, by, dir = 1) {
   const td = today();
   const cats = categories().map((c) => c.id);
@@ -135,6 +138,12 @@ export function groupsOf(list, by, dir = 1) {
     const rep = list.filter((x) => x.repeat); const any = list.filter((x) => !x.repeat);
     const az = (a, b) => (a.title || '').localeCompare(b.title || '');
     return [['rep', rep], ['any', any]].filter(([, l]) => l.length).map(([k, l]) => ({ key: k, label: t(`gs_${k}`), list: l.sort(az) }));
+  }
+  if (by === 'due') { // (v100) by deadline: late, today and tomorrow, this week, later, whenever
+    const k = (x) => { const d = x.due || dateOf(x); if (!d) return 'none'; if (x.due && x.due < td) return 'late'; if (d < td) return 'soon'; if (d <= addDays(td, 1)) return 'soon'; if (d <= addDays(td, 7)) return 'week'; return 'later'; };
+    const smart = sortTasks(list, td); const pos = new Map(smart.map((x, i) => [x.id, i]));
+    const m = new Map(); for (const x of list) { const g = typeOf(x) === 'repeat' && !x.due ? 'none' : k(x); if (!m.has(g)) m.set(g, []); m.get(g).push(x); }
+    return DUE_GROUPS.filter((g) => m.has(g)).map((g) => ({ key: g, label: t(`gd_${g}`), list: m.get(g).sort((a, b) => ((a.due || dateOf(a) || '9999').localeCompare(b.due || dateOf(b) || '9999')) || pos.get(a.id) - pos.get(b.id)) }));
   }
   const key = (x) => (by === 'added' ? addedKey(x, td) : by === 'when' ? (typeOf(x) === 'repeat' && whenOf(x) !== 'today' ? 'rep' : whenOf(x)) : by === 'cat' ? (catsOf(x)[0] || '') : typeOf(x));
   const order = by === 'added' ? ['today', 'yesterday', 'week', 'earlier'] : by === 'when' ? ['today', 'week', 'rep', 'later', 'none'] : by === 'cat' ? ['', ...cats] : TYPES;
@@ -162,12 +171,31 @@ function missChips(x) {
     <button type="button" class="mchip more" data-action="task-edit" data-id="${esc(x.id)}">${esc(t('detailsBtn'))} ›</button></div>`;
 }
 export function plainRow(x) {
+  if (!classic() && typeOf(x) !== 'repeat') return richRow(x);
   const open = ui.openRow === x.id;
   const meta = [dateOf(x) ? relDay(dateOf(x)) : '', x.lenSet === false ? '' : fmtDur(x.minutes || 30), ...catsOf(x).map((c) => catName(get('categories', c)))].filter(Boolean).join(' · ');
   const box = typeOf(x) === 'repeat' ? '<span class="vw-rep" aria-hidden="true">↻</span>' : `<input type="checkbox" data-action="task-done" data-id="${esc(x.id)}" ${x.done ? 'checked' : ''} aria-label="${esc(t('markDone'))}">`;
   return `<li class="vw-row${open ? ' open' : ''}${x.done ? ' done' : ''}">${box}
     <button class="task-main" type="button" data-action="${typeOf(x) === 'repeat' && !classic() ? 'routine-open' : 'vw-row'}" data-id="${esc(x.id)}" aria-expanded="${open}"><span class="item-text">${taskIcon(x)}${esc(x.title)}${meta ? `<small>${esc(meta)}</small>` : ''}</span></button>${tag(x)}
     ${open ? missChips(x) : ''}</li>`;
+}
+// (v100) a row you take in at a glance: the category's colour on its edge, the deadline as a label (red when late,
+// yellow today or tomorrow) and its weight as three little bars (quick · medium · big). Tap: the card to look at it
+// (something still missing its details opens the chips to fill them in, as before).
+export function dueBadge(x) {
+  if (!x.due || x.done) return '';
+  const td = today(); const late = x.due < td; const soon = !late && x.due <= addDays(td, 1);
+  return `<span class="due-b${late ? ' late' : soon ? ' soon' : ''}">${esc(late ? t('dueLateShort', relDay(x.due)) : relDay(x.due))}</span>`;
+}
+export function richRow(x) {
+  const open = ui.openRow === x.id; const un = unsorted(x) && !classic();
+  const c = catsOf(x)[0]; const color = (c && get('categories', c)?.color) || 'var(--line)';
+  const nSt = realSteps(x).length; const np = nextPlanned(x.id);
+  const meta = [x.lenSet === false ? '' : fmtDur(x.minutes || 30), sizeWord(sizeOf(x)), nSt ? t('ox_nSteps', nSt) : '', c ? catName(get('categories', c)) : '', np && !x.done ? t('plannedAt', relDay(np.date), fmtTime(np.start)) : ''].filter(Boolean).join(' · ');
+  return `<li class="vw-row rr${open ? ' open' : ''}${x.done ? ' done' : ''}" style="--c:${esc(color)}"><input type="checkbox" data-action="task-done" data-id="${esc(x.id)}" ${x.done ? 'checked' : ''} aria-label="${esc(t('markDone'))}">
+    <button class="task-main" type="button" data-action="${un ? 'vw-row' : 'task-view'}" data-id="${esc(x.id)}"${un ? ` aria-expanded="${open}"` : ''}><span class="item-text">${taskIcon(x)}${esc(x.title)}${meta ? `<small>${esc(meta)}</small>` : ''}</span></button>
+    <span class="rr-r">${dueBadge(x)}${sizeBars(x, color)}</span>
+    ${open && un ? missChips(x) : ''}</li>`;
 }
 // (v83) A saved thing with no rhythm, in Salvate: its length, when you last did it, ▶ to plan it.
 function lastDone(x) { return live('blocks').filter((b) => b.taskId === x.id && !b.deleted && outcomeOf(b) === 'done').map((b) => b.date).sort().pop() || null; }
@@ -179,6 +207,7 @@ export const isSalvate = (v) => !classic() && v.id === 'routine' && (!v.by || v.
 function fullRow(x, ws, sv = false) {
   if (sv && !x.repeat) return anyRow(x);
   if (typeOf(x) === 'repeat') return routineRow(x, ws);
+  if (!classic()) return richRow(x);
   if (!unsorted(x)) return taskRow(x);
   return plainRow(x);
 }
@@ -200,6 +229,7 @@ function rhythmCard() {
 }
 export function setWeekly(x) { upsert('tasks', { ...x, repeat: 'times', timesN: 1, timesPer: 'week', pickTime: true, whenMode: 'repeat', due: null }); }
 export function viewImpegni() {
+  if (!state.settings.dueMig && !classic()) { const vs = state.settings.views; saveSettings({ dueMig: true, ...(vs ? { views: vs.map((x) => (x?.id === 'overview' && (x.by || 'added') === 'added' ? { ...x, by: 'due', dir: 1 } : x)) } : {}) }); } // (v100) Overview by deadline, once
   const v = curView();
   const top = tabs(v);
   if (v.shop) return `${top}${shopReader() ? "" : `<p class="vw-shows">${esc(showsText(v))}</p>`}${viewShop()}`; // (v83) the reader says where the list is
@@ -208,13 +238,14 @@ export function viewImpegni() {
   const ws = ui.routineWeek || weekStart(today());
   const showDone = f.state?.includes('done');
   const pool = allItems().filter((x) => matches(x, f) && (!q || matchesQ(taskHay(x), q)));
-  const list = showDone ? pool : pool.filter((x) => !x.done);
+  const quickN = pool.filter((x) => !x.done && typeOf(x) !== 'repeat' && sizeOf(x) === 's').length;
+  const list = (showDone ? pool : pool.filter((x) => !x.done)).filter((x) => !ui.impQuick || (typeOf(x) !== 'repeat' && sizeOf(x) === 's')); // (v100) ⚡ only the quick ones
   const done = showDone ? [] : pool.filter((x) => x.done);
   const n = nOf(f);
   const changedF = ui.vTemp?.id === v.id && !sameF(ui.vTemp.f, v.f);
   const tools = `<div class="task-tools">${searchBox({ id: 'task-q', value: ui.taskQ || '' })}
     <button class="btn small tools-btn${n ? ' on' : ''}" type="button" data-action="vw-filters">⇅ ${esc(t('filters'))}${n ? ` · ${n}` : ''}</button>
-    <button class="btn small tools-btn" type="button" data-action="vw-sort" aria-label="${esc(t('sortGroup'))}">▤ ${esc(sortLabel(v))}</button></div>`;
+    <button class="btn small tools-btn" type="button" data-action="vw-sort" aria-label="${esc(t('sortGroup'))}">▤ ${esc(sortLabel(v))}</button>${classic() ? '' : `<button class="btn small tools-btn${ui.impQuick ? ' on' : ''}" type="button" data-action="imp-quick" aria-pressed="${Boolean(ui.impQuick)}" title="${esc(t('impQuickH'))}">⚡ ${esc(t('impQuick'))} · ${quickN}</button>`}</div>`;
   const nUn = flagCount();
   const card = !v.fixed || q ? '' : classic() ? (nUn ? `<div class="vw-card"><b>${esc(t('nToSort', nUn))}</b><button class="btn small primary" type="button" data-action="vw-triage">${esc(t('sortNow'))}</button></div>` : '') : overviewCards();
   const sv = isSalvate(v);
@@ -223,7 +254,7 @@ export function viewImpegni() {
   const row = v.fixed ? plainRow : (x) => fullRow(x, ws, sv);
   const fresh = !v.fixed ? [...(ui.justAdded || [])].map((id) => get('tasks', id)).filter((x) => x && list.includes(x)) : [];
   const freshSet = new Set(fresh);
-  const body = groups.map((g) => { const l = g.list.filter((x) => !freshSet.has(x)); return l.length ? `<section class="vw-grp"><h3 class="vw-gh">${esc(g.label)} <small>${l.length}</small></h3><ul class="list tasks${v.fixed ? ' plain' : ' saved routines'}">${l.map(row).join('')}</ul></section>` : ''; }).join('');
+  const body = groups.map((g) => { const l = g.list.filter((x) => !freshSet.has(x)); return l.length ? `<section class="vw-grp"><h3 class="vw-gh${g.key === 'late' && (v.by || '') === 'due' ? ' late' : ''}">${esc(g.label)} <small>${l.length}${classic() ? '' : ` · ${esc(fmtDur(l.filter((x) => typeOf(x) !== 'repeat').reduce((n, x) => n + (x.minutes || 30), 0)))}`}</small></h3><ul class="list tasks${v.fixed ? ' plain' : ' saved routines'}">${l.map(row).join('')}</ul></section>` : ''; }).join('');
   return `${top}
   <p class="vw-shows">${esc(showsText(v))}${changedF ? ` <span class="vw-changed">· ${esc(t('vwChanged'))}</span>` : ''}</p>
   ${tools}

@@ -513,7 +513,7 @@ function agRow(it) {
 // (v93) A block's steps in the day list: a strip with one segment per step (tap to tick), «▤ 1/3 passaggi» to
 // open the list (tick, time, length), and the block running now (or the next one) open by itself. What you open
 // or close by hand stays so (ui.agOpen).
-const stepName = (y) => y.title || t(y.travel === 'there' ? 'getThere' : y.travel === 'back' ? 'comeBack' : 'steps');
+export const stepName = (y) => y.title || t(y.travel === 'there' ? 'getThere' : y.travel === 'back' ? 'comeBack' : 'steps');
 export function autoStepsBlock(date) {
   if (date !== today()) return null;
   const n = new Date(); const now = n.getHours() * 60 + n.getMinutes();

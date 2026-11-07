@@ -24,6 +24,30 @@ export function elapsedText(b) {
   return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
 }
 const realMinutes = (b) => Math.max(1, Math.round(elapsedMs(b) / 60000));
+
+// (v100) Focus (pomodoro): a running block can carry `focus: { plan:[{k:'f'|'b', m}], skipMs }`, a run of focus
+// blocks and breaks sized to the task (focusPlan). Where you are in it comes from the timer's own time (pauses
+// excluded); «salta» adds the rest of the current phase to skipMs. The real time kept is the focus time only.
+export const sizeOfMinutes = (m, nSteps = 0) => (m > 90 || nSteps >= 4 ? 'l' : m > 30 ? 'm' : 's');
+export function focusPlan(minutes, size = sizeOfMinutes(minutes)) {
+  const m = Math.max(5, Number(minutes) || 30);
+  if (size === 's') return [{ k: 'f', m: Math.max(10, Math.min(30, Math.round(m / 5) * 5)) }];
+  if (size === 'm') { const n = Math.max(1, Math.ceil(m / 30)); return Array.from({ length: n }, (_, i) => [{ k: 'f', m: 25 }, ...(i < n - 1 ? [{ k: 'b', m: 5 }] : [])]).flat(); }
+  const n = Math.max(1, Math.ceil(m / 60)); return Array.from({ length: n }, (_, i) => [{ k: 'f', m: 50 }, ...(i < n - 1 ? [{ k: 'b', m: i === 0 ? 15 : 10 }] : [])]).flat();
+}
+export const focusLabel = (plan) => { const f = plan.filter((p) => p.k === 'f'); return f.length === 1 ? `${f[0].m}′` : `${f.length}×${f[0].m}′`; };
+export function focusPhase(b, now = Date.now()) {
+  const plan = b?.focus?.plan; if (!plan?.length) return null;
+  const e = (elapsedMs(b, now) + (b.focus.skipMs || 0)) / 1000; let t0 = 0; let focusSec = 0;
+  for (let i = 0; i < plan.length; i++) {
+    const len = plan[i].m * 60;
+    if (e < t0 + len) { if (plan[i].k === 'f') focusSec += e - t0; return { i, k: plan[i].k, m: plan[i].m, left: Math.ceil(t0 + len - e), into: e - t0, focusSec, n: plan.filter((p) => p.k === 'f').length, nth: plan.slice(0, i + 1).filter((p) => p.k === 'f').length, next: plan[i + 1] || null, over: false }; }
+    if (plan[i].k === 'f') focusSec += len;
+    t0 += len;
+  }
+  return { i: plan.length, k: 'end', m: 0, left: 0, into: e - t0, focusSec: focusSec + (e - t0), n: plan.filter((p) => p.k === 'f').length, nth: plan.filter((p) => p.k === 'f').length, next: null, over: true };
+}
+export function focusSkip(b) { const ph = focusPhase(b); if (!ph || ph.over) return; upsert('blocks', { ...b, focus: { ...b.focus, skipMs: (b.focus.skipMs || 0) + ph.left * 1000 } }); }
 const at5 = (m) => Math.floor(m / 5) * 5;
 
 // The block a task would start on now: today's open one (its first), else a new one from now.
@@ -47,7 +71,8 @@ export function resumeTimer(b) { if (b?.pausedAt) upsert('blocks', { ...b, pause
 // Stop: the real time goes on the block and in the task's log; `done` ticks it (as the checkbox would).
 export function stopTimer(block, { done = true } = {}) {
   let b = block.pausedAt ? { ...block, pausedMs: (block.pausedMs || 0) + (Date.now() - block.pausedAt), pausedAt: null } : block;
-  const minutes = realMinutes(b);
+  const fp = b.focus ? focusPhase(b) : null; // (v100) with focus: the focus time, not the breaks
+  const minutes = fp ? Math.max(1, Math.round(fp.focusSec / 60)) : realMinutes(b);
   const planned = b.plannedMinutes || b.minutes;
   b = upsert('blocks', { ...b, endedAt: Date.now(), plannedMinutes: planned, minutes: Math.max(5, minutes) });
   const task = b.taskId && get('tasks', b.taskId);

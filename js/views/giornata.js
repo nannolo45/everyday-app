@@ -43,7 +43,7 @@ export function keyMoments(date, now = date === today() ? nowMinutes() : -1) {
   return [...evs, ...own].sort((a, b) => (a.leave ?? a.start) - (b.leave ?? b.start));
 }
 // Everything else of the day: how much is done, how long is left.
-function otherBlocks(date, keys) {
+export function otherBlocks(date, keys) {
   const ids = new Set(keys.map((k) => k.id));
   return blocksOn(date).filter((b) => b.kind !== 'prep' && !b.stepId && !ids.has(b.id));
 }
@@ -88,8 +88,9 @@ const row = (time, ic, title, sub = '', { cls = '', right = '', action = '', id 
   return action ? `<button type="button" class="gi-row ${cls}" data-action="${action}" data-id="${esc(id)}">${inner}</button>` : `<div class="gi-row ${cls}">${inner}</div>`;
 };
 const nowLine = (now) => `<div class="gi-now" aria-label="${esc(t('nowLabel'))}"><span>${fmtTime(now)}</span></div>`;
+let closedDef = false; // (v100) under Oggi's card the sections start closed (only Domani, in the evening)
 function section(id, { count = '', summary = '', body = '' }) {
-  const def = id === 'tmr' ? nowMinutes() >= 19 * 60 : ['brief', 'prep'].includes(id);
+  const def = id === 'tmr' ? nowMinutes() >= 19 * 60 : !closedDef && ['brief', 'prep'].includes(id);
   const open = ui.giOpen?.[id] ?? def;
   return `<section class="card gi-sec${open ? ' open' : ''}" data-sec="${id}"><button type="button" class="gi-sh" data-action="gi-sec" data-id="${id}" aria-expanded="${open}"><span>${esc(secName(id))}</span><span class="gi-cnt">${count}</span><span class="gi-chev" aria-hidden="true">${open ? '▾' : '›'}</span></button>${open ? `<div class="gi-sb">${body}</div>` : `<p class="gi-sum">${summary}</p>`}</section>`;
 }
@@ -193,14 +194,17 @@ function tmrSec(td) {
 }
 function routSec() { const { rows, weekOn } = todayRows(); ui.weekRows = rows; ui.weekOn = weekOn; return todayStripHtml({ rows, weekOn }); }
 // The whole Giornata page; also what the progress bar counts.
-export function giornataHtml(td = today()) {
+export function giornataHtml(td = today(), { skip = [], closed = false, bar = true } = {}) {
   const now = nowMinutes();
   const keys = keyMoments(td, now); const others = otherBlocks(td, keys); const preps = prepItems(td, keys);
   const n = keys.length + others.length + preps.length;
   const d = keys.filter((k) => k.done).length + others.filter((b) => outcomeOf(b)).length + preps.filter((p) => p.done).length;
   const mk = { brief: () => briefSec(td, now, keys, others), prep: () => prepSec(now, preps), due: () => dueSec(td, preps), free: () => freeSec(td, now), rout: routSec, shop: shopSec, tmr: () => tmrSec(td) };
-  return `<div class="gi-bar" role="progressbar" aria-valuemin="0" aria-valuemax="${n}" aria-valuenow="${d}"><i style="width:${n ? Math.round((d / n) * 100) : 0}%"></i></div>
-    ${giSecs().filter((s) => s.on).map((s) => mk[s.id]()).join('')}
+  closedDef = closed;
+  const secs = giSecs().filter((s) => s.on && !skip.includes(s.id)).map((s) => mk[s.id]()).join('');
+  closedDef = false;
+  return `${bar ? `<div class="gi-bar" role="progressbar" aria-valuemin="0" aria-valuemax="${n}" aria-valuenow="${d}"><i style="width:${n ? Math.round((d / n) * 100) : 0}%"></i></div>` : ''}
+    ${secs}
     <button type="button" class="linkish gi-edit" data-action="gi-secs">✎ ${esc(t('giSections'))}</button>`;
 }
 export const dayCount = (td = today()) => { const now = nowMinutes(); const keys = keyMoments(td, now); const others = otherBlocks(td, keys); const preps = prepItems(td, keys); return { n: keys.length + others.length + preps.length, d: keys.filter((k) => k.done).length + others.filter((b) => outcomeOf(b)).length + preps.filter((p) => p.done).length }; };

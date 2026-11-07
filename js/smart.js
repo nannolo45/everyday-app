@@ -303,9 +303,13 @@ export function spreadTasks({ tasks, days, settings, leadOf = () => 0, now = Dat
   };
   for (const r of ranked) visit(r);
   const endOf = new Map(); const used = new Map();
+  // (v100) 1-3-5 (1 big, 3 medium, 5 quick a day) or 1-1-3: past its quota of that size, a day is skipped
+  const Q = s.rule === '135' ? { l: 1, m: 3, s: 5 } : s.rule === '113' ? { l: 1, m: 1, s: 3 } : null;
+  const cnt = new Map(days.map((d) => [d.date, { l: 0, m: 0, s: 0 }]));
   const placed = []; const skipped = [];
   for (const { t, score, reasons } of ordered) {
     const minutes = t.minutes || 30;
+    const sz = minutes > 90 ? 'l' : minutes > 30 ? 'm' : 's';
     const lead = leadOf(t);
     const need = lead + minutes;
     let nb = t.notBefore || null; let waiting = false;
@@ -322,6 +326,7 @@ export function spreadTasks({ tasks, days, settings, leadOf = () => 0, now = Dat
     const bias = 6 + Math.max(0, importanceOf(t) - 3) * 20 + (t.due ? 25 : 0);
     let best = null; let why = 'full';
     allowed.forEach((d, i) => {
+      if (Q && cnt.get(d.date)[sz] >= Q[sz]) { why = 'rule'; return; }
       const over = load.get(d.date) + need > s.maxLoad; // (v99) past the limit: still allowed where there's room, only after the days that have space
       why = 'nofit';
       const from = Math.max(d.from ?? s.dayStart, nb && nb.date === d.date ? nb.minute : 0);
@@ -356,7 +361,7 @@ export function spreadTasks({ tasks, days, settings, leadOf = () => 0, now = Dat
         }
         if (at == null) { why = 'closed'; return; }
       } else {
-        const win = WINDOWS[t.when];
+        const win = WINDOWS[t.when] || (Q && sz === 'l' ? [s.dayStart, 13 * 60] : null); // (v100) with a rule, the big one when you're fresh
         if (win) at = fit(free, need, { snap: s.snap, window: win });
         if (at == null) at = fit(free, need, { snap: s.snap });
       }
@@ -364,6 +369,7 @@ export function spreadTasks({ tasks, days, settings, leadOf = () => 0, now = Dat
       const cost = load.get(d.date) + i * bias + (over ? 1e6 : 0);
       if (!best || cost < best.cost) best = { d, at, cost };
     });
+    if (best && Q) cnt.get(best.d.date)[sz] += 1;
     if (!best) { skipped.push({ taskId: out(t), key: t.id, why }); continue; }
     // Say so when it landed in its time window or its preferred part of the day.
     const win = WINDOWS[t.when]; const st = best.at + lead;
