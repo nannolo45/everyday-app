@@ -2461,7 +2461,7 @@ body.plan-fs .mp-main { height: calc(100dvh - 330px); min-height: 380px; }
 .fd-scope { margin: 4px 0 6px; font-size: .8rem; color: var(--muted); background: var(--accent-soft); border-radius: 10px; padding: 6px 10px; }
 .fd-fold { display: block; width: 100%; margin-top: 8px; text-align: left; border: 1px dashed var(--line); background: transparent; color: var(--muted); border-radius: 10px; padding: 7px 10px; font: inherit; font-size: .82rem; cursor: pointer; }
 .mp-pane { margin: 10px 0 4px; } .mp-pane .mp-info { margin-top: 4px; border-color: var(--accent); }
-.mp-cl { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 2px; font-size: .88rem; } .mp-cl label { display: flex; gap: 8px; align-items: center; } .mp-cl input { width: 18px; height: 18px; accent-color: var(--accent); }
+.mp-chk { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 2px; font-size: .88rem; } .mp-chk label { display: flex; gap: 8px; align-items: center; } .mp-chk input { width: 18px; height: 18px; accent-color: var(--accent); flex: none; } .mp-chk small { color: var(--muted); } /* (v102) was .mp-cl, which the month's cells also use: the two overlapped */
 .mp-lb { margin: 10px 0 4px; font-size: .7rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); } .mp-lb small { text-transform: none; letter-spacing: 0; }
 .mp-sp { flex: 1; }
 .mp-seg button.on.time { background: color-mix(in srgb, var(--warn) 24%, transparent); color: var(--ink); }
@@ -2600,3 +2600,27 @@ dialog.sheet.vc-sheet { height: fit-content; max-height: min(92vh, 980px); width
 dialog.sheet.vc-sheet form { height: auto; max-height: inherit; padding-top: 14px; }
 @media (max-width: 600px) { dialog.sheet.vc-sheet { width: 100vw; height: fit-content; max-height: 92dvh; inset: auto 0 0 0; margin: 0; border-radius: 22px 22px 0 0; } }
 .vc-x { flex: none; width: 38px; height: 38px; border: 1px solid var(--line) !important; border-radius: 12px; }
+
+/* v102 · the map: «il blocco fiorisce» */
+.mp-links.faint { opacity: .22; } .mp-links.faint text { display: none; }
+.mp-links text { font-size: 10px; font-weight: 700; paint-order: stroke; stroke: var(--bg); stroke-width: 4px; }
+.mp-plus { position: absolute; z-index: 12; width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid var(--accent); background: var(--bg); color: var(--accent); font-weight: 800; font-size: 1rem; display: grid; place-items: center; cursor: pointer; animation: mpPop .2s ease both; }
+.mp-plus.on { background: var(--accent); color: var(--accent-ink); }
+.mp-plusm { position: absolute; z-index: 30; width: 210px; padding: 5px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 16px 36px rgba(0,0,0,.4); display: flex; flex-direction: column; }
+.mp-plusm button { display: flex; align-items: center; gap: 8px; border: 0; background: none; color: var(--ink); font: inherit; font-size: .84rem; text-align: left; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.mp-plusm button:hover { background: var(--accent-soft); } .mp-plusm i { font-style: normal; width: 18px; text-align: center; color: var(--pc, var(--muted)); } .mp-plusm hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+.mp-pet { position: absolute; z-index: 11; display: flex; align-items: center; gap: 6px; max-width: 190px; padding: 3px 10px; border: 1px dashed var(--accent); border-radius: 999px; background: var(--surface); color: var(--ink); font: inherit; font-size: .74rem; white-space: nowrap; cursor: pointer; animation: mpPop .25s ease both; }
+.mp-pet .ck { flex: none; width: 13px; height: 13px; border: 1.5px solid var(--muted); border-radius: 4px; font-size: .55rem; display: grid; place-items: center; }
+.mp-pet small { color: var(--muted); font-size: .64rem; } .mp-pet.done { color: var(--muted); text-decoration: line-through; } .mp-pet.done .ck { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.mp-pet.trv { border-style: dotted; } .mp-pet:disabled { cursor: default; }
+.mp-n.stub.bloom { border-style: dashed; animation: mpPop .25s ease both; z-index: 10; }
+@keyframes mpPop { from { opacity: 0; transform: scale(.85); } to { opacity: 1; transform: none; } }
+.mp-lanel.bycat span { display: inline-flex; align-items: center; gap: 6px; font-size: .68rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); } .mp-lanel.bycat span::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--c); } /* (v102) not «.cat»: that class already draws a dot */
+.mp-tools { position: relative; } .mp-tools .btn.on { border-color: var(--accent); }
+.mp-warnb { color: var(--danger) !important; border-color: color-mix(in srgb, var(--danger) 45%, transparent) !important; }
+.mp-vpop { position: absolute; right: 0; top: 36px; z-index: 40; width: 360px; max-width: 92vw; padding: 8px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 16px 40px rgba(0,0,0,.4); color: var(--ink); }
+.mp-vr { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 0; } .mp-vr + .mp-vr { border-top: 1px solid var(--line); } .mp-vr > span { font-size: .8rem; color: var(--muted); }
+.mp-vpop > small { display: block; padding-top: 4px; color: var(--muted); font-size: .72rem; }
+.mp-info h4 { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; } .mp-ix { flex: none; width: 28px; height: 28px; }
+.mp-acts .btn.primary { flex: 1; }
+.pw-list.flash { animation: pwFlash 1.2s ease; } @keyframes pwFlash { 0%, 60% { box-shadow: 0 0 0 3px var(--danger); border-radius: 12px; } 100% { box-shadow: none; } }
