@@ -15,6 +15,7 @@ import { matchesQ } from '../shoplist.js';
 import { get, live, remove, saveSettings, state, upsert } from '../store.js';
 import { palestraConfigured, ricetteConfigured } from '../sync.js';
 import { render } from '../shell.js';
+import { isPalestra } from '../palestra.js';
 import { durField, openModal, readDur, searchBox } from '../widgets.js';
 import { openWeekGrid } from '../weekgrid.js';
 import { weekStart } from './planner.js';
@@ -35,7 +36,7 @@ export function defaultViews() {
     { id: 'overview', fixed: true, pin: true, f: {}, by: classic() ? 'added' : 'due', dir: classic() ? -1 : 1 }, // (v100) by deadline
     { id: 'week', pin: true, f: { when: ['today', 'week'] }, by: 'when', dir: 1 },
     { id: 'shop', pin: true, shop: true, f: {} },
-    { id: 'workout', pin: true, f: { cat: ['health'] }, app: 'palestra', by: 'when', dir: 1 },
+    { id: 'workout', pin: true, f: { src: ['palestra'] }, app: 'palestra', by: 'when', dir: 1 }, // (v102) Palestra's workouts, not all of Salute
     { id: 'home', pin: true, f: { cat: ['home'] }, by: 'when', dir: 1 },
     { id: 'routine', pin: true, f: { type: ['repeat'] }, by: 'cat', dir: 1 }, // (v81) the routines' week, ready
     { id: 'toplan', pin: false, f: { state: ['toplan'] }, by: 'when', dir: 1 },
@@ -52,7 +53,8 @@ export const BUILTIN = { routine: { ic: '★', app: null }, shop: { ic: '🛒', 
 const appOn = (a) => !a || (a === 'ricette' ? ricetteConfigured() : palestraConfigured());
 export const goneViews = () => [...new Set([...(state.settings.viewsGone || []), ...(state.settings.rtViewGone ? ['routine'] : [])])].filter((id) => BUILTIN[id]);
 function allViews() {
-  const list = (state.settings.views || defaultViews()).filter(Boolean).map((v) => (BUILTIN[v.id] ? { ...v, name: undefined } : v));
+  const list = (state.settings.views || defaultViews()).filter(Boolean).map((v) => (BUILTIN[v.id] ? { ...v, name: undefined } : v))
+    .map((v) => (v.id === 'workout' && JSON.stringify(v.f || {}) === JSON.stringify({ cat: ['health'] }) ? { ...v, f: { src: ['palestra'] } } : v)); // (v102) the old «Salute» filter becomes «Palestra»
   if (!list.some((v) => v.id === 'overview')) list.unshift(defaultViews()[0]);
   const gone = goneViews();
   for (const id of Object.keys(BUILTIN)) if (!gone.includes(id) && !list.some((v) => v.id === id)) list.push({ ...defaultViews().find((v) => v.id === id), pin: true });
@@ -109,6 +111,7 @@ export function matches(x, f = {}) {
   if (f.type?.length && !f.type.includes(typeOf(x))) return false;
   if (f.state?.length && !f.state.includes(stateOf(x))) return false;
   if (f.when?.length && !f.when.includes(whenOf(x))) return false;
+  if (f.src?.includes('palestra') && !isPalestra(x)) return false;
   if (f.cat?.length) { const cs = catsOf(x); if (!(cs.length ? cs.some((c) => f.cat.includes(c)) : f.cat.includes(''))) return false; }
   return true;
 }
@@ -119,7 +122,7 @@ const valLabel = (k, v) => (k === 'cat' ? (v ? catName(get('categories', v)) : t
 export function showsText(v) {
   const f = filterOf(v);
   if (v.shop) return t('vwShowsShop');
-  const parts = ['type', 'state', 'when', 'cat'].filter((k) => f[k]?.length).map((k) => f[k].map((x) => valLabel(k, x)).join(t('orWord')));
+  const parts = ['type', 'state', 'when', 'cat', 'src'].filter((k) => f[k]?.length).map((k) => f[k].map((x) => valLabel(k, x)).join(t('orWord')));
   return t('vwShows', parts.length ? parts.join(' · ') : t('vwEverything'));
 }
 
