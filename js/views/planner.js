@@ -1,4 +1,5 @@
 // views/planner.js: moved from app.js (v36). See app.js for how the modules fit together.
+import { plButton, plOpen, plPanel } from '../pianifica.js';
 import { cardRows, fixAll, slotOptions, toFix, weekCardHtml } from '../weekpick.js';
 import { leadOf, openTasks, plannedTaskIds } from '../model.js';
 import { openAutoPlanner } from '../editors.js';
@@ -488,7 +489,7 @@ export function planCard() {
   if (pick) return `<div class="ag-pick"><span>${esc(t('pickBanner', pick.title, fmtDur(pick.minutes || 30)))}<small>${esc(t('swapHint'))}</small></span><button class="icon" type="button" data-action="fd-unpick" aria-label="${esc(t('close'))}">✕</button></div>`;
   const nPlan = trayTasks().length; const nFix = toFix(td, weekEndOf(td)).length;
   // on a phone one button, Pianifica: a smart suggestion, or Scelgo io (find, pick, place; also to find what's planned)
-  if (!wide) return `<div class="ag-card-top"><span><b>${esc(nPlan + nFix ? t('agToPlan', nPlan + nFix) : `✓ ${t('agAllPlanned')}`)}</b></span><button class="btn small primary" type="button" data-action="ag-choose">${esc(t('planChoose'))}</button></div>`;
+  if (!wide) return `<div class="ag-card-top"><span><b>${esc(nPlan + nFix ? t('agToPlan', nPlan + nFix) : `✓ ${t('agAllPlanned')}`)}</b></span>${plButton('small')}</div>`;
   if (!state.settings.paneHidden && planStyle() !== 'hours') return ''; // (v106) the pane has ✦ and the list already
   if (!nPlan && !nFix) return `<p class="ag-ok">✓ ${esc(t('agAllPlanned'))}</p>`;
   // (v66) one word for both: what's to plan and this week's routine turns without a time yet
@@ -707,7 +708,8 @@ export function paneWarnings(date, extra = '') {
   const lt = late.map((b) => `<li class="pw-item yel"><span>⏰ ${esc(t('pwLate', b.title, fmtTime(b.start)))}</span><span class="pw-acts"><button class="btn small primary" type="button" data-action="behind-done" data-id="${esc(b.id)}">✓</button><button class="btn small" type="button" data-action="behind-fail" data-id="${esc(b.id)}">✕</button><button class="btn small" type="button" data-action="behind-tmr" data-id="${esc(b.id)}">→ ${esc(t('tomorrow'))}</button></span></li>`).join('');
   const n = conflicts.length + late.length;
   const v = currentView(); const per = v === 'day' ? (date === td ? t('today').toLowerCase() : relDay(date)) : t(`smartFor_${v}`);
-  return `<div class="pw"><button class="btn primary pw-plan" type="button" data-action="ag-plan">✦ ${esc(t('smartTitle'))} · ${esc(per)}</button>${extra}
+  void per;
+  return `<div class="pw">${plButton('pw-plan')}${plOpen() ? plPanel() : ''}${extra}
     <div class="field-label">${esc(t('pwTitle'))} <small>${n || ''}</small></div>${n ? `<ul class="pw-list">${cf}${lt}</ul>` : `<p class="hint">✓ ${esc(t('pwNone'))}</p>`}</div>`;
 }
 export function agendaWeek(date) {

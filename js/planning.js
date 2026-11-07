@@ -1,5 +1,5 @@
 // planning.js: moved from app.js (v36). See app.js for how the modules fit together.
-import { fmtDay, GROCERY_MINUTES, planSettings, relDay, toast, ui } from './core.js';
+import { catsOf, fmtDay, GROCERY_MINUTES, planSettings, relDay, toast, ui } from './core.js';
 import { t } from './i18n.js';
 import { isTodo } from './kinds.js';
 import { busyOn, planBusy, roomy, conflictsOn, conflictText, eventTasksOf, followParent, itemById, leadOf, leaveTrace, maySplit, minutesLeft, newBlock, openTasks, outcomeOf, partsLeft, periodKey, plannedTaskIds, planTask, prereqsOf, splitsSteps, stepLen, timesLeft } from './model.js';
@@ -298,7 +298,7 @@ export function planningItems(tasks, dates) {
   const inRun = new Set(tasks.map((x) => x.id));
   const lastItem = new Map();
   for (const x of tasks) {
-    const base = { taskId: x.id, boost: boostOf.get(x.id) || 0, title: x.title, minutes: minutesLeft(x), due: x.repeat === 'times' ? null : x.due || null, importance: importanceOf(x), priority: x.priority, when: x.when, createdAt: x.createdAt, windows: x.windows?.length ? x.windows : null, prep: x.prep , ...hoursFields(x) };
+    const base = { taskId: x.id, boost: boostOf.get(x.id) || 0, title: x.title, minutes: minutesLeft(x), due: x.repeat === 'times' ? null : x.due || null, importance: importanceOf(x), priority: x.priority, when: x.when, createdAt: x.createdAt, windows: x.windows?.length ? x.windows : null, prep: x.prep, cats: catsOf(x), ...hoursFields(x) };
     let notBefore = null; const afterTasks = [];
     let waiting = null;
     for (const { task: p, block } of prereqsOf(x)) {

@@ -32,6 +32,7 @@ import { elapsedText, focusSkip, pauseTimer, resumeTimer, runningBlock, startBlo
 import { fixAll, fixOcc, fixTimes, hideStripToday, laterWeek, openStuck, skipOcc } from './weekpick.js';
 import { openEventFilters, prepareEvents } from './views/events.js';
 import { placePicked, wideClick } from './views/wide.js';
+import { plClick } from './pianifica.js';
 import { applyTheme } from './theme.js';
 applyTheme();
 import { classic, curView, openComplete, openFilters, openPick, openSort, openTriage, openViews, setView, setWeekly, setWhen, viewList } from './views/impegni.js';
@@ -196,6 +197,7 @@ view.addEventListener('change', (e) => {
       if ('planStyle' in g) patch.planStyle = g.planStyle;
       if ('defaultView' in g) patch.defaultView = g.defaultView;
       if ('clock12' in g) patch.clock12 = g.clock12 === '1';
+      if ('theme_1' in g) { const th = {}; for (let d = 1; d <= 7; d++) if (g[`theme_${d}`]) th[d] = g[`theme_${d}`]; patch.planThemes = th; } // (v114)
       if (el.form.elements.badge_conflicts) patch.planBadges = { conflicts: el.form.badge_conflicts.checked, behind: el.form.badge_behind.checked, toPlan: el.form.badge_toPlan.checked };
       saveSettings(patch); changed();
       if (el.name === 'defaultView') ui.view = null;
@@ -266,11 +268,13 @@ view.addEventListener('click', (e) => {
   if (graphClick(btn) || scClick(btn) || mpClick(btn)) return; // (v96) the Scaletta and the Map
   const { action, id } = btn.dataset;
   if (ui.phOpen && action !== 'ph-open') ui.phOpen = false; // (v113) picking from the header's sheet closes it
+  if (plClick(btn)) return; // (v114) Pianifica
   if (wideClick(btn)) return; // (v56) the pane on wide screens
   if (shopClick(btn, { planTrips: planTripsNow, shareList: shareShopList })) return; // the shopping list (views/shop.js)
   switch (action) {
     // (v66) the Planner's task list and search (finder.js), the week grid
-    case 'fd-tab': ui.fdTab = id; render(); break;
+    case 'fd-tab': ui.fdTab = id; ui.fdOpen = false; render(); break;
+    case 'fd-open': ui.fdOpen = !ui.fdOpen; render(); break; // (v114)
     case 'fd-fold': ui.fdFold = { ...(ui.fdFold || {}), [id]: !ui.fdFold?.[id] }; render(); break; // (v98)
     case 'ag-choose': openChooser(); break; // (v67) the phone's Pianifica
     case 'pv-list': openPropsList(); break;

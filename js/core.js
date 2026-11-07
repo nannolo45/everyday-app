@@ -6,7 +6,7 @@ import { addDays, fmtTime, parseDate, today } from './plan.js';
 import { get, has, live, remove, state, uid, upsert } from './store.js';
 
 // Shown under Settings; keep in step with VERSION in sw.js (a unit test checks).
-export const APP_VERSION = 'v113';
+export const APP_VERSION = 'v114';
 
 export const $ = (sel, root = document) => root.querySelector(sel);
 // Hints that were emptied in i18n (the guide explains instead) render nothing.
@@ -87,7 +87,8 @@ export function planSettings() {
     dayStart: s.dayStart * 60, dayEnd: s.dayEnd * 60, snap: Number(s.snap) || 15,
     buffer: Number(s.buffer ?? 5), maxLoad: Number(s.maxLoad ?? 8) * 60,
     splitOver: Number(s.splitOver ?? 4) * 60, // 0 = never split by length alone
-    rule: ui.planRule || '', // (v100) the auto-planner's 1-3-5 / 1-1-3, for that run
+    rule: ui.planRule || '', // (v100) the auto-planner's 1-3-5 / 1-1-3, (v114) any schema, for that run
+    themes: s.planThemes || {}, // (v114) Temi della settimana: { isoDay: category id }
   };
 }
 

@@ -1,4 +1,5 @@
 // shell.js: moved from app.js (v36). See app.js for how the modules fit together.
+import { plSheet } from './pianifica.js';
 import { applyPalestra, publishPlanned } from './palestra.js';
 import { $, modal, PPM, route, TAB_OF, ui, view } from './core.js';
 import { t } from './i18n.js';
@@ -165,6 +166,7 @@ export function render() {
   // (v56) Wide screens: a rail on the left and a pane on the right (views/wide.js).
   const wide = isWide(); document.body.classList.toggle('is-wide', wide);
   if (wide) html = wideWrap(html);
+  else html += plSheet(); // (v114) Pianifica on a phone
   html += focusScreenHtml(); // (v100) the focus timer, over everything
   document.body.classList.toggle('wide-pane', wide && !html.includes('<div class="wide no-pane'));
   document.body.classList.toggle('pane-hid', wide && html.includes(' pane-hid'));

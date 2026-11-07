@@ -1,6 +1,7 @@
 // finder.js (v66): the Planner's list of tasks, in the wide pane and on the phone: Da pianificare · Nel
 // piano · Tutte, and a search over all of them. A task shows where it is on the plan as pills; a pill
 // jumps there and the block flashes. "Sposta…" opens the week grid for that one block.
+import { fitsNext, manualOn, slottedIds } from './pianifica.js';
 import { catColor, catName, catsOf, esc, relDay, route, toast, ui } from './core.js';
 import { getLang, t } from './i18n.js';
 import { isEvent } from './kinds.js';
@@ -73,7 +74,7 @@ function turnRows(rows) {
 }
 // Da pianificare: pick one and the free time it fits in lights up; then the routine turns of the week.
 function taskRow(x) {
-  return `<li class="fd-row${ui.pick === x.id ? ' on' : ''}" draggable="true" data-drag="task:${esc(x.id)}" data-min="${x.minutes || 30}">${bar(x)}<div class="fd-c">
+  return `<li class="fd-row${ui.pick === x.id ? ' on' : ''}${plCls(x)}" draggable="true" data-drag="task:${esc(x.id)}" data-min="${x.minutes || 30}">${bar(x)}<div class="fd-c">
     <button type="button" class="fd-t" data-action="fd-pick" data-id="${esc(x.id)}" aria-pressed="${ui.pick === x.id}">${esc(x.title)}<small>${esc([x.lenSet === false ? '' : fmtDur(x.minutes || 30), whenFor(x) ? `${x.onDay ? '📌 ' : ''}${relDay(whenFor(x))}` : '', ...catsOf(x).map((c) => catName(get('categories', c)))].filter(Boolean).join(' · '))}</small></button>
     </div></li>`;
 }
@@ -100,7 +101,7 @@ function scopedRows() {
   return `${empty}${body}${turnsHtml}${fold('nodate', t('fdNoDate'), nodate)}${fold('other', t('fdOther'), other)}`;
 }
 function todoRows() {
-  if (isWide() && route().name === 'plan') return scopedRows();
+  if (isWide() && route().name === 'plan' && !manualOn()) return scopedRows(); // (v114) Manuale: everything still to plan
   const list = trayTasks();
   const turns = routineTurns();
   if (!list.length && !turns.length) return `<p class="hint fd-empty">${esc((ui.assign?.ghosts || []).length ? `✦ ${t('propsAllUp')}` : `✓ ${t('agAllPlanned')}`)}</p>`;
@@ -108,7 +109,7 @@ function todoRows() {
   const turnsHtml = turns.length ? `${both || !list.length ? `<div class="fd-day">${esc(t('fdGrpRoutines'))} <small>${turns.length}</small></div>` : ''}${turnRows(turns)}` : '';
   if (!list.length) return turnsHtml;
   const pick = ui.pick && get('tasks', ui.pick);
-  return `<p class="hint">${esc(pick ? t('pnPicked', pick.title) : t('pnPick'))}</p>${both ? `<div class="fd-day">${esc(t('fdGrpTasks'))} <small>${list.length}</small></div>` : ''}<ul class="fd-list">${list.map((x) => `<li class="fd-row${ui.pick === x.id ? ' on' : ''}" draggable="true" data-drag="task:${esc(x.id)}" data-min="${x.minutes || 30}">${bar(x)}<div class="fd-c">
+  return `<p class="hint">${esc(pick ? t('pnPicked', pick.title) : t('pnPick'))}</p>${both ? `<div class="fd-day">${esc(t('fdGrpTasks'))} <small>${list.length}</small></div>` : ''}<ul class="fd-list">${list.map((x) => `<li class="fd-row${ui.pick === x.id ? ' on' : ''}${plCls(x)}" draggable="true" data-drag="task:${esc(x.id)}" data-min="${x.minutes || 30}">${bar(x)}<div class="fd-c">
     <button type="button" class="fd-t" data-action="fd-pick" data-id="${esc(x.id)}" aria-pressed="${ui.pick === x.id}">${esc(x.title)}<small>${esc([x.lenSet === false ? '' : fmtDur(x.minutes || 30), x.due ? relDay(x.due) : '', ...catsOf(x).map((c) => catName(get('categories', c)))].filter(Boolean).join(' · '))}</small></button>
     </div></li>`).join('')}</ul>${turnsHtml}`; // (v81) no Quando… here: tapping the row plans it
 }
@@ -193,6 +194,14 @@ export function resumeRoutine(id) {
   toast(t('resumed', relDay(mon)));
   render();
 }
+// (v114) Manuale: what's already in a place is dimmed, what fits the lit place gets ↑
+const plCls = (x) => { const pl = slottedIds(); return pl.has(x.id) ? ' pf-used' : fitsNext(x) ? ' pf-fit' : ''; };
+// (v114) the lists as one button that opens the others (like Giorno · Settimana · Mese)
+function listPicker(tabs, tab) {
+  const cur = tabs.find(([k]) => k === tab) || tabs[0]; const open = Boolean(ui.fdOpen);
+  return `<div class="fd-pickw"><button type="button" class="fd-pick${open ? ' on' : ''}" data-action="fd-open" aria-expanded="${open}"><span class="pf-mt"><b>${esc(t(cur[1]))} · ${cur[2]}</b><small>${esc(t(`${cur[1]}Sub`))}</small></span><span class="pf-car" aria-hidden="true">▾</span></button>
+    ${open ? `<div class="pf-list fd-plist">${tabs.map(([k, l, n]) => `<button type="button" class="${tab === k ? 'on' : ''}" data-action="fd-tab" data-id="${k}"><span class="pf-mt"><b>${esc(t(l))}</b><small>${esc(t(`${l}Sub`))}</small></span><em class="pf-cnt">${n}</em><span class="pf-ck" aria-hidden="true">${tab === k ? '✓' : ''}</span></button>`).join('')}</div>` : ''}</div>`;
+}
 const classicUi = () => { try { return localStorage.getItem('everyday-classic') === '1'; } catch { return false; } };
 export function finderHtml({ props = false } = {}) {
   const q = (ui.fdQ || '').trim();
@@ -216,7 +225,7 @@ export function finderHtml({ props = false } = {}) {
   return `<div class="fd">
     ${searchBox({ id: 'fd-q', value: ui.fdQ || '', ph: t('findPh') })}
     ${pv && !q ? `${pv}<div class="fd-sep"></div>` : ''}
-    ${q ? '' : `<div class="seg fd-tabs" role="tablist">${tabs.map(([k, l, n]) => `<button type="button" role="tab" class="${tab === k ? 'on' : ''}" aria-selected="${tab === k}" data-action="fd-tab" data-id="${k}">${esc(t(l))} <small>${n}</small></button>`).join('')}</div>`}
+    ${q ? '' : listPicker(tabs, tab)}
     <div class="fd-body">${body}</div>
   </div>`;
 }
@@ -272,7 +281,8 @@ export function sheetClick(btn) {
   const { action, id } = btn.dataset;
   const close = () => { modal.close(); };
   switch (action) {
-    case 'fd-tab': ui.fdTab = id; redrawMine(); return true;
+    case 'fd-tab': ui.fdTab = id; ui.fdOpen = false; redrawMine(); return true;
+    case 'fd-open': ui.fdOpen = !ui.fdOpen; redrawMine(); return true;
     case 'fd-fold': ui.fdFold = { ...(ui.fdFold || {}), [id]: !ui.fdFold?.[id] }; render(); return true;
     case 'fd-pick': ui.pick = id; ui.pickOcc = btn.dataset.occ || null; ui.pickBlock = null; ui.view = 'day'; close(); render(); return true;
     case 'fd-go': close(); goToBlock(id); return true;
