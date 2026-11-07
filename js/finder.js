@@ -220,7 +220,7 @@ export function finderHtml({ props = false } = {}) {
 // A slot tapped: its day in the Planner, scrolled to the block, which flashes for a moment.
 export function goToBlock(id) {
   const b = get('blocks', id); if (!b) return;
-  ui.flash = id; ui.view = 'day'; ui.scrolledFor = null;
+  ui.flash = id; ui.view = 'day'; ui.scrolledFor = null; ui.mpSelNext = id; // (v105) the map selects it
   const h = `#/plan/${b.date}`;
   if (location.hash !== h) location.hash = h; else render();
   setTimeout(() => { document.querySelector(`.plan-main [data-id="${id}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 150);

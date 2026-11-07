@@ -309,6 +309,7 @@ export function viewMappa(v, date) {
   const s = S(); const ms = v === 'month' ? s.mstyle : v;
   const key = `${v}|${v === 'day' ? date : v === 'week' ? weekStart(date) : date.slice(0, 7)}|${ms}`;
   const fresh = s.key !== key; if (fresh && s.key) { s.sel = null; s.cl = null; ui.gr = null; ui.grPill = null; }
+  if (ui.mpSelNext) { if (v === 'day') s.sel = ui.mpSelNext; ui.mpSelNext = null; }
   if (v === 'day') prepareDays([date]); else if (v === 'week') prepareDays(Array.from({ length:7 }, (_, i) => addDays(weekStart(date), i)).filter((d) => d >= today()));
   const m = v === 'day' ? mapDay(date) : v === 'week' ? mapWeek(date) : s.mstyle === 'lines' ? mapMonthLines(date) : mapMonthWeeks(date);
   if (fresh) {

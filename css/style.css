@@ -2624,3 +2624,5 @@ dialog.sheet.vc-sheet form { height: auto; max-height: inherit; padding-top: 14p
 .mp-info h4 { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; } .mp-ix { flex: none; width: 28px; height: 28px; }
 .mp-acts .btn.primary { flex: 1; }
 .pw-list.flash { animation: pwFlash 1.2s ease; } @keyframes pwFlash { 0%, 60% { box-shadow: 0 0 0 3px var(--danger); border-radius: 12px; } 100% { box-shadow: none; } }
+/* v105 · a warning: links to the things involved */
+.pw-go { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin: 4px 0 2px; } .pw-go .linkish { font-size: .82rem; text-align: left; } .pw-go small { color: var(--muted); }

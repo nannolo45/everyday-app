@@ -12,7 +12,7 @@ import { t } from './i18n.js';
 import { busyOn, planBusy, conflictsOn, conflictText, countedOf, evSkipOf, rsvpAsks, setEvSkip, setRsvpAsks, deleteBlock, ensureSeries, followParent, isEnded, isSeries, itemById, leadOf, outcomeOf, planTask, timesLeft, turnCounts } from './model.js';
 import { isEvent } from './kinds.js';
 import { addDays, fmtDur as fmtDurShort, fmtTime, freeSlot, isOccurrence, nowMinutes, parseDate, ruleAt, today } from './plan.js';
-import { autoHoursFor } from './planning.js';
+import { autoHoursFor, fixConflict } from './planning.js';
 import { WINDOWS } from './smart.js';
 import { isRoutine } from './routines.js';
 import { changed } from './shell.js';
@@ -296,4 +296,22 @@ export function setCounts(blockId, on) {
   const x = get('tasks', b.taskId);
   if (x && isSeries(x)) ensureSeries(x); // an uncounted turn adds one at the end (or brings it back from Concluse)
   changed();
+}
+
+// (v105) «Sistema» on a warning: let the app do it, or choose yourself where a block goes (it lights up the free
+// stretches, as Sposta → Scelgo io dove does), or (an overlap) leave it as it is.
+export function openFixChoice(c, date, i) {
+  if (!c) return;
+  const movable = (id) => { const b = get('blocks', id); return b && !outcomeOf(b) && !isEvent(get('tasks', b.taskId)) ? b : null; };
+  const who = c.type === 'overlap' ? c.ids.map(movable).filter(Boolean) : [movable(c.ids[0])].filter(Boolean);
+  const auto = c.type === 'overlap' ? t('fxAutoSubOv') : c.type === 'after' ? t('fxAutoSubAfter') : c.type === 'order' ? t('fxAutoSubOrder') : t('fxAutoSub');
+  openModal(`<h2>${esc(t('fixTitle'))}</h2><p class="hint">⚠ ${esc(conflictText(c))}</p>
+    <div class="choose"><button class="btn primary choose-opt" value="fx:auto"><b>✦ ${esc(t('fxAuto'))}</b><small>${esc(auto)}</small></button>
+    ${who.map((b) => `<button class="btn choose-opt" value="fx:pick:${esc(b.id)}"><b>${esc(t('fxPick', b.title))}</b><small>${esc(t('fxPickSub', `${relDay(b.date)} ${fmtTime(b.start)}`))}</small></button>`).join('')}
+    ${c.type === 'overlap' || c.type === 'closed' ? `<button class="btn choose-opt" value="fx:allow"><b>${esc(t('sc_leave'))}</b><small>${esc(t('fxLeaveSub'))}</small></button>` : ''}</div>
+    <div class="button-row"><button class="btn ghost" value="cancel">${esc(t('cancel'))}</button></div>`, (form, action) => {
+    if (action === 'fx:auto') { fixConflict(c); changed(); return; }
+    if (action === 'fx:allow') { const v = document.getElementById('view'); const b = document.createElement('button'); b.hidden = true; b.dataset.action = 'allow'; b.dataset.date = date; b.dataset.i = String(i); v.appendChild(b); b.click(); b.remove(); return; }
+    if (action.startsWith('fx:pick:')) { const y = get('blocks', action.slice(8)); if (!y) return; if (location.hash.indexOf('#/plan') !== 0) location.hash = `#/plan/${y.date}`; applyMove(y, 'pick'); toast(t('fxPickHint', y.title), 6000); changed(); }
+  }, { cls: 'sheet choose-sheet' });
 }

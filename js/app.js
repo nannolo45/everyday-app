@@ -38,7 +38,7 @@ import { classic, curView, openComplete, openFilters, openPick, openSort, openTr
 import { openWeekGrid } from './weekgrid.js';
 import { goToBlock, goToProposal, openChooser, openPropsList, resumeRoutine, sheetClick } from './finder.js';
 import { setLowPref } from './lowstock.js';
-import { countToast, firstFreeStart, moveBlockTo, openConflictChoice, openDropOn, placeItem, unplanToPane } from './placing.js';
+import { countToast, firstFreeStart, moveBlockTo, openConflictChoice, openDropOn, placeItem, unplanToPane, openFixChoice } from './placing.js';
 import { currentView, unmarkedToday } from './views/planner.js';
 import { graphClick } from './graph.js';
 import { scClick } from './views/scaletta.js';
@@ -427,7 +427,7 @@ view.addEventListener('click', (e) => {
     case 'templates': openTemplatesMenu(); break;
     case 'spare': openSpare(); break;
     case 'toggle-conflicts': ui.showConflicts = !ui.showConflicts; render(); break;
-    case 'fix': fixConflict(conflictsOn(btn.dataset.date || currentDate())[Number(btn.dataset.i)]); break;
+    case 'fix': openFixChoice(conflictsOn(btn.dataset.date || currentDate())[Number(btn.dataset.i)], btn.dataset.date || currentDate(), Number(btn.dataset.i)); break; // (v105) the app does it, or you choose
     case 'allow': {
       const c = conflictsOn(btn.dataset.date || currentDate())[Number(btn.dataset.i)];
       // (v85) open or not, it stays: no more warning while it's where it is
