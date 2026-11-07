@@ -2729,12 +2729,32 @@ body.pane-hid { --pane: 56px; }
 .ph-today { font-size: .84rem; margin-left: 2px; border: 0; background: none; cursor: pointer; }
 .ph-n { color: var(--muted); font-size: .86rem; }
 .ph-sp { flex: 1; }
-.ph-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: 6px 0 10px; overflow-x: auto; scrollbar-width: none; }
-.ph-tabs::-webkit-scrollbar { display: none; }
-.ph-tabs > button { border: 0; background: none; color: var(--muted); font: inherit; font-size: .92rem; padding: 9px 14px; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; cursor: pointer; display: flex; gap: 6px; align-items: center; }
-.ph-tabs > button i { font-style: normal; font-size: .72rem; background: color-mix(in srgb, var(--ink) 9%, transparent); border-radius: 999px; padding: 0 7px; }
-.ph-tabs > button.on { color: var(--ink); font-weight: 700; border-bottom-color: var(--accent); } .ph-tabs > button.on i { background: var(--accent-soft); color: var(--accent); }
-.ph-tabs > button.loose:not(.on) { font-style: italic; } .ph-tabs > button.ph-edit { color: var(--muted); font-size: .84rem; }
+/* (v113) the header's view picker: one button, and a sheet with every view (no strip that scrolls sideways) */
+.ph-pickw { position: relative; margin: 6px 0 10px; }
+.ph-pick { width: 100%; max-width: 440px; min-height: 52px; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer; box-shadow: var(--lift); }
+.ph-pick.on { border-color: var(--accent); }
+.ph-pick-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ph-pick-t b { font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ph-pick-t small { color: var(--muted); font-size: .82rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ph-pick-h { color: var(--muted); font-size: .8rem; white-space: nowrap; }
+.ph-pick-c { color: var(--muted); font-size: .9rem; }
+.ph-sheet-bg { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,.5); }
+.ph-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 91; max-height: 75vh; overflow: auto; padding: 8px 0 calc(14px + env(safe-area-inset-bottom, 0px)); background: var(--surface); border-top: 1px solid var(--line); border-radius: 22px 22px 0 0; box-shadow: 0 -12px 30px rgba(0,0,0,.35); }
+.ph-grab { width: 40px; height: 4px; border-radius: 2px; background: var(--line); margin: 2px auto 10px; }
+.ph-sheet-t { padding: 0 20px 6px; color: var(--muted); font-size: .76rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.ph-opt { width: 100%; min-height: 50px; display: flex; align-items: center; gap: 12px; padding: 0 20px; border: 0; background: none; color: var(--ink); font: inherit; font-size: 1rem; text-align: left; cursor: pointer; }
+.ph-opt.on { background: var(--accent-soft); font-weight: 700; }
+.ph-opt.loose:not(.on) .ph-opt-l { font-style: italic; }
+.ph-opt-l { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ph-opt i { font-style: normal; font-size: .76rem; font-weight: 700; min-width: 22px; text-align: center; border-radius: 999px; padding: 1px 7px; background: color-mix(in srgb, var(--ink) 10%, transparent); }
+.ph-opt i.on { background: var(--accent); color: var(--accent-ink); }
+.ph-opt-ck { width: 18px; color: var(--accent); font-weight: 700; }
+.ph-sheet-sep { height: 1px; background: var(--line); margin: 6px 0; }
+.ph-opt.ph-foot { color: var(--accent); font-weight: 600; }
+/* wide screens: the same list, as a menu under the button */
+body.is-wide .ph-sheet-bg { background: transparent; }
+body.is-wide .ph-sheet { position: absolute; left: 0; right: auto; bottom: auto; top: calc(100% + 6px); width: 340px; max-height: 70vh; border: 1px solid var(--line); border-radius: 14px; padding: 6px 0; box-shadow: 0 16px 40px rgba(0,0,0,.3); }
+body.is-wide .ph-grab { display: none; }
 .ph-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .ph-acts .task-tools { margin: 0; flex: 1; }
 .ph-load { flex: 1; min-width: 160px; max-width: 360px; margin-left: auto; }
 .pv-tabs > button.off { opacity: .4; } .pv-offw { color: var(--warn); }

@@ -37,7 +37,7 @@ export function viewReport() {
   const where = `<button type="button" class="round sm" data-action="rep-go" data-id="${prev}" aria-label="${esc(t('previous'))}">‹</button><span class="ph-date"><span class="day-name">${esc(label)}</span></span><button type="button" class="round sm" data-action="rep-go" data-id="${next}" aria-label="${esc(t('next'))}">›</button>${isNow ? '' : `<button type="button" class="linkish ph-today" data-action="rep-go" data-id="${td}">${esc(t('today'))}</button>`}`;
   const menu = viewMenu({ p:'rv', cur:repView(), title:t('rv_title'), items:[{ k:'summary', icon:'<span class="pv-ic" aria-hidden="true">📊</span>', label:t('rv_summary'), sub:t('rv_summarySub') }, { k:'table', icon:'<span class="pv-ic" aria-hidden="true">☰</span>', label:t('rv_table'), sub:t('rv_tableSub') }],
     opts:(k) => (k === 'table' ? vmSeg(t('rv_show'), 'rv-pend', state.settings.repOnlyPend ? '1' : '0', [['0', t('rv_all')], ['1', t('rv_onlyPend')]]) : '') });
-  const head = pageHead({ title:t('tabReport'), where, menu, tabs:SCOPES.map((k) => ({ label:t(`v_${k}`), on:k === sc, action:'rep-scope', id:k })) });
+  const head = pageHead({ title:t('tabReport'), where, menu, tabs:SCOPES.map((k) => ({ label:t(`v_${k}`), on:k === sc, action:'rep-scope', id:k })), pickTitle:t('ph_period') });
   const body = repView() === 'table' ? tableHtml(nodes) : summaryHtml(sc, days, nodes);
   return `${head}<section class="rp">${body}</section>`;
 }

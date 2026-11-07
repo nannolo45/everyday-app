@@ -20,9 +20,21 @@ export function viewMenu({ p, cur, items, opts = () => '', extra = '', title = t
 // a row of options inside the view menu: a label and a small segmented choice
 export const vmSeg = (lab, act, cur, choices) => `<div class="pv-r"><span>${esc(lab)}</span><div class="mp-seg">${choices.map(([id, l]) => `<button type="button" class="${String(cur) === String(id) ? 'on' : ''}" data-action="${act}" data-id="${id}">${esc(l)}</button>`).join('')}</div></div>`;
 
-// tabs: [{ label, n, on, action, id, cls }]
-export function pageHead({ title, where = '', menu = '', tabs = [], acts = '', after = '' }) {
+// tabs: [{ label, n, on, action, id, cls, foot }]
+// (v113) The tabs are no longer a strip that scrolls sideways: one button shows the one you're on (and, with pickSub,
+// what it shows), and opens a sheet with all of them. «foot» ones (✎ Viste) go at the bottom of the sheet.
+export function pageHead({ title, where = '', menu = '', tabs = [], acts = '', after = '', pickSub = '', pickTitle = '', pickHint = '' }) {
+  const items = tabs.filter((x) => !x.foot); const foot = tabs.filter((x) => x.foot);
+  const cur = items.find((x) => x.on) || items[0]; const open = Boolean(ui.phOpen);
+  const n = (x, on) => (x.n ? `<i class="${on ? 'on' : ''}">${esc(String(x.n))}</i>` : '');
+  const pick = cur ? `<div class="ph-pickw"><button type="button" class="ph-pick${open ? ' on' : ''}" data-action="ph-open" aria-haspopup="dialog" aria-expanded="${open}">
+      <span class="ph-pick-t"><b>${esc(cur.label)}${cur.n ? ` · ${esc(String(cur.n))}` : ''}</b>${pickSub ? `<small>${esc(pickSub)}</small>` : ''}</span>
+      ${pickHint ? `<span class="ph-pick-h">${esc(pickHint)}</span>` : ''}<span class="ph-pick-c" aria-hidden="true">▾</span></button>
+    ${open ? `<div class="ph-sheet-bg" data-action="ph-open"></div><div class="ph-sheet" role="dialog" aria-label="${esc(pickTitle || title)}"><div class="ph-grab" aria-hidden="true"></div>
+      ${pickTitle ? `<div class="ph-sheet-t">${esc(pickTitle)}</div>` : ''}
+      ${items.map((x) => `<button type="button" class="ph-opt${x.on ? ' on' : ''}${x.cls ? ` ${x.cls}` : ''}" aria-current="${Boolean(x.on)}" data-action="${x.action}" data-id="${esc(x.id)}"><span class="ph-opt-l">${esc(x.label)}</span>${n(x, x.on)}<span class="ph-opt-ck" aria-hidden="true">${x.on ? '✓' : ''}</span></button>`).join('')}
+      ${foot.length ? `<div class="ph-sheet-sep"></div>${foot.map((x) => `<button type="button" class="ph-opt ph-foot" data-action="${x.action}" data-id="${esc(x.id)}">${esc(x.label)}</button>`).join('')}` : ''}</div>` : ''}</div>` : '';
   return `<header class="ph"><div class="ph-row"><h1 class="ph-t">${esc(title)}</h1>${where ? `<span class="ph-where">${where}</span>` : ''}<span class="ph-sp"></span>${menu}</div>
-    ${tabs.length ? `<div class="ph-tabs" role="tablist">${tabs.map((x) => `<button type="button" role="tab" class="${x.on ? 'on' : ''}${x.cls ? ` ${x.cls}` : ''}" aria-selected="${Boolean(x.on)}" data-action="${x.action}" data-id="${esc(x.id)}">${esc(x.label)}${x.n ? `<i>${esc(String(x.n))}</i>` : ''}${x.badge || ''}</button>`).join('')}</div>` : ''}
+    ${pick}
     ${acts ? `<div class="ph-acts">${acts}</div>` : ''}${after}</header>`;
 }

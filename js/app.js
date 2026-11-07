@@ -12,7 +12,7 @@
 // Pure logic with unit tests lives in plan.js, smart.js, kinds.js, travel.js, shops.js and friends;
 // storage and sync in store.js and sync.js.
 import { moveWeek, openRoutine } from './routines.js';
-import { $, findCategory, hideToast, fmtDay, modal, PPM, quickFields, range, relDay, route, seedCategories, TAB_OF, TABS, toast, ui, view } from './core.js';
+import { $, findCategory, hideToast, fmtDay, modal, PPM, quickFields, range, relDay, route, seedCategories, TAB_OF, toast, ui, view } from './core.js';
 import { setupDrag } from './drag.js';
 import { afterStart, openChecklist, openPalestra, doShift, finishTimer, openAddMenu, openPickSheet, openQuickTask, plusKind, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, pickMealRecipes, openPlanSaved, openSavedPicker, openPlaceRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
 import { t } from './i18n.js';
@@ -265,6 +265,7 @@ view.addEventListener('click', (e) => {
   if (mpDragged()) return;
   if (graphClick(btn) || scClick(btn) || mpClick(btn)) return; // (v96) the Scaletta and the Map
   const { action, id } = btn.dataset;
+  if (ui.phOpen && action !== 'ph-open') ui.phOpen = false; // (v113) picking from the header's sheet closes it
   if (wideClick(btn)) return; // (v56) the pane on wide screens
   if (shopClick(btn, { planTrips: planTripsNow, shareList: shareShopList })) return; // the shopping list (views/shop.js)
   switch (action) {
@@ -418,6 +419,7 @@ view.addEventListener('click', (e) => {
     case 'focus-skip': { const b = runningBlock(); if (b) { focusSkip(b); changed(); } break; }
     case 'task-done-x': { const x = get('tasks', id); if (x) { if (checklistLeft(x.checklist || [], x.checked) > 0) openTaskChecklist(x); else { setTaskDone(x, true); changed(); } } break; }
     case 'imp-quick': ui.impQuick = !ui.impQuick; render(); break;
+    case 'ph-open': ui.phOpen = !ui.phOpen; render(); break; // (v113) the header's view picker
     case 'pv-open': ui.pvOpen = !ui.pvOpen; ui.pvTab = null; render(); break; // (v106) how the Planner looks
     case 'pv-tab': ui.pvTab = id; render(); break;
     case 'pv-use': saveSettings({ planStyle: id }); ui.pvTab = null; ui.lastHtml = null; render(); break;
@@ -654,6 +656,7 @@ setupDrag(view, {
     if (/^[1-4]$/.test(e.key) && route().name === 'tasks') { e.preventDefault(); saveSettings({ taskView: ['list', 'kanban', 'matrix', 'habit'][Number(e.key) - 1] }); ui.tvTab = null; render(); } // (v112) the same keys in Da fare
     if (/^[1-2]$/.test(e.key) && route().name === 'report') { e.preventDefault(); saveSettings({ reportView: ['summary', 'table'][Number(e.key) - 1] }); ui.rvTab = null; render(); }
   });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.phOpen) { ui.phOpen = false; render(); } }, true); // (v113)
   for (const p of ['pv', 'tv', 'rv']) { // (v112) any view menu: a click outside or Esc closes it
     document.addEventListener('click', (e) => { if (ui[`${p}Open`] && !e.target.closest?.(`.pv-pop, [data-action=${p}-open]`)) { ui[`${p}Open`] = false; if (!e.target.closest?.('[data-action]')) render(); } }, true);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui[`${p}Open`]) { ui[`${p}Open`] = false; render(); } }, true);
@@ -665,24 +668,6 @@ $('#app-title').addEventListener('click', () => {
 $('#app-title').setAttribute('role', 'link');
 $('#app-title').tabIndex = 0;
 $('#app-title').addEventListener('keydown', (e) => { if (e.key === 'Enter') location.hash = '#/today'; });
-// Phones: swipe left / right on the page switches tabs (not from a block, chip or the timeline, which drag).
-(() => {
-  let sx = 0; let sy = 0; let at = 0; let ok = false;
-  document.addEventListener('touchstart', (e) => {
-    const tch = e.touches[0]; sx = tch.clientX; sy = tch.clientY; at = Date.now();
-    ok = !e.target.closest('.block, .chip, .tchip, .timeline, .week, .tray, dialog, input, textarea, select, .sl-handle, [draggable], .month, .wk-grid');
-  }, { passive: true });
-  document.addEventListener('touchend', (e) => {
-    if (!ok || document.body.classList.contains('is-dragging') || $('#modal')?.open) return;
-    const tch = e.changedTouches[0]; const dx = tch.clientX - sx; const dy = tch.clientY - sy;
-    if (Date.now() - at > 600 || Math.abs(dx) < 70 || Math.abs(dy) > Math.abs(dx) * 0.6) return;
-    const i = TABS.indexOf(TAB_OF[route().name] || 'today'); if (i < 0) return;
-    const j = i + (dx < 0 ? 1 : -1);
-    if (j < 0 || j >= TABS.length) return;
-    location.hash = `#/${TABS[j]}`;
-  }, { passive: true });
-})();
-
 setupTrayDrag({
   onTap: (id, chip) => {
     if (ui.assign && !chip?.closest('.to-plan')) { if (ui.assign.sel.has(id)) ui.assign.sel.delete(id); else ui.assign.sel.add(id); render(); return; }
@@ -745,6 +730,7 @@ async function boot() {
   });
   let lastTab = TAB_OF[route().name] || 'today';
   window.addEventListener('hashchange', () => {
+    ui.phOpen = false; // (v113) the header's sheet doesn't follow you to another screen
     if (!(route().name === 'shop' || (route().name === 'tasks' && (classic() ? ui.tasksTab === 'shop' : curView().shop)))) leaveShop(); // leaving the list ends Reorder and Select
     const tab = TAB_OF[route().name] || 'today';
     if (tab === 'plan' && lastTab !== 'plan') ui.scrolledFor = null; // back on the planner: jump to now again

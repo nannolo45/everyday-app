@@ -226,12 +226,13 @@ function tabList(cur) {
   const l = viewList(); const shown = [...l.filter((v) => v.pin), ...(cur.pin ? [] : [cur])];
   return [...shown.map((v) => ({ label:viewName(v), on:v.id === cur.id, action:'vw-tab', id:v.id, cls:v.pin ? '' : 'loose',
     n:v.fixed && nUn ? (nUn > 99 ? '99+' : nUn) : v.shop ? nShop || '' : items.filter((x) => !x.done && matches(x, v.f || {})).length || '' })),
-  { label:`✎ ${t('vwViews')}`, action:'vw-views', id:'', cls:'ph-edit' }];
+  { label:`✎ ${t('vwEdit')}`, action:'vw-views', id:'', foot:true }];
 }
 const isRoutineList = (v) => { const f = filterOf(v); return (f.type || []).length === 1 && f.type[0] === 'repeat'; };
 function head(v, acts = '') {
   const rt = isRoutineList(v); const tv = taskView() === 'habit' && !rt ? 'list' : taskView();
-  return pageHead({ title:t('tabTasks'), where:`<span class="ph-n">${esc(showsText(v))}</span>`, menu:v.shop ? '' : viewMenu({ p:'tv', cur:tv, title:t('tv_title'), items:tvItems(rt), opts:tvOptions }), tabs:tabList(v), acts });
+  const nV = viewList().filter((y) => y.pin || y.id === v.id).length;
+  return pageHead({ title:t('tabTasks'), pickSub:showsText(v), pickTitle:t('vwViews'), pickHint:t('ph_nViews', nV), menu:v.shop ? '' : viewMenu({ p:'tv', cur:tv, title:t('tv_title'), items:tvItems(rt), opts:tvOptions }), tabs:tabList(v), acts });
 }
 // (v82) Routines without a rhythm (often «ogni …» lost by the + before v81): set it with one tap, or leave them.
 function rhythmCard() {

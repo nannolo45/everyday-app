@@ -77,7 +77,7 @@ export function viewPlan(date) {
   const nC = isWide() && v === 'day' ? conflictsOn(date).length : 0;
   const where = `<a class="round sm" href="#/plan/${prev}" aria-label="${esc(t('previous'))}">‹</a><button class="day-title ph-date" type="button" data-action="pick-date" aria-haspopup="dialog" title="${esc(t(v === 'week' ? 'dp_pickWeek' : v === 'month' ? 'dp_pickMonth' : 'dp_pickDay'))}"><span class="day-name">${esc(title)}</span>${sub ? `<small>${esc(sub)}</small>` : ''}</button><a class="round sm" href="#/plan/${next}" aria-label="${esc(t('next'))}">›</a>${showToday ? `<a class="linkish ph-today" href="#/plan/${td}">${esc(t('today'))}</a>` : ''}`;
   const acts = `${ag ? '' : `<button class="btn small primary" type="button" data-action="auto">✦ ${esc(t('planBtn'))}</button><button class="btn small" type="button" data-action="add-menu">＋ ${esc(t('addMenu'))}</button>`}${nC ? `<button type="button" class="btn small mp-warnb" data-action="mp-warn" title="${esc(t('nConflicts', nC))}">⚠ ${nC}</button>` : ''}${v === 'day' ? `<span class="ph-load">${loadBar(date)}</span>` : ''}`;
-  const head = pageHead({ title:t('tabPlan'), where, menu:pvMenu(v), tabs:VIEWS.map((k) => ({ label:t(`v_${k}`), on:k === v, action:'view', id:k })), acts });
+  const head = pageHead({ title:t('tabPlan'), where, menu:pvMenu(v), tabs:VIEWS.map((k) => ({ label:t(`v_${k}`), on:k === v, action:'view', id:k })), pickTitle:t('ph_period'), acts });
   if (ps === 'scaletta') return head + viewScaletta(v, date);
   if (ps === 'mappa') return head + viewMappa(v, date);
   if (ag) return `${head}<section class="plan-main agenda-main">${v === 'week' ? agendaWeek(date) : v === 'month' ? viewMonth(date) : agendaDay(date)}</section>`;
