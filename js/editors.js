@@ -194,6 +194,8 @@ export function openAutoPlanner() {
     <h2>✦ ${esc(t('smartTitle'))}</h2>
     <p class="hint">${esc(t('planFlowIntro', sel.length + (ui.assign?.fixWanted ? toFix(td, addDays(td, 6 - ((parseDate(td).getDay() + 6) % 7))).length : 0), cards.length))}</p>
     <div class="days spans">${AUTO_SPANS.map((k) => `<label class="day-pill"><input type="radio" name="span" value="${k}" ${k === last.span ? 'checked' : ''}><span${k === '1' ? ' class="span-1"' : ''}>${esc(k === '1' ? spanOne(from0) : t(`span_${k}`))}</span></label>`).join('')}</div>
+    <div class="field-label">${esc(t('ruleL'))}</div>
+    <div class="rule-pills">${['135', '113', ''].map((k) => `<label class="rule-pill"><input type="radio" name="rule" value="${k}" ${(state.settings.dayRule || '') === k ? 'checked' : ''}><span><b>${esc(t(`rule_${k || 'free'}`))}</b><small>${esc(t(`ruleH_${k || 'free'}`))}</small></span></label>`).join('')}</div>
     <div class="two">
       <label>${esc(t('fromDay'))}${dateBox(`<input type="date" name="from" value="${esc(from0)}" min="${esc(td)}">`, from0)}</label>
       <label>${esc(t('spanN'))}<input type="number" name="n" min="1" max="90" value="${esc(last.n || 5)}"></label>
@@ -232,7 +234,8 @@ export function openAutoPlanner() {
     const more = (ui.assign.fix || []).reduce((k, r) => k + (r.date ? (r.options?.length ? 1 : 0) : (r.placements || []).length), 0);
     if (route().name !== 'plan') { location.hash = span === '1' ? `#/plan/${from}` : '#/plan'; ui.view = span === '1' ? 'day' : span === 'month' ? 'month' : 'week'; }
     ui.assign.open = false; // the previews matter now; the list can be opened again
-    placeGhosts(ids, days, null, { busy, more });
+    const rule = form.querySelector('input[name=rule]:checked')?.value || ''; saveSettings({ dayRule: rule });
+    ui.planRule = rule; try { placeGhosts(ids, days, null, { busy, more }); } finally { ui.planRule = ''; } // (v100) 1-3-5 / 1-1-3 for this run
     scheduleTravelRefresh();
   });
   modal.querySelector('input[name=n]').addEventListener('input', () => { const r = modal.querySelector('input[name=span][value=n]'); if (r) r.checked = true; });

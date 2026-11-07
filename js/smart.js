@@ -283,6 +283,45 @@ export const isoDay = (date) => ((parseDate(date).getDay() + 6) % 7) + 1;
 export const windowOn = (w, date) => (w.date ? w.date === date : (w.days || []).includes(isoDay(date)));
 const later = (a, b) => (!a ? b : !b ? a : (b.date > a.date || (b.date === a.date && b.minute > a.minute)) ? b : a);
 
+// (v114) The schemi of «Pianifica»: how a day's time is shared out. Each is a list of groups [kind, how many];
+// a task goes into the first group of its day that has room and takes it (by size, category or the day's theme).
+// mor: the groups that go in the morning (the big one, the frog, the deep blocks); pomo: 8 pomodori a day.
+export const TPLS = {
+  '113': { g: [['big', 1], ['med', 1], ['small', 3]], mor: [0] },
+  '135': { g: [['big', 1], ['med', 3], ['small', 5]], mor: [0] },
+  '333': { g: [['deep', 1], ['short', 3], ['maint', 3]], mor: [0], long: true },
+  frog: { g: [['any', 1], ['any', 5]], mor: [0] },
+  deep: { g: [['deep', 2], ['small', 4]], mor: [0], long: true },
+  mit: { g: [['any', 3], ['any', 4]], mor: [0], ranked: true },
+  ivy: { g: [['any', 6]], ranked: true },
+  rocks: { g: [['deep', 2], ['small', 6]], mor: [0], long: true },
+  pomo: { g: [['any', 8]], pomo: true },
+  theme: { g: [['theme', 4], ['small', 2]], mor: [0] },
+  free: { g: [] },
+};
+export const TPL_ORDER = ['113', '135', 'frog', 'deep', 'free', '333', 'mit', 'ivy', 'rocks', 'pomo', 'theme'];
+export const TPL_DEFAULT = ['113', '135', 'frog', 'deep', 'free'];
+export const pomodori = (m) => Math.max(1, Math.ceil((m || 30) / 25));
+// Does a thing fit a kind of place? themes: { isoDay: category id }
+export function tplAccepts(kind, t, date, themes = {}) {
+  const m = t.minutes || 30; const cats = t.cats || [];
+  switch (kind) {
+    case 'big': return m >= 90;
+    case 'med': return m > 30 && m < 90;
+    case 'small': return m <= 30;
+    case 'deep': return m >= 60;
+    case 'short': return m <= 60;
+    case 'maint': return m <= 30 || cats.includes('home');
+    case 'theme': { const th = themes[isoDay(date)]; return Boolean(th) && cats.includes(th); }
+    default: return true;
+  }
+}
+// Which group of the day's schema a thing would take, given what's already there; -1 = no room.
+export function tplGroup(id, used, t, date, themes) {
+  const T = TPLS[id]; if (!T || !T.g.length) return 0;
+  if (T.pomo) return (used[0] || 0) + pomodori(t.minutes) <= 8 ? 0 : -1;
+  return T.g.findIndex(([k, n], i) => (used[i] || 0) < n && tplAccepts(k, t, date, themes));
+}
 export function spreadTasks({ tasks, days, settings, leadOf = () => 0, now = Date.now() }) {
   const s = { dayStart: 360, dayEnd: 1380, snap: 15, buffer: 5, maxLoad: 480, ...settings };
   const out = (t) => t.taskId ?? t.id;
@@ -303,6 +342,9 @@ export function spreadTasks({ tasks, days, settings, leadOf = () => 0, now = Dat
   };
   for (const r of ranked) visit(r);
   const endOf = new Map(); const used = new Map();
+  // (v100) 1-3-5 / 1-1-3, (v114) any of the schemi: past its places of that kind, a day is skipped
+  const Q = s.rule && TPLS[s.rule]?.g.length ? TPLS[s.rule] : null;
+  const cnt = new Map(days.map((d) => [d.date, []]));
   const placed = []; const skipped = [];
   for (const { t, score, reasons } of ordered) {
     const minutes = t.minutes || 30;
@@ -322,6 +364,8 @@ export function spreadTasks({ tasks, days, settings, leadOf = () => 0, now = Dat
     const bias = 6 + Math.max(0, importanceOf(t) - 3) * 20 + (t.due ? 25 : 0);
     let best = null; let why = 'full';
     allowed.forEach((d, i) => {
+      const grp = Q ? tplGroup(s.rule, cnt.get(d.date), t, d.date, s.themes) : 0;
+      if (grp < 0) { why = 'rule'; return; }
       const over = load.get(d.date) + need > s.maxLoad; // (v99) past the limit: still allowed where there's room, only after the days that have space
       why = 'nofit';
       const from = Math.max(d.from ?? s.dayStart, nb && nb.date === d.date ? nb.minute : 0);
@@ -356,14 +400,15 @@ export function spreadTasks({ tasks, days, settings, leadOf = () => 0, now = Dat
         }
         if (at == null) { why = 'closed'; return; }
       } else {
-        const win = WINDOWS[t.when];
+        const win = WINDOWS[t.when] || (Q?.mor?.includes(grp) ? [s.dayStart, 13 * 60] : null); // (v100) with a rule, the big one (the frog, the deep blocks) when you're fresh
         if (win) at = fit(free, need, { snap: s.snap, window: win });
         if (at == null) at = fit(free, need, { snap: s.snap });
       }
       if (at == null) return;
       const cost = load.get(d.date) + i * bias + (over ? 1e6 : 0);
-      if (!best || cost < best.cost) best = { d, at, cost };
+      if (!best || cost < best.cost) best = { d, at, cost, grp };
     });
+    if (best && Q) { const u = cnt.get(best.d.date); u[best.grp] = (u[best.grp] || 0) + (Q.pomo ? pomodori(minutes) : 1); }
     if (!best) { skipped.push({ taskId: out(t), key: t.id, why }); continue; }
     // Say so when it landed in its time window or its preferred part of the day.
     const win = WINDOWS[t.when]; const st = best.at + lead;
