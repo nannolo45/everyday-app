@@ -168,7 +168,7 @@ function mapDay(date) {
     if (n.prop) { h += propHtml(n, r); continue; }
     if (r.room) { h += roomHtml(n, r, conf, all.filter((o) => o !== n && !isRoom(o) && o.start >= n.start && o.start < n.start + n.minutes).map((o) => o.title).join(' · ')); continue; }
     const msgs = confTxt[rawId(n)] || [];
-    h += nodeHtml(n, r, conf, links, `${n.kind === 'block' && !n.out ? ' drag' : ''}${at.get(n.id) === total - 1 && total > 1 ? ' edge-r' : ''}`).replace('<b>', `${msgs.length ? `<span class="mp-bdg" title="${esc(msgs.join('\n'))}">!</span>` : ''}<b>`).replace('data-action="mp-sel"', `data-action="mp-sel"${msgs.length ? ` title="${esc(msgs.join(' · '))}"` : ''}`);
+    h += nodeHtml(n, r, conf, links, `${n.kind === 'block' && !n.out ? ' drag' : ''}${total === 1 ? ' edge-in' : at.get(n.id) === total - 1 ? ' edge-r' : ''}`).replace('<b>', `${msgs.length ? `<span class="mp-bdg" title="${esc(msgs.join('\n'))}">!</span>` : ''}<b>`).replace('data-action="mp-sel"', `data-action="mp-sel"${msgs.length ? ` title="${esc(msgs.join(' · '))}"` : ''}`);
   }
   // (v102) linked things: with a block selected, only its links, labelled, and what's on other days (or unplanned)
   // as dashed cards out to its right; with nothing selected, the links stay as faint lines
@@ -213,7 +213,7 @@ function mapWeek(date) {
     y += RH;
   });
   const H = y;
-  for (const r of Object.values(R)) h += r.n.prop ? propHtml(r.n, r) : nodeHtml(r.n, r, conf, links, TH.length > 2 && r.j >= TH.length - 2 ? ' edge-r' : '');
+  for (const r of Object.values(R)) h += r.n.prop ? propHtml(r.n, r) : nodeHtml(r.n, r, conf, links, TH.length === 1 ? ' edge-in' : r.j === TH.length - 1 || (TH.length > 3 && r.j === TH.length - 2) ? ' edge-r' : '');
   // linked things outside the week: a row of stubs under it
   let sx = X0;
   for (const l of links) {
@@ -251,7 +251,9 @@ function mapMonthWeeks(date) {
       const ap = its.filter((n) => n.fixed).length; const warn = its.some((n) => conf.has(rawId(n))); const inner = links.filter((l) => its.some((n) => n.id === l.a) && its.some((n) => n.id === l.b)).length;
       const pss = its.map(pastOf); const anyPend = pss.includes('pend'); const allPast = pss.every(Boolean);
       const tt = its.length > 1 && BW >= 140 ? [...new Set(its.filter((n) => !isRt(n)).map((n) => n.title))].slice(0, 3).join(', ') : '';
-      h += `<button type="button" class="mp-cl${S().cl === key ? ' sel' : ''}${warn ? ' warn' : ''}${anyPend ? ' pend' : allPast ? ' is-past' : ''}" data-action="mp-cl" data-id="${esc(key)}" style="--c:${esc(threadColor(th))};left:${x}px;top:${y}px;width:${BW}px;height:${BH}px"><b>${its.length === 1 ? esc(its[0].title) : esc(t('mp_things', its.length))}</b><small>${ap ? `📅 ${ap} · ` : ''}${esc(fmtDur(its.reduce((s2, n) => s2 + n.minutes, 0)))}${inner ? ` · ${esc(t('mp_links', inner))}` : ''}</small>${tt ? `<small class="tt">${esc(tt)}</small>` : ''}<span class="dots">${Array.from({ length:7 }, (_, i) => { const q = its.filter((n) => n.date === addDays(w, i)); return `<span class="${q.length ? (q.some((n) => n.fixed) ? 'ap' : 'on') : ''}"></span>`; }).join('')}</span></button>`;
+      const card = listCard([...its].sort((p, q) => (p.date < q.date ? -1 : p.date > q.date ? 1 : p.start - q.start)), { th, byDay:true, max:12, title:`${threadName(th)} · ${parseDate(w).getDate()}–${parseDate(addDays(w, 6)).getDate()}`, sub:t('mp_things', its.length), foot:`<span role="button" class="mp-go" data-action="mp-week" data-id="${w}">${esc(t('sc_openWeek'))} ›</span>` });
+      const edge = j === ths.length - 1 || (ths.length > 3 && j === ths.length - 2) ? ' edge-r' : '';
+      h += `<div role="button" tabindex="0" class="mp-cl${S().cl === key ? ' sel' : ''}${warn ? ' warn' : ''}${anyPend ? ' pend' : allPast ? ' is-past' : ''}${edge}" data-action="mp-cl" data-id="${esc(key)}" style="--c:${esc(threadColor(th))};left:${x}px;top:${y}px;width:${BW}px;height:${BH}px">${card}<b>${its.length === 1 ? esc(its[0].title) : esc(t('mp_things', its.length))}</b><small>${ap ? `📅 ${ap} · ` : ''}${esc(fmtDur(its.reduce((s2, n) => s2 + n.minutes, 0)))}${inner ? ` · ${esc(t('mp_links', inner))}` : ''}</small>${tt ? `<small class="tt">${esc(tt)}</small>` : ''}<span class="dots">${Array.from({ length:7 }, (_, i) => { const q = its.filter((n) => n.date === addDays(w, i)); return `<span class="${q.length ? (q.some((n) => n.fixed) ? 'ap' : 'on') : ''}"></span>`; }).join('')}</span></div>`;
     });
   });
   const agg = {};
@@ -265,7 +267,7 @@ function mapMonthWeeks(date) {
 // dashed rhythm; a stop opens its card on hover (a tap pins it); links show only for the pinned stop.
 let STN = {};
 function linesMap(v, date) {
-  const s = S(); const td = today(); const HEAD = 34, DH = 18, RH = 76; STN = {};
+  const s = S(); const td = today(); const HEAD = 34, DH = 22, RH = 80; STN = {}; // (v111) bigger stops, taller day rows in the month
   let items = [], yOf, H, days = [], ws = [], h0 = 0, P = 0.9;
   if (v === 'day') {
     items = dayNodes(date).filter((n) => !(n.kind === 'block' && n.b.kind === 'prep'));
@@ -297,7 +299,7 @@ function linesMap(v, date) {
   }
   const conf = confSet(days); const pos = {}; const pin = s.pin;
   TH.forEach((th, j) => {
-    const x = X0 + j * CW + 22; const c = threadColor(th);
+    const x = X0 + j * CW + 26; const c = threadColor(th);
     const its = items.filter((n) => thread(n) === th).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.start - b.start));
     const groups = [];
     for (const n of its) { const y = yOf(n); const g = groups[groups.length - 1]; if (g && (v === 'day' ? y - g.y < 22 : g.date === n.date)) g.ns.push(n); else groups.push({ y, date:n.date, ns:[n] }); }
@@ -308,8 +310,8 @@ function linesMap(v, date) {
     groups.forEach((g, gi) => {
       const key = `${th}|${g.date}|${gi}`; const n = g.ns.length; const tiny = g.ns.every(isRt);
       const pss = g.ns.map(pastOf); const pend = pss.includes('pend'); const done = !pend && pss.every(Boolean); const fx = g.ns.find((q) => q.fixed); const cf = g.ns.some((q) => conf.has(rawId(q)));
-      const sz = v === 'month' ? (tiny ? 8 : n === 1 ? 13 : Math.min(17, 13 + n)) : tiny ? 10 : n === 1 ? (fx ? 20 : 18) : Math.min(32, 18 + n * 2);
-      STN[key] = { ids:g.ns.map((q) => q.id), date:g.date, x, y:g.y, th }; for (const q of g.ns) pos[q.id] = key;
+      const sz = v === 'month' ? (tiny ? 10 : n === 1 ? 18 : Math.min(24, 19 + n)) : tiny ? 12 : n === 1 ? (fx ? 26 : 24) : Math.min(40, 28 + n * 2);
+      STN[key] = { ids:g.ns.map((q) => q.id), date:g.date, x, y:g.y, th, sz }; for (const q of g.ns) pos[q.id] = key;
       h += `<button type="button" class="mp-sta${tiny ? ' rt' : ''}${fx ? ' appt' : ''}${done ? ' is-past' : ''}${pend ? ' pend' : ''}${cf ? ' conf' : ''}${pin === key ? ' sel' : ''}" data-action="mp-stn" data-id="${esc(key)}" data-mpk="${esc(key)}" style="--c:${esc(c)};left:${x}px;top:${g.y}px;width:${sz}px;height:${sz}px" aria-label="${esc(g.ns.map((q) => q.title).join(', '))}">${n > 1 && !tiny ? n : ''}</button>`;
       const f = g.ns[0]; let lab = '';
       if (v === 'month') { if (fx && g.y - lastL >= DH * 3) lab = `${esc(fx.title)}${n > 1 ? ` <small>+${n - 1}</small>` : ''}`; }
@@ -329,18 +331,26 @@ function stnCard(key, pin = false) {
   const g = STN[key]; if (!g) return ''; const ns = g.ids.map(node).filter(Boolean); if (!ns.length) return '';
   const s = S(); const v = currentView(); const day = v === 'day' ? '' : shortDay(g.date);
   const fx = g.x + 310 > (s.worldW || 9999); const fy = g.y + 230 > (s.worldH || 9999) && g.y > 230;
-  const style = `left:${fx ? g.x - 18 : g.x + 18}px;top:${fy ? g.y + 14 : g.y - 16}px;${fx || fy ? `transform:${fx ? 'translateX(-100%)' : ''} ${fy ? 'translateY(-100%)' : ''};` : ''}`;
+  const o2 = (g.sz || 18) / 2 + 10; const style = `left:${fx ? g.x - o2 : g.x + o2}px;top:${fy ? g.y + 14 : g.y - 16}px;${fx || fy ? `transform:${fx ? 'translateX(-100%)' : ''} ${fy ? 'translateY(-100%)' : ''};` : ''}`;
   const cls = pin ? ' pin' : '';
   if (ns.length === 1) return fullCard(ns[0], '', { float:true, style, day, cls });
+  return listCard(ns, { th:g.th, cls:` mp-float${cls}`, style, title:`${t('mp_things', ns.length)}${day ? ` · ${day}` : ''}`, foot:v !== 'day' ? `<span role="button" class="mp-go" data-action="view-day" data-id="${g.date}">${esc(t('mp_openDay'))} ›</span>` : '' });
+}
+// (v111) a row of a list card: its time and title (a tap opens it) and, on hover, ✓ 🕒 · ✓ ✕ (to mark) · ↺ (done)
+function rowHtml(q) {
+  const ps = pastOf(q); const b = q.kind === 'block' ? q.b : null; const id = b ? esc(b.id) : '';
+  const qa = !b ? '' : ps === 'pend' ? `<span role="button" data-action="behind-done" data-id="${id}" title="${esc(t('esDone'))}">✓</span><span role="button" data-action="behind-fail" data-id="${id}" title="${esc(t('esFail'))}">✕</span>`
+    : q.out ? `<span role="button" data-action="block-reset" data-id="${id}" title="${esc(t('mp_reopen'))}">↺</span>` : ps ? '' : `<span role="button" data-action="sc-done" data-id="${id}" title="${esc(t('esDone'))}">✓</span><span role="button" data-action="now-move" data-id="${id}" title="${esc(t('moveBtn'))}">🕒</span>`;
+  const open = b ? `data-action="open-block" data-id="${id}"` : q.kind === 'event' ? `data-action="event" data-id="${esc(q.raw)}"` : '';
+  return `<span class="mp-hr${ps === 'pend' ? ' pend' : ps ? ' is-past' : ''}"><span role="button" class="mp-hro" ${open}><i>${esc(fmtTime(q.start))}</i><em>${q.fixed ? '📅 ' : ''}${q.out === 'done' ? '✓ ' : ''}${esc(q.title)}</em></span>${qa ? `<span class="mp-hq">${qa}</span>` : ''}</span>`;
+}
+// a list card: a stop with more things, a box of the month (by day, with o.byDay)
+function listCard(ns, o) {
   const pss = ns.map(pastOf); const allPast = pss.every(Boolean); const np = pss.filter((p) => p === 'pend').length; const tot = ns.reduce((a, q) => a + (q.minutes || 0), 0);
-  const row = (q) => {
-    const ps = pastOf(q); const b = q.kind === 'block' ? q.b : null; const id = b ? esc(b.id) : '';
-    const qa = !b ? '' : ps === 'pend' ? `<span role="button" data-action="behind-done" data-id="${id}" title="${esc(t('esDone'))}">✓</span><span role="button" data-action="behind-fail" data-id="${id}" title="${esc(t('esFail'))}">✕</span>`
-      : q.out ? `<span role="button" data-action="block-reset" data-id="${id}" title="${esc(t('mp_reopen'))}">↺</span>` : ps ? '' : `<span role="button" data-action="sc-done" data-id="${id}" title="${esc(t('esDone'))}">✓</span><span role="button" data-action="now-move" data-id="${id}" title="${esc(t('moveBtn'))}">🕒</span>`;
-    const open = b ? `data-action="open-block" data-id="${id}"` : q.kind === 'event' ? `data-action="event" data-id="${esc(q.raw)}"` : '';
-    return `<span class="mp-hr${ps === 'pend' ? ' pend' : ps ? ' is-past' : ''}"><span role="button" class="mp-hro" ${open}><i>${esc(fmtTime(q.start))}</i><em>${q.fixed ? '📅 ' : ''}${q.out === 'done' ? '✓ ' : ''}${esc(q.title)}</em></span>${qa ? `<span class="mp-hq">${qa}</span>` : ''}</span>`;
-  };
-  return `<span class="mp-full mp-float mp-multi${allPast ? ` is-past${np ? ' pend' : ''}` : ''}${cls}" style="--c:${esc(threadColor(g.th))};${style}">${allPast ? `<em class="mp-pt">${esc(t(np ? 'mp_past_pend' : 'mp_past_over'))}</em>` : ''}<b>${esc(t('mp_things', ns.length))}${day ? ` · ${esc(day)}` : ''}</b><small>${esc(threadName(g.th))} · ${esc(fmtDur(tot))}${np ? ` · <span class="mp-np">${esc(t('mp_nPend', np))}</span>` : ''}</small><span class="mp-rows">${ns.map(row).join('')}</span>${v !== 'day' ? `<span role="button" class="mp-go" data-action="view-day" data-id="${g.date}">${esc(t('mp_openDay'))} ›</span>` : ''}</span>`;
+  let rows = ''; let last = ''; const shown = ns.slice(0, o.max || 99);
+  for (const q of shown) { if (o.byDay && q.date !== last) { rows += `<span class="mp-dh">${esc(shortDay(q.date))}</span>`; last = q.date; } rows += rowHtml(q); }
+  if (ns.length > shown.length) rows += `<span class="mp-dh">${esc(t('mp_more', ns.length - shown.length))}</span>`;
+  return `<span class="mp-full mp-multi${allPast ? ` is-past${np ? ' pend' : ''}` : ''}${o.cls || ''}" style="--c:${esc(threadColor(o.th))};${o.style || ''}"${o.cls?.includes('mp-float') ? '' : ' aria-hidden="true"'}>${allPast ? `<em class="mp-pt">${esc(t(np ? 'mp_past_pend' : 'mp_past_over'))}</em>` : ''}<b>${esc(o.title)}</b><small>${o.sub ? `${esc(o.sub)} · ` : `${esc(threadName(o.th))} · `}${esc(fmtDur(tot))}${np ? ` · <span class="mp-np">${esc(t('mp_nPend', np))}</span>` : ''}</small><span class="mp-rows">${rows}</span>${o.foot || ''}</span>`;
 }
 // hover (a mouse): the card of the stop under the pointer; it stays while the pointer moves into it
 let hovT = 0;

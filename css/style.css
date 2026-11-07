@@ -2666,12 +2666,8 @@ body.pane-hid { --pane: 56px; }
 /* v107 · the selected block doesn't open its hover card: it would cover the ＋, the petals and the links (its details are in the pane) */
 @media (hover: hover) { .mp-n.sel:hover > .mp-full { display: none !important; } }
 .mp-plus, .mp-plusm, .mp-pet, .mp-n.stub.bloom { z-index: 45; } .mp-plusm { z-index: 50; }
-/* v108 · a tall block has room: on hover its details open inside it, under its own title, instead of a card covering the title */
+/* (v108's inline details for tall blocks gave way to v111: every card opens beside) */
 .mp-n.tall > b { white-space: normal; }
-@media (hover: hover) {
-  .mp-n.tall:not(.mp-room):not(.dragging):hover > .mp-full { position: static; display: block; min-width: 0; width: auto; max-width: none; margin-top: 4px; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
-  .mp-n.tall:hover > .mp-full > b, .mp-n.tall:hover > .mp-full > small:first-of-type { display: none; }
-}
 /* v109 · the map: the time down the side, categories across, the whole width; Linee in every view; past things.
    A past thing fades its text and border, not itself, so the card that opens over it stays solid. */
 .mp-n.is-done, .mp-n.is-failed, .mp-n.is-partial, .mp-n.is-over { opacity: 1; border-color: color-mix(in srgb, var(--c) 40%, transparent); }
@@ -2697,11 +2693,11 @@ body.pane-hid { --pane: 56px; }
 .mp-go { display: block; margin-top: 6px; color: var(--accent); font-size: .76rem; cursor: pointer; } .mp-np { color: var(--warn); }
 .mp-wrow.we { background: color-mix(in srgb, var(--muted) 4%, transparent); } .mp-wrow.cur { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .mp-dlab.is-today b { color: var(--accent); } .mp-wlab:hover b { color: var(--accent); }
-.mp-cl.pend { border-style: dashed; } .mp-cl.is-past { border-color: color-mix(in srgb, var(--c) 40%, transparent); background: color-mix(in srgb, var(--surface) 60%, var(--bg)); } .mp-cl.is-past > * { opacity: .55; }
+.mp-cl.pend { border-style: dashed; } .mp-cl.is-past { border-color: color-mix(in srgb, var(--c) 40%, transparent); background: color-mix(in srgb, var(--surface) 60%, var(--bg)); } .mp-cl.is-past > b, .mp-cl.is-past > small, .mp-cl.is-past > .dots { opacity: .55; }
 .mp-cl .tt { margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mp-trk { position: absolute; width: 5px; margin-left: -2.5px; border-radius: 3px; background: var(--c); opacity: .7; z-index: 1; }
 .mp-rhy { position: absolute; width: 2px; margin-left: -1px; background-image: linear-gradient(var(--c) 50%, transparent 0); background-size: 2px 8px; opacity: .55; z-index: 1; }
-.mp-sta { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; border: 3px solid var(--c); box-sizing: border-box; background: var(--bg); color: var(--ink); font: 800 .64rem var(--sans); padding: 0; display: grid; place-items: center; z-index: 3; cursor: pointer; }
+.mp-sta { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; border: 3px solid var(--c); box-sizing: border-box; background: var(--bg); color: var(--ink); font: 800 .72rem var(--sans); padding: 0; display: grid; place-items: center; z-index: 3; cursor: pointer; }
 .mp-sta.appt { background: var(--c); color: var(--bg); border-radius: 7px; } .mp-sta.rt { border: 0; background: var(--c); opacity: .75; }
 .mp-sta.is-past { opacity: .45; } .mp-sta.pend { border-style: dashed; } .mp-sta.rt.pend { background: var(--bg); border: 2px dashed var(--c); opacity: 1; }
 .mp-sta.conf { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 60%, transparent); } .mp-sta.sel { box-shadow: 0 0 0 4px var(--accent); }
@@ -2710,3 +2706,15 @@ body.pane-hid { --pane: 56px; }
 .pv-grp.off { opacity: .4; pointer-events: none; }
 .mp-full.mp-float > b, .mp-full.mp-float > small { display: block; } .mp-full.mp-float > small { color: var(--muted); }
 .mp-multi > small { display: block; }
+/* v111 · a card opens beside what you hover, with a small arrow, so the things under it stay free to hover; the
+   month's boxes open their list too */
+.mp-n:not(.mp-room) > .mp-full, .mp-cl > .mp-full { left: calc(100% + 12px); top: -4px; min-width: 220px; }
+.mp-n.edge-r:not(.mp-room) > .mp-full, .mp-cl.edge-r > .mp-full { left: auto; right: calc(100% + 12px); }
+.mp-n.edge-in:not(.mp-room) > .mp-full { left: auto; right: 6px; }
+.mp-n:not(.mp-room):not(.edge-in) > .mp-full::before, .mp-cl > .mp-full::before { content: ''; position: absolute; top: 12px; left: -10px; border: 8px solid transparent; border-left: 0; border-right-color: var(--c); }
+.mp-n.edge-r:not(.mp-room) > .mp-full::before, .mp-cl.edge-r > .mp-full::before { left: auto; right: -10px; border: 8px solid transparent; border-right: 0; border-left-color: var(--c); }
+.mp-n:not(.mp-room) > .mp-full::after, .mp-cl > .mp-full::after { content: ''; position: absolute; top: 0; bottom: 0; left: -16px; width: 16px; }
+.mp-n.edge-r:not(.mp-room) > .mp-full::after, .mp-cl.edge-r > .mp-full::after { left: auto; right: -16px; }
+.mp-cl { overflow: visible; } .mp-cl > .mp-full { display: none; }
+@media (hover: hover) { .mp-cl:hover { z-index: 40; } .mp-cl:hover > .mp-full { display: block; } }
+.mp-dh { display: block; font-size: .58rem; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); margin: 6px 6px 1px; }

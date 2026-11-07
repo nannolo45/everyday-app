@@ -42,6 +42,7 @@ export function weekStart(date) { return addDays(date, -((weekday(date) + 6) % 7
 
 // Keep linked blocks up to date and run what's due, for the days on screen.
 export function prepareDays(days) {
+  if (!days?.length) return; // (v110) a week all in the past: nothing ahead to prepare
   for (const d of days) { watchMonth(d.slice(0, 7)); autoApply(d); }
   const next = addDays(days[days.length - 1], 1);
   watchMonth(next.slice(0, 7));
