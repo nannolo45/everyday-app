@@ -22,6 +22,7 @@ import { currentView, planCounts, planStyle, viewPlan } from './views/planner.js
 import { viewEvents } from './views/events.js';
 import { isWide, wideWrap } from './views/wide.js';
 import { viewToday } from './views/today.js';
+import { viewReport } from './views/report.js';
 
 // ---------- sync scheduling ----------
 
@@ -156,6 +157,7 @@ export function render() {
     case 'events': html = viewEvents(); break;
     case 'settings': html = viewSettings(); break;
     case 'plan': html = viewPlan(currentDate()); break;
+    case 'report': html = viewReport(); break;
     default: html = viewToday();
   }
   // A running timer shows on every tab (not Settings); a late start's offer on Today.

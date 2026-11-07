@@ -21,6 +21,8 @@ import { openWeekGrid } from '../weekgrid.js';
 import { weekStart } from './planner.js';
 import { SH, shopReader, viewShop } from './shop.js';
 import { foldBtn, folded, taskHay, taskRow } from './tasks.js';
+import { pageHead, viewMenu } from '../viewmenu.js';
+import { habitHtml, kanbanHtml, matrixHtml, taskView, tvItems, tvOptions } from './taskviews.js';
 
 // The older layouts stay reachable for the older test suites (a switch kept on the device, not a setting).
 export const classic = () => { try { return localStorage.getItem('everyday-classic') === '1'; } catch { return false; } };
@@ -218,12 +220,18 @@ function fullRow(x, ws, sv = false) {
 }
 
 // ---------- the tab ----------
-function tabs(cur) {
-  const l = viewList();
-  const nUn = flagCount();
-  const nShop = live(SH()).filter((i) => !i.checked).length;
-  const btn = (v) => `<button type="button" role="tab" class="${v.id === cur.id ? 'on' : ''}${v.pin ? '' : ' loose'}" aria-selected="${v.id === cur.id}" data-action="vw-tab" data-id="${esc(v.id)}">${esc(viewName(v))}${v.fixed && nUn ? ` <span class="nbadge">${nUn > 99 ? '99+' : nUn}</span>` : v.shop && nShop ? ` <small>${nShop > 99 ? '99+' : nShop}</small>` : ''}</button>`;
-  return `<div class="seg vw-tabs" role="tablist">${l.filter((v) => v.pin).map(btn).join('')}${cur.pin ? '' : btn(cur)}<button type="button" class="vw-edit" data-action="vw-views">✎ ${esc(t('vwViews'))}</button></div>`;
+// (v112) Da fare's lists as tabs under the title (on every screen), each with how many open things it has
+function tabList(cur) {
+  const nUn = flagCount(); const nShop = live(SH()).filter((i) => !i.checked).length; const items = allItems();
+  const l = viewList(); const shown = [...l.filter((v) => v.pin), ...(cur.pin ? [] : [cur])];
+  return [...shown.map((v) => ({ label:viewName(v), on:v.id === cur.id, action:'vw-tab', id:v.id, cls:v.pin ? '' : 'loose',
+    n:v.fixed && nUn ? (nUn > 99 ? '99+' : nUn) : v.shop ? nShop || '' : items.filter((x) => !x.done && matches(x, v.f || {})).length || '' })),
+  { label:`✎ ${t('vwViews')}`, action:'vw-views', id:'', cls:'ph-edit' }];
+}
+const isRoutineList = (v) => { const f = filterOf(v); return (f.type || []).length === 1 && f.type[0] === 'repeat'; };
+function head(v, acts = '') {
+  const rt = isRoutineList(v); const tv = taskView() === 'habit' && !rt ? 'list' : taskView();
+  return pageHead({ title:t('tabTasks'), where:`<span class="ph-n">${esc(showsText(v))}</span>`, menu:v.shop ? '' : viewMenu({ p:'tv', cur:tv, title:t('tv_title'), items:tvItems(rt), opts:tvOptions }), tabs:tabList(v), acts });
 }
 // (v82) Routines without a rhythm (often «ogni …» lost by the + before v81): set it with one tap, or leave them.
 function rhythmCard() {
@@ -236,8 +244,7 @@ export function setWeekly(x) { upsert('tasks', { ...x, repeat: 'times', timesN: 
 export function viewImpegni() {
   if (!state.settings.dueMig && !classic()) { const vs = state.settings.views; saveSettings({ dueMig: true, ...(vs ? { views: vs.map((x) => (x?.id === 'overview' && (x.by || 'added') === 'added' ? { ...x, by: 'due', dir: 1 } : x)) } : {}) }); } // (v100) Overview by deadline, once
   const v = curView();
-  const top = tabs(v);
-  if (v.shop) return `${top}${shopReader() ? "" : `<p class="vw-shows">${esc(showsText(v))}</p>`}${viewShop()}`; // (v83) the reader says where the list is
+  if (v.shop) return `${head(v)}${viewShop()}`; // (v83) the reader says where the list is
   const f = filterOf(v);
   const q = (ui.taskQ || '').trim();
   const ws = ui.routineWeek || weekStart(today());
@@ -248,7 +255,7 @@ export function viewImpegni() {
   const done = showDone ? [] : pool.filter((x) => x.done);
   const n = nOf(f);
   const changedF = ui.vTemp?.id === v.id && !sameF(ui.vTemp.f, v.f);
-  const tools = `<div class="task-tools">${searchBox({ id: 'task-q', value: ui.taskQ || '' })}
+  const tools = `<div class="task-tools ph-tools">${searchBox({ id: 'task-q', value: ui.taskQ || '' })}
     <button class="btn small tools-btn${n ? ' on' : ''}" type="button" data-action="vw-filters">⇅ ${esc(t('filters'))}${n ? ` · ${n}` : ''}</button>
     <button class="btn small tools-btn" type="button" data-action="vw-sort" aria-label="${esc(t('sortGroup'))}">▤ ${esc(sortLabel(v))}</button>${classic() ? '' : `<button class="btn small tools-btn${ui.impQuick ? ' on' : ''}" type="button" data-action="imp-quick" aria-pressed="${Boolean(ui.impQuick)}" title="${esc(t('impQuickH'))}">⚡ ${esc(t('impQuick'))} · ${quickN}</button>`}</div>`;
   const nUn = flagCount();
@@ -260,9 +267,11 @@ export function viewImpegni() {
   const fresh = !v.fixed ? [...(ui.justAdded || [])].map((id) => get('tasks', id)).filter((x) => x && list.includes(x)) : [];
   const freshSet = new Set(fresh);
   const body = groups.map((g) => { const l = g.list.filter((x) => !freshSet.has(x)); return l.length ? `<section class="vw-grp"><h3 class="vw-gh${g.key === 'late' && (v.by || '') === 'due' ? ' late' : ''}">${esc(g.label)} <small>${l.length}${(() => { const m = classic() ? 0 : l.filter((x) => typeOf(x) !== 'repeat').reduce((n, x) => n + (x.minutes || 30), 0); return m ? ` · ${esc(fmtDur(m))}` : ''; })()}</small></h3><ul class="list tasks${v.fixed ? ' plain' : ' saved routines'}">${l.map(row).join('')}</ul></section>` : ''; }).join('');
-  return `${top}
-  <p class="vw-shows">${esc(showsText(v))}${changedF ? ` <span class="vw-changed">· ${esc(t('vwChanged'))}</span>` : ''}</p>
-  ${tools}
+  // (v112) Kanban · Matrice · Abitudini instead of the list (the lists, the filters and the search stay)
+  const tv = taskView() === 'habit' && !isRoutineList(v) ? 'list' : taskView();
+  if (tv !== 'list') return `${head(v, tools)}${changedF ? `<p class="vw-shows"><span class="vw-changed">${esc(t('vwChanged'))}</span></p>` : ''}${tv === 'kanban' ? kanbanHtml(list, done) : tv === 'matrix' ? matrixHtml(list) : habitHtml(list)}`;
+  return `${head(v, tools)}
+  ${changedF ? `<p class="vw-shows"><span class="vw-changed">${esc(t('vwChanged'))}</span></p>` : ''}
   ${card}
   ${fresh.length ? `<section class="just-added"><h2 class="part-h ja-h">${esc(t('justAdded'))} <small>${fresh.length}</small></h2><ul class="list tasks fresh">${fresh.map(row).join('')}</ul></section>` : ''}
   ${(hasRep || sv) && !q && !state.settings.rhythmAsked && (v.f?.type || []).join() === 'repeat' ? rhythmCard() : ''}

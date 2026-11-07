@@ -6,7 +6,7 @@ import { addDays, fmtTime, parseDate, today } from './plan.js';
 import { get, has, live, remove, state, uid, upsert } from './store.js';
 
 // Shown under Settings; keep in step with VERSION in sw.js (a unit test checks).
-export const APP_VERSION = 'v111';
+export const APP_VERSION = 'v112';
 
 export const $ = (sel, root = document) => root.querySelector(sel);
 // Hints that were emptied in i18n (the guide explains instead) render nothing.
@@ -71,8 +71,8 @@ export function route() {
 
 // Left to right, the way a week gets planned: today → events → tasks around them → the plan.
 // Shopping is a part of the Tasks tab (#/shop still opens it directly); Settings opens from the gear.
-export const TAB_OF = { today: 'today', events: 'events', plan: 'plan', tasks: 'tasks', shop: 'tasks', settings: 'settings' };
-export const TABS = ['today', 'events', 'tasks', 'plan'];
+export const TAB_OF = { today: 'today', events: 'events', plan: 'plan', tasks: 'tasks', shop: 'tasks', settings: 'settings', report: 'report' };
+export const TABS = ['today', 'events', 'tasks', 'plan', 'report'];
 // Rules, templates and preparations are power features: shown only when switched on under
 // Settings → Advanced, or when the data already uses them.
 export function advancedOn() {

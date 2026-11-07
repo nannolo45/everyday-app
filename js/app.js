@@ -421,6 +421,20 @@ view.addEventListener('click', (e) => {
     case 'pv-open': ui.pvOpen = !ui.pvOpen; ui.pvTab = null; render(); break; // (v106) how the Planner looks
     case 'pv-tab': ui.pvTab = id; render(); break;
     case 'pv-use': saveSettings({ planStyle: id }); ui.pvTab = null; ui.lastHtml = null; render(); break;
+    // (v112) the same view menu in Da fare (tv) and Resoconto (rv)
+    case 'tv-open': ui.tvOpen = !ui.tvOpen; ui.tvTab = null; render(); break;
+    case 'tv-tab': ui.tvTab = id; render(); break;
+    case 'tv-use': saveSettings({ taskView: id }); ui.tvTab = null; ui.tvOpen = false; render(); break;
+    case 'tv-kby': saveSettings({ kanbanBy: id }); render(); break;
+    case 'tv-urg': saveSettings({ urgDays: Number(id) }); render(); break;
+    case 'tv-hdays': saveSettings({ habitDays: Number(id) }); render(); break;
+    case 'rv-open': ui.rvOpen = !ui.rvOpen; ui.rvTab = null; render(); break;
+    case 'rv-tab': ui.rvTab = id; render(); break;
+    case 'rv-use': saveSettings({ reportView: id }); ui.rvTab = null; ui.rvOpen = false; render(); break;
+    case 'rv-pend': saveSettings({ repOnlyPend: id === '1' }); render(); break;
+    case 'rep-scope': ui.repScope = id; render(); break;
+    case 'rep-go': ui.repDate = id; render(); break;
+    case 'rep-day': ui.repScope = 'day'; ui.repDate = id; render(); break;
     case 'pv-agdone': ui.agDone = id === '1'; render(); break;
     case 'pv-steps': saveSettings({ showSteps: id === '1' }); render(); break;
     case 'rail-mini': saveSettings({ railMini: !state.settings.railMini }); render(); break; // (v106) the edges
@@ -637,9 +651,13 @@ setupDrag(view, {
     if (e.key === '[' && document.body.classList.contains('is-wide')) { e.preventDefault(); saveSettings({ railMini: !state.settings.railMini }); render(); return; }
     if (e.key === ']' && document.body.classList.contains('is-wide')) { e.preventDefault(); saveSettings({ paneHidden: !state.settings.paneHidden }); render(); return; }
     if (/^[1-4]$/.test(e.key) && route().name === 'plan') { e.preventDefault(); saveSettings({ planStyle: ['agenda', 'hours', 'scaletta', 'mappa'][Number(e.key) - 1] }); ui.pvTab = null; ui.lastHtml = null; render(); }
+    if (/^[1-4]$/.test(e.key) && route().name === 'tasks') { e.preventDefault(); saveSettings({ taskView: ['list', 'kanban', 'matrix', 'habit'][Number(e.key) - 1] }); ui.tvTab = null; render(); } // (v112) the same keys in Da fare
+    if (/^[1-2]$/.test(e.key) && route().name === 'report') { e.preventDefault(); saveSettings({ reportView: ['summary', 'table'][Number(e.key) - 1] }); ui.rvTab = null; render(); }
   });
-  document.addEventListener('click', (e) => { if (ui.pvOpen && !e.target.closest?.('.pv-pop, [data-action=pv-open]')) { ui.pvOpen = false; if (!e.target.closest?.('[data-action]')) render(); } }, true);
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.pvOpen) { ui.pvOpen = false; render(); } }, true);
+  for (const p of ['pv', 'tv', 'rv']) { // (v112) any view menu: a click outside or Esc closes it
+    document.addEventListener('click', (e) => { if (ui[`${p}Open`] && !e.target.closest?.(`.pv-pop, [data-action=${p}-open]`)) { ui[`${p}Open`] = false; if (!e.target.closest?.('[data-action]')) render(); } }, true);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui[`${p}Open`]) { ui[`${p}Open`] = false; render(); } }, true);
+  }
 }
 $('#app-title').addEventListener('click', () => {
   if (route().name === 'today') window.scrollTo({ top: 0, behavior: 'smooth' }); else location.hash = '#/today';

@@ -16,6 +16,7 @@ import { MODE_ICON } from '../travel.js';
 import { openModal, searchBox, windowsText } from '../widgets.js';
 import { DATE_GROUPS, dateBuckets, filterBar, sortPicker, sortTaskList, taskFilter, taskGroupsCfg, taskHay } from './tasks.js';
 import { isWide } from './wide.js';
+import { pageHead, viewMenu } from '../viewmenu.js';
 import { placeItem } from '../placing.js';
 import { hasRhythm, routines } from '../routines.js';
 import { viewScaletta } from './scaletta.js';
@@ -72,24 +73,11 @@ export function viewPlan(date) {
   // One drawer of tasks to plan sits under every view; "Plan" runs the guided flow.
   if (!ui.assign) ui.assign = { sel: new Set(), ghosts: [], range: null, opts: false, open: false, q: '' };
   const ps = planStyle(); const ag = ps !== 'hours';
-  const head = `
-  <div class="plan-top">
-    <div class="view-switch" role="tablist">${VIEWS.map((k) => `<button type="button" role="tab" class="${k === v ? 'on' : ''}" data-action="view" data-id="${k}" aria-selected="${k === v}">${esc(t(`v_${k}`))}</button>`).join('')}</div>
-  </div>
-  <div class="day-head">
-    <a class="round" href="#/plan/${prev}" aria-label="${esc(t('previous'))}">‹</a>
-    <button class="day-title" type="button" data-action="pick-date" aria-haspopup="dialog" title="${esc(t(v === 'week' ? 'dp_pickWeek' : v === 'month' ? 'dp_pickMonth' : 'dp_pickDay'))}">
-      <span class="day-name">${esc(title)}</span>${sub ? `<small>${esc(sub)}</small>` : ''}
-    </button>
-    <a class="round" href="#/plan/${next}" aria-label="${esc(t('next'))}">›</a>
-    ${v === 'day' ? loadBar(date) : ''}
-  </div>
-  ${showToday ? `<div class="day-today"><a class="linkish" href="#/plan/${td}">${esc(t('today'))}</a></div>` : ''}
-  ${pvRow(v, date)}
-  ${ag ? '' : `<div class="day-actions">
-    <button class="btn small primary" type="button" data-action="auto">✦ ${esc(t('planBtn'))}</button>
-    <button class="btn small" type="button" data-action="add-menu">＋ ${esc(t('addMenu'))}</button>
-  </div>`}`;
+  // (v112) the shared header: Planner · ‹ date › Oggi · the view ▾ — Giorno · Settimana · Mese — the actions
+  const nC = isWide() && v === 'day' ? conflictsOn(date).length : 0;
+  const where = `<a class="round sm" href="#/plan/${prev}" aria-label="${esc(t('previous'))}">‹</a><button class="day-title ph-date" type="button" data-action="pick-date" aria-haspopup="dialog" title="${esc(t(v === 'week' ? 'dp_pickWeek' : v === 'month' ? 'dp_pickMonth' : 'dp_pickDay'))}"><span class="day-name">${esc(title)}</span>${sub ? `<small>${esc(sub)}</small>` : ''}</button><a class="round sm" href="#/plan/${next}" aria-label="${esc(t('next'))}">›</a>${showToday ? `<a class="linkish ph-today" href="#/plan/${td}">${esc(t('today'))}</a>` : ''}`;
+  const acts = `${ag ? '' : `<button class="btn small primary" type="button" data-action="auto">✦ ${esc(t('planBtn'))}</button><button class="btn small" type="button" data-action="add-menu">＋ ${esc(t('addMenu'))}</button>`}${nC ? `<button type="button" class="btn small mp-warnb" data-action="mp-warn" title="${esc(t('nConflicts', nC))}">⚠ ${nC}</button>` : ''}${v === 'day' ? `<span class="ph-load">${loadBar(date)}</span>` : ''}`;
+  const head = pageHead({ title:t('tabPlan'), where, menu:pvMenu(v), tabs:VIEWS.map((k) => ({ label:t(`v_${k}`), on:k === v, action:'view', id:k })), acts });
   if (ps === 'scaletta') return head + viewScaletta(v, date);
   if (ps === 'mappa') return head + viewMappa(v, date);
   if (ag) return `${head}<section class="plan-main agenda-main">${v === 'week' ? agendaWeek(date) : v === 'month' ? viewMonth(date) : agendaDay(date)}</section>`;
@@ -119,17 +107,10 @@ function pvOptions(k, v) {
   }
   return `<p class="pv-note">${esc(t('pv_noOpts'))}</p>`;
 }
-function pvRow(v, date) {
-  const ps = planStyle(); const tab = ui.pvTab && STYLES.includes(ui.pvTab) ? ui.pvTab : ps;
-  const nC = isWide() && v === 'day' ? conflictsOn(date).length : 0;
-  const sub = ps !== 'mappa' ? '' : state.settings.mapForm === 'lines' ? ` <small>· ${esc(t('mp_ms_lines').toLowerCase())}</small>` : v === 'day' && state.settings.mapLanesBy === 'cat' ? ` <small>· ${esc(t('mp_byCat').toLowerCase())}</small>` : '';
-  return `<div class="pvw-row">${nC ? `<button type="button" class="btn small mp-warnb" data-action="mp-warn" title="${esc(t('nConflicts', nC))}">⚠ ${nC}</button>` : ''}<span class="pv-sp"></span>
-    <span class="pv-wrap"><button type="button" class="btn small pv-btn${ui.pvOpen ? ' on' : ''}" data-action="pv-open" aria-expanded="${Boolean(ui.pvOpen)}" title="${esc(t('pv_title'))}">${styleIcon(ps)} ${esc(t(`ps_${ps}Short`))}${sub} ▾</button>
-    ${ui.pvOpen ? `<div class="pv-pop" role="dialog" aria-label="${esc(t('pv_title'))}"><div class="pv-tabs" role="tablist">${STYLES.map((k, i) => `<button type="button" role="tab" class="${tab === k ? 'on' : ''}" aria-selected="${tab === k}" data-action="pv-tab" data-id="${k}" title="${esc(`${t(`ps_${k}Short`)} (${i + 1})`)}">${styleIcon(k)}<span>${esc(t(`ps_${k}Short`))}</span>${ps === k ? '<i aria-hidden="true">●</i>' : ''}</button>`).join('')}</div>
-      <p class="pv-sub">${esc(t(`pv_${tab}Sub`))}${ps === tab ? ` · <b>${esc(t('pv_inUse'))}</b>` : ''}</p>
-      ${pvOptions(tab, v)}
-      ${ps === tab ? '' : `<button type="button" class="btn primary pv-use" data-action="pv-use" data-id="${tab}">${esc(t('pv_use', t(`ps_${tab}Short`)))}</button>`}
-      <small class="pv-note">${esc(t('pv_keys'))}</small></div>` : ''}</span></div>`;
+function pvMenu(v) {
+  const ps = planStyle();
+  const extra = ps !== 'mappa' ? '' : state.settings.mapForm === 'lines' ? ` <small>· ${esc(t('mp_ms_lines').toLowerCase())}</small>` : v === 'day' && state.settings.mapLanesBy === 'cat' ? ` <small>· ${esc(t('mp_byCat').toLowerCase())}</small>` : '';
+  return viewMenu({ p:'pv', cur:ps, title:t('pv_title'), extra, items:STYLES.map((k) => ({ k, icon:styleIcon(k), label:t(`ps_${k}Short`), sub:t(`pv_${k}Sub`) })), opts:(k) => pvOptions(k, v) });
 }
 export function isoWeek(date) {
   const d = parseDate(date); d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));

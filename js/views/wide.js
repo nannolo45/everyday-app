@@ -32,24 +32,21 @@ const ICONS = {
   events: '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="m9.2 15.5 2 2 3.8-4"/></svg>',
   tasks: '<svg viewBox="0 0 24 24"><path d="m4 6.5 1.8 1.8L9 5M4 12.5l1.8 1.8L9 11M4 18.5l1.8 1.8L9 17M12.5 7h7.5M12.5 13h7.5M12.5 19h7.5"/></svg>',
   plan: '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4M7.5 14h4M7.5 17h7"/></svg>',
+  report: '<svg viewBox="0 0 24 24"><path d="M4 20h16M7 16v-5M12 16V6M17 16v-8"/></svg>',
 };
-const TAB_KEYS = { today: 'tabToday', events: 'tabEvents', tasks: 'tabTasks', plan: 'tabPlan' };
+const TAB_KEYS = { today: 'tabToday', events: 'tabEvents', tasks: 'tabTasks', plan: 'tabPlan', report: 'tabReport' };
 const tabOf = (name) => (name === 'shop' ? 'tasks' : name);
 
 // ---------- the rail ----------
 function rail() {
   const r = route(); const cur = tabOf(r.name);
   const nUn = flagCount();
-  const v = curView();
-  const views = cur === 'tasks' ? `${viewList().filter((y) => y.pin || y.id === v.id).map((y) => {
-    const n = y.shop ? live(SH()).filter((i) => !i.checked).length : allItems().filter((x) => !x.done && matches(x, y.f || {})).length;
-    return `<button type="button" class="rl-sub${y.id === v.id ? ' on' : ''}" data-action="rail-view" data-id="${esc(y.id)}"><span>${esc(viewName(y))}</span>${y.fixed && nUn ? `<span class="nbadge">${nUn}</span>` : `<small>${n || ''}</small>`}</button>`;
-  }).join('')}<button type="button" class="rl-sub rl-edit" data-action="vw-views">✎ ${esc(t('vwViews'))}</button>` : '';
+  // (v112) Da fare's lists are tabs at the top of the page now: the rail is just the sections
   const td = today(); const end = addDays(weekStart(td), 6);
   const days = []; for (let d = td; d <= end; d = addDays(d, 1)) days.push(d);
   const mini = Boolean(state.settings.railMini);
   return `<aside class="rail${mini ? ' mini' : ''}" aria-label="${esc(t('railNav'))}"><button type="button" class="edge rl-edge" data-action="rail-mini" title="${esc(t(mini ? 'rail_full' : 'rail_mini'))}" aria-label="${esc(t(mini ? 'rail_full' : 'rail_mini'))}">${mini ? '»' : '«'}</button>
-    ${['today', ...(classic() ? ['events'] : []), 'tasks', 'plan'].map((k) => `<a class="rl-tab${cur === k ? ' on' : ''}" href="#/${k}"><span class="rl-ico">${ICONS[k]}</span><span>${esc(t(TAB_KEYS[k]))}</span>${k === 'tasks' && nUn && cur !== 'tasks' ? `<span class="nbadge">${nUn}</span>` : ''}${k === 'plan' ? (() => { const c = planCounts(); return c.toPlan || c.behind ? `<span class="plan-count rl">${planBadge(c)}</span>` : ''; })() : ''}</a>${k === 'tasks' ? views : ''}`).join('')}
+    ${['today', ...(classic() ? ['events'] : []), 'tasks', 'plan', 'report'].map((k) => `<a class="rl-tab${cur === k ? ' on' : ''}" href="#/${k}"><span class="rl-ico">${ICONS[k]}</span><span>${esc(t(TAB_KEYS[k]))}</span>${k === 'tasks' && nUn && cur !== 'tasks' ? `<span class="nbadge">${nUn}</span>` : ''}${k === 'plan' ? (() => { const c = planCounts(); return c.toPlan || c.behind ? `<span class="plan-count rl">${planBadge(c)}</span>` : ''; })() : ''}</a>`).join('')}
     <div class="rl-sep"></div>
     <div class="rl-lab">${esc(t('vf_when_week'))}</div>
     ${days.map((d) => `<button type="button" class="rl-day${r.name === 'plan' && ui.shownDate === d ? ' on' : ''}" data-action="rail-day" data-id="${d}"><span>${esc(fmtDay(d, { weekday: 'short', day: 'numeric' }))}</span>${loadBar(d, { text: false })}</button>`).join('')}
