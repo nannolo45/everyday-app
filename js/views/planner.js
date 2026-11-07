@@ -74,7 +74,6 @@ export function viewPlan(date) {
   const head = `
   <div class="plan-top">
     <div class="view-switch" role="tablist">${VIEWS.map((k) => `<button type="button" role="tab" class="${k === v ? 'on' : ''}" data-action="view" data-id="${k}" aria-selected="${k === v}">${esc(t(`v_${k}`))}</button>`).join('')}</div>
-    ${v === 'day' && !ag ? `<button class="steps-switch" type="button" role="switch" data-action="toggle-steps" aria-checked="${showSteps()}" aria-pressed="${showSteps()}" title="${esc(t(showSteps() ? 'hideSteps' : 'showSteps'))}"><span class="sw" aria-hidden="true"></span>${esc(t('steps'))}</button>` : ''}
   </div>
   <div class="day-head">
     <a class="round" href="#/plan/${prev}" aria-label="${esc(t('previous'))}">‹</a>
@@ -84,8 +83,9 @@ export function viewPlan(date) {
     <a class="round" href="#/plan/${next}" aria-label="${esc(t('next'))}">›</a>
     ${v === 'day' ? loadBar(date) : ''}
   </div>
-  ${ag ? (showToday ? `<div class="day-actions"><a class="btn small" href="#/plan/${td}">${esc(t('today'))}</a></div>` : '') : `<div class="day-actions">
-    ${showToday ? `<a class="btn small" href="#/plan/${td}">${esc(t('today'))}</a>` : ''}
+  ${showToday ? `<div class="day-today"><a class="linkish" href="#/plan/${td}">${esc(t('today'))}</a></div>` : ''}
+  ${pvRow(v, date)}
+  ${ag ? '' : `<div class="day-actions">
     <button class="btn small primary" type="button" data-action="auto">✦ ${esc(t('planBtn'))}</button>
     <button class="btn small" type="button" data-action="add-menu">＋ ${esc(t('addMenu'))}</button>
   </div>`}`;
@@ -96,6 +96,38 @@ export function viewPlan(date) {
   return `${head}<section class="plan-main">${main}</section>${trayHtml()}`;
 }
 
+// (v106) One place for how the Planner looks: the button above the plan names the view (Agenda, A ore, Scaletta,
+// Mappa); it opens with the four as tabs and, under the one you're looking at, its options. «Usa …» switches;
+// keys 1–4 switch at once. On the left of the row, on a wide screen, ⚠ n goes to the warnings in the pane.
+const MM_IC = '<svg class="mm-ic" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M8 8 3 3.5M8 8l5-3.5M8 8l-4 5M8 8l5 4.5" stroke="currentColor" stroke-width="1.3" fill="none"/><circle cx="8" cy="8" r="2.4" fill="currentColor"/><circle cx="3" cy="3.5" r="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="13" cy="4.5" r="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="4" cy="13" r="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="13" cy="12.5" r="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>';
+export const STYLES = ['agenda', 'hours', 'scaletta', 'mappa'];
+export const styleIcon = (k) => (k === 'mappa' ? MM_IC : `<span class="pv-ic" aria-hidden="true">${{ agenda: '☰', hours: '⏱', scaletta: '⛓' }[k]}</span>`);
+function pvOptions(k, v) {
+  const seg = (lab, act, cur, opts) => `<div class="pv-r"><span>${esc(lab)}</span><div class="mp-seg">${opts.map(([id, l]) => `<button type="button" class="${String(cur) === String(id) ? 'on' : ''}" data-action="${act}" data-id="${id}">${esc(l)}</button>`).join('')}</div></div>`;
+  if (k === 'agenda') return seg(t('pv_done'), 'pv-agdone', ui.agDone ? '1' : '0', [['0', t('pv_doneFold')], ['1', t('pv_doneList')]]);
+  if (k === 'hours') return seg(t('steps'), 'pv-steps', showSteps() ? '1' : '0', [['1', t('pv_show')], ['0', t('pv_hide')]]);
+  if (k === 'mappa') {
+    const cat = state.settings.mapLanesBy === 'cat';
+    return `${seg(t('mp_lanesL'), 'mp-lby', cat ? 'cat' : 'mine', [['mine', t('mp_byMine')], ['cat', t('mp_byCat')]])}
+      ${cat ? '' : seg(t('mp_laneNames'), 'mp-lab', state.settings.mapLaneLabels || 'custom', ['custom', 'none', 'num'].map((x) => [x, t(`mp_lab_${x}`)]))}
+      ${seg(t('mp_ov'), 'mp-ov', state.settings.mapOverlap === 'side' ? 'side' : 'over', [['over', `⧉ ${t('mp_ov_over')}`], ['side', `▥ ${t('mp_ov_side')}`]])}
+      ${seg(t('mp_dragging'), 'mp-time', ui.mpTime ? '1' : '0', [['0', `↔ ${t('mp_laneOnly')}`], ['1', `⇅ ${t('mp_alsoTime')}`]])}
+      ${isWide() ? `<small class="pv-note">${esc(t('mp_orCtrl'))}</small>` : ''}`;
+  }
+  return `<p class="pv-note">${esc(t('pv_noOpts'))}</p>`;
+}
+function pvRow(v, date) {
+  const ps = planStyle(); const tab = ui.pvTab && STYLES.includes(ui.pvTab) ? ui.pvTab : ps;
+  const nC = isWide() && v === 'day' ? conflictsOn(date).length : 0;
+  const sub = ps === 'mappa' && v === 'day' && state.settings.mapLanesBy === 'cat' ? ` <small>· ${esc(t('mp_byCat').toLowerCase())}</small>` : '';
+  return `<div class="pvw-row">${nC ? `<button type="button" class="btn small mp-warnb" data-action="mp-warn" title="${esc(t('nConflicts', nC))}">⚠ ${nC}</button>` : ''}<span class="pv-sp"></span>
+    <span class="pv-wrap"><button type="button" class="btn small pv-btn${ui.pvOpen ? ' on' : ''}" data-action="pv-open" aria-expanded="${Boolean(ui.pvOpen)}" title="${esc(t('pv_title'))}">${styleIcon(ps)} ${esc(t(`ps_${ps}Short`))}${sub} ▾</button>
+    ${ui.pvOpen ? `<div class="pv-pop" role="dialog" aria-label="${esc(t('pv_title'))}"><div class="pv-tabs" role="tablist">${STYLES.map((k, i) => `<button type="button" role="tab" class="${tab === k ? 'on' : ''}" aria-selected="${tab === k}" data-action="pv-tab" data-id="${k}" title="${esc(`${t(`ps_${k}Short`)} (${i + 1})`)}">${styleIcon(k)}<span>${esc(t(`ps_${k}Short`))}</span>${ps === k ? '<i aria-hidden="true">●</i>' : ''}</button>`).join('')}</div>
+      <p class="pv-sub">${esc(t(`pv_${tab}Sub`))}${ps === tab ? ` · <b>${esc(t('pv_inUse'))}</b>` : ''}</p>
+      ${pvOptions(tab, v)}
+      ${ps === tab ? '' : `<button type="button" class="btn primary pv-use" data-action="pv-use" data-id="${tab}">${esc(t('pv_use', t(`ps_${tab}Short`)))}</button>`}
+      <small class="pv-note">${esc(t('pv_keys'))}</small></div>` : ''}</span></div>`;
+}
 export function isoWeek(date) {
   const d = parseDate(date); d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
   const w1 = new Date(d.getFullYear(), 0, 4);
@@ -121,6 +153,7 @@ export function conflictBanner(date) {
   const td = today();
   const conflicts = conflictsOn(date);
   if (!conflicts.length) return '';
+  if (isWide() && !state.settings.paneHidden && planStyle() !== 'hours') return ''; // (v106) they're in the pane (⚠ n above the plan)
   return `<div class="notice warn">
     <button class="notice-head" type="button" data-action="toggle-conflicts">⚠ ${esc(t('nConflicts', conflicts.length))} <span>${ui.showConflicts ? '▴' : '▾'}</span></button>
     ${ui.showConflicts ? `<ul>${conflicts.map((c, i) => `<li><span>${esc(conflictText(c))}</span>${c.ids.map((id) => get('blocks', id)).filter(Boolean).map((b) => `<button type="button" class="linkish pw-go1" data-action="fd-go" data-id="${esc(b.id)}">→ ${esc(b.title)} <small>${esc(`${b.date === date ? '' : `${relDay(b.date)} `}${fmtTime(b.start)}`)}</small></button>`).join('')}
@@ -472,6 +505,7 @@ export function planCard() {
   const nPlan = trayTasks().length; const nFix = toFix(td, weekEndOf(td)).length;
   // on a phone one button, Pianifica: a smart suggestion, or Scelgo io (find, pick, place; also to find what's planned)
   if (!wide) return `<div class="ag-card-top"><span><b>${esc(nPlan + nFix ? t('agToPlan', nPlan + nFix) : `✓ ${t('agAllPlanned')}`)}</b></span><button class="btn small primary" type="button" data-action="ag-choose">${esc(t('planChoose'))}</button></div>`;
+  if (!state.settings.paneHidden && planStyle() !== 'hours') return ''; // (v106) the pane has ✦ and the list already
   if (!nPlan && !nFix) return `<p class="ag-ok">✓ ${esc(t('agAllPlanned'))}</p>`;
   // (v66) one word for both: what's to plan and this week's routine turns without a time yet
   return `<div class="ag-card-top"><span><b>${esc(t('agToPlan', nPlan + nFix))}</b></span><button class="btn small primary" type="button" data-action="ag-plan">✦ ${esc(t('smartTitle'))}</button></div>`;

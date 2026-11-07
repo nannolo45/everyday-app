@@ -293,18 +293,7 @@ function ctxHtml() {
 }
 export const mapPaneHtml = () => { const h = infoHtml(currentView()); return h ? `<div class="mp-pane"><div class="field-label">${esc(t('mp_selected'))}</div>${h}</div>` : ''; };
 // (v102) above the map: ⚠ (to the warnings in the pane), your lanes ↔ by category, and ⚙ Vista with the rest
-function dayTools(date) {
-  const s = S(); const nC = isWide() ? conflictsOn(date).length : 0; const cat = lanesBy() === 'cat';
-  const seg = (act, cur, opts) => `<div class="mp-seg">${opts.map(([k, l]) => `<button type="button" class="${cur === k ? 'on' : ''}${act === 'mp-time' && k === '1' && cur === k ? ' time' : ''}" data-action="${act}" data-id="${k}">${esc(l)}</button>`).join('')}</div>`;
-  return `<div class="mp-tools">${nC ? `<button type="button" class="btn small mp-warnb" data-action="mp-warn" title="${esc(t('nConflicts', nC))}">⚠ ${nC}</button>` : ''}<span class="mp-sp"></span>
-    <button type="button" class="btn small" data-action="mp-lby" data-id="${cat ? 'mine' : 'cat'}">${cat ? `▦ ${esc(t('mp_byCat'))}` : `▥ ${esc(t('mp_byMine'))}`}</button>
-    <button type="button" class="btn small${s.vopts ? ' on' : ''}" data-action="mp-vopts" aria-expanded="${Boolean(s.vopts)}">⚙ ${esc(t('mp_view'))} ▾</button>
-    ${s.vopts ? `<div class="mp-vpop"><div class="mp-vr"><span>${esc(t('mp_lanesL'))}</span>${seg('mp-lby', lanesBy(), [['mine', t('mp_byMine')], ['cat', t('mp_byCat')]])}</div>
-      ${cat ? '' : `<div class="mp-vr"><span>${esc(t('mp_laneNames'))}</span>${seg('mp-lab', laneMode(), ['custom', 'none', 'num'].map((k) => [k, t(`mp_lab_${k}`)]))}</div>`}
-      <div class="mp-vr"><span>${esc(t('mp_ov'))}</span>${seg('mp-ov', ovMode(), [['over', `⧉ ${t('mp_ov_over')}`], ['side', `▥ ${t('mp_ov_side')}`]])}</div>
-      <div class="mp-vr"><span>${esc(t('mp_dragging'))}</span>${seg('mp-time', ui.mpTime ? '1' : '0', [['0', `↔ ${t('mp_laneOnly')}`], ['1', `⇅ ${t('mp_alsoTime')}`]])}</div>
-      ${isWide() ? `<small>${esc(t('mp_orCtrl'))}</small>` : ''}</div>` : ''}</div>`;
-}
+function dayTools() { return ''; } // (v106) the view's options live in the Planner's view button (planner.js pvRow)
 export function viewMappa(v, date) {
   const s = S(); const ms = v === 'month' ? s.mstyle : v;
   const key = `${v}|${v === 'day' ? date : v === 'week' ? weekStart(date) : date.slice(0, 7)}|${ms}`;
@@ -334,7 +323,6 @@ export function mpClick(btn) {
     case 'mp-sel': s.sel = s.sel === id ? null : id; s.plus = null; s.cl = null; if (ui.gr && ui.gr.from !== id) ui.gr = null; render(); return true;
     case 'mp-x': s.sel = null; s.plus = null; s.cl = null; ui.gr = null; render(); return true;
     case 'mp-plus': if (s.sel !== id) s.sel = id; s.plus = s.plus === id ? null : id; render(); return true;
-    case 'mp-vopts': s.vopts = !s.vopts; render(); return true;
     case 'mp-lby': saveSettings({ mapLanesBy:id }); render(); return true;
     case 'mp-warn': { const el = document.querySelector('.pane .pw-list'); if (el) { el.scrollIntoView({ block:'center', behavior:'smooth' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } return true; }
     case 'mp-cl': s.cl = s.cl === id ? null : id; s.sel = null; render(); return true;

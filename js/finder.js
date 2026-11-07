@@ -8,7 +8,7 @@ import { countedOf, ensureSeries, isMealTask, leadOf, outcomeOf } from './model.
 import { addDays, fmtDur, fmtTime, isoDay, occurrences, today } from './plan.js';
 import { trayTasks } from './planning.js';
 import { matchesQ } from './shoplist.js';
-import { get, live, upsert } from './store.js';
+import { get, live, saveSettings, state, upsert } from './store.js';
 import { endedRoutines, hasRhythm, routines } from './routines.js';
 
 import { currentDate, render } from './shell.js';
@@ -93,8 +93,11 @@ function scopedRows() {
   const turnsHtml = turns.length ? `<div class="fd-day">${esc(t('fdGrpRoutines'))} <small>${turns.length}</small></div>${turnRows(turns)}` : '';
   const fold = (k, label, xs) => xs.length ? `<button type="button" class="fd-fold" data-action="fd-fold" data-id="${k}" aria-expanded="${Boolean(ui.fdFold?.[k])}">${ui.fdFold?.[k] ? '▾' : '▸'} ${esc(label)} · ${xs.length}</button>${ui.fdFold?.[k] ? `<ul class="fd-list">${xs.map(taskRow).join('')}</ul>` : ''}` : '';
   const pick = ui.pick && get('tasks', ui.pick);
-  const empty = !here.length && !turns.length ? `<p class="hint fd-empty">✓ ${esc(t('fdNoneIn', t(`fdIn_${r.v}`)))}</p>` : `<p class="hint">${esc(pick ? t('pnPicked', pick.title) : t('pnPick'))}</p>`;
-  return `${scope}${empty}${body}${turnsHtml}${fold('nodate', t('fdNoDate'), nodate)}${fold('other', t('fdOther'), other)}`;
+  // (v106) no count line (the tab says it) and the «pick one…» hint only once, or while something is picked
+  const hintOnce = !state.settings.pickHintSeen; if (hintOnce && (here.length || turns.length)) setTimeout(() => saveSettings({ pickHintSeen: true }), 0);
+  const empty = !here.length && !turns.length ? `<p class="hint fd-empty">✓ ${esc(t('fdNoneIn', t(`fdIn_${r.v}`)))}</p>` : pick || hintOnce ? `<p class="hint">${esc(pick ? t('pnPicked', pick.title) : t('pnPick'))}</p>` : '';
+  void scope;
+  return `${empty}${body}${turnsHtml}${fold('nodate', t('fdNoDate'), nodate)}${fold('other', t('fdOther'), other)}`;
 }
 function todoRows() {
   if (isWide() && route().name === 'plan') return scopedRows();

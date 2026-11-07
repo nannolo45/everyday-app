@@ -165,6 +165,7 @@ export function render() {
   if (wide) html = wideWrap(html);
   html += focusScreenHtml(); // (v100) the focus timer, over everything
   document.body.classList.toggle('wide-pane', wide && !html.includes('<div class="wide no-pane'));
+  document.body.classList.toggle('pane-hid', wide && html.includes(' pane-hid'));
   // Nothing changed (e.g. a sync that found no news): leave the page alone. Replacing it
   // anyway is what made the screen flicker and fields lose what you were typing.
   if (html === ui.lastHtml && view.childElementCount) { positionNow(); settleScroll(r); return; }

@@ -7,12 +7,12 @@ import { planCounts } from './planner.js';
 import { planBadge } from '../shell.js';
 import { catName, catsOf, categories, esc, fmtDay, modal, relDay, route, ui } from '../core.js';
 import { t } from '../i18n.js';
-import { eventReadiness, eventTasksOf, leadOf, plannedWhen, setTaskDone } from '../model.js';
+import { conflictsOn, eventReadiness, eventTasksOf, leadOf, plannedWhen, setTaskDone } from '../model.js';
 import { openEvent, openTask } from '../editors.js';
 import { addDays, fmtDur, fmtTime, parseDate, today } from '../plan.js';
 import { trayTasks } from '../planning.js';
 import { repeatText } from '../widgets.js';
-import { get, live, upsert } from '../store.js';
+import { get, live, state, upsert } from '../store.js';
 import { changed, currentDate, render } from '../shell.js';
 import { allItems, classic, curView, dateOf, flagCount, LENS, matches, missing, openTriage, overviewCards, setLen, setView, setWhen, toPlanList, typeOf, viewList, viewName, WHEN_PICKS, whenPickOf } from './impegni.js';
 import { finderHtml } from '../finder.js';
@@ -47,7 +47,8 @@ function rail() {
   }).join('')}<button type="button" class="rl-sub rl-edit" data-action="vw-views">✎ ${esc(t('vwViews'))}</button>` : '';
   const td = today(); const end = addDays(weekStart(td), 6);
   const days = []; for (let d = td; d <= end; d = addDays(d, 1)) days.push(d);
-  return `<aside class="rail" aria-label="${esc(t('railNav'))}">
+  const mini = Boolean(state.settings.railMini);
+  return `<aside class="rail${mini ? ' mini' : ''}" aria-label="${esc(t('railNav'))}"><button type="button" class="edge rl-edge" data-action="rail-mini" title="${esc(t(mini ? 'rail_full' : 'rail_mini'))}" aria-label="${esc(t(mini ? 'rail_full' : 'rail_mini'))}">${mini ? '»' : '«'}</button>
     ${['today', ...(classic() ? ['events'] : []), 'tasks', 'plan'].map((k) => `<a class="rl-tab${cur === k ? ' on' : ''}" href="#/${k}"><span class="rl-ico">${ICONS[k]}</span><span>${esc(t(TAB_KEYS[k]))}</span>${k === 'tasks' && nUn && cur !== 'tasks' ? `<span class="nbadge">${nUn}</span>` : ''}${k === 'plan' ? (() => { const c = planCounts(); return c.toPlan || c.behind ? `<span class="plan-count rl">${planBadge(c)}</span>` : ''; })() : ''}</a>${k === 'tasks' ? views : ''}`).join('')}
     <div class="rl-sep"></div>
     <div class="rl-lab">${esc(t('vf_when_week'))}</div>
@@ -124,7 +125,11 @@ export function wideWrap(html) {
   // the row open in the pane stays marked in the list
   const r = route(); const sel = r.name === 'events' ? ui.evSel : ['tasks', 'shop'].includes(r.name) ? ui.paneSel : null;
   const mark = sel && /^[\w-]+$/.test(sel) ? `<style>.wide-main li:has(> [data-id="${sel}"]:not(input)), .wide-main .ev2:has([data-id="${sel}"]) .ev2-card { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }</style>` : '';
-  return `${mark}<div class="wide${pane ? '' : ' no-pane'}">${rail()}<div class="wide-main">${html}</div>${pane ? `<aside class="pane" aria-label="${esc(t('pnLabel'))}">${pane}</aside>` : ''}</div>`;
+  // (v106) the edges: « narrows the bar to its icons, » folds the panel into a strip (✦, ⚠ n, ☰ n); [ and ] too
+  const hid = Boolean(state.settings.paneHidden) && pane; const mini = Boolean(state.settings.railMini);
+  const strip = () => { const pl = r.name === 'plan'; const nC = pl ? conflictsOn(currentDate()).length : 0; const nT = pl ? trayTasks().length : 0;
+    return `<aside class="pane strip" aria-label="${esc(t('pnLabel'))}"><button type="button" class="edge" data-action="pane-toggle" title="${esc(t('pane_show'))}" aria-label="${esc(t('pane_show'))}">«</button>${pl ? `<button type="button" class="pn-sb" data-action="ag-plan" title="${esc(t('smartTitle'))}" aria-label="${esc(t('smartTitle'))}">✦</button>${nC ? `<button type="button" class="pn-sb" data-action="pane-toggle" title="${esc(t('nConflicts', nC))}">⚠<em class="r">${nC}</em></button>` : ''}<button type="button" class="pn-sb" data-action="pane-toggle" title="${esc(t('agToPlan', nT))}">☰${nT ? `<em>${nT}</em>` : ''}</button>` : ''}</aside>`; };
+  return `${mark}<div class="wide${pane ? '' : ' no-pane'}${hid ? ' pane-hid' : ''}${mini ? ' rail-mini' : ''}">${rail()}<div class="wide-main">${html}</div>${pane ? (hid ? strip() : `<aside class="pane" aria-label="${esc(t('pnLabel'))}"><button type="button" class="edge pn-edge" data-action="pane-toggle" title="${esc(t('pane_hide'))}" aria-label="${esc(t('pane_hide'))}">»</button>${pane}</aside>`) : ''}</div>`;
 }
 
 // ---------- clicks that mean something else on a wide screen ----------

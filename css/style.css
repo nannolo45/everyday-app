@@ -2626,3 +2626,40 @@ dialog.sheet.vc-sheet form { height: auto; max-height: inherit; padding-top: 14p
 .pw-list.flash { animation: pwFlash 1.2s ease; } @keyframes pwFlash { 0%, 60% { box-shadow: 0 0 0 3px var(--danger); border-radius: 12px; } 100% { box-shadow: none; } }
 /* v105 · a warning: links to the things involved */
 .pw-go { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin: 4px 0 2px; } .pw-go .linkish { font-size: .82rem; text-align: left; } .pw-go small { color: var(--muted); }
+
+/* v106 · the edges: the bar narrows to its icons, the panel folds into a strip */
+.edge { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); font-size: .8rem; cursor: pointer; flex: none; }
+.edge:hover { color: var(--ink); border-color: var(--accent); }
+.rl-edge { align-self: flex-end; margin-bottom: 6px; }
+.wide.rail-mini { grid-template-columns: 60px minmax(0, 1fr) var(--pane); }
+.wide.rail-mini.no-pane { grid-template-columns: 60px minmax(0, 1fr); }
+.rail.mini { padding: 12px 6px; align-items: center; } .rail.mini .rl-edge { align-self: center; }
+.rail.mini .rl-tab { justify-content: center; padding: 9px 0; width: 44px; position: relative; } .rail.mini .rl-tab > span:not(.rl-ico):not(.nbadge):not(.plan-count) { display: none; }
+.rail.mini .rl-tab .nbadge, .rail.mini .rl-tab .plan-count { position: absolute; top: 0; right: -4px; transform: scale(.8); }
+.rail.mini .rl-sub, .rail.mini .rl-sep, .rail.mini .rl-lab, .rail.mini .rl-day { display: none; }
+body.pane-hid { --pane: 56px; }
+.pane.strip { padding: 12px 8px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.pn-edge { position: absolute; left: 10px; top: 10px; z-index: 2; } .pane:not(.strip) { position: sticky; } .pane:not(.strip) > .pn-edge + * { margin-top: 26px; }
+.pn-sb { position: relative; width: 40px; height: 40px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font-size: 1rem; cursor: pointer; }
+.pn-sb em { position: absolute; right: -6px; top: -6px; font-style: normal; font-size: .62rem; font-weight: 800; border-radius: 999px; padding: 0 5px; background: var(--accent); color: var(--accent-ink); } .pn-sb em.r { background: var(--danger); color: #fff; }
+
+/* v106 · how the Planner looks: one button, tabs for the views, their options */
+.pvw-row { display: flex; align-items: center; gap: 8px; margin: 6px 0 8px; position: relative; } .pv-sp { flex: 1; }
+.pv-wrap { position: relative; }
+.pv-btn { display: inline-flex; align-items: center; gap: 6px; } .pv-btn.on { border-color: var(--accent); } .pv-btn small { color: var(--muted); font-weight: 500; }
+.pv-pop { position: absolute; right: 0; top: 38px; z-index: 50; width: 380px; max-width: 92vw; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 16px 40px rgba(0,0,0,.4); color: var(--ink); }
+.pv-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.pv-tabs button { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 2px; border: 1px solid transparent; border-radius: 10px; background: none; color: var(--muted); font: inherit; font-size: .78rem; cursor: pointer; }
+.pv-tabs button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); font-weight: 700; }
+.pv-tabs i { position: absolute; top: 3px; right: 6px; font-style: normal; font-size: .5rem; color: var(--green); }
+.pv-tabs .mm-ic, .pv-tabs .pv-ic { font-size: 1.05rem; width: 18px; height: 18px; line-height: 18px; text-align: center; }
+.pv-sub { margin: 8px 0 2px; font-size: .78rem; color: var(--muted); } .pv-sub b { color: var(--green); }
+.pv-r { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 0; } .pv-r + .pv-r { border-top: 1px solid var(--line); } .pv-r > span { font-size: .8rem; color: var(--muted); }
+.pv-use { width: 100%; margin-top: 8px; }
+.pv-note { display: block; margin: 6px 0 0; color: var(--muted); font-size: .72rem; }
+.mm-ic { vertical-align: -2px; }
+.day-today { text-align: center; margin: -4px 0 4px; } .day-today .linkish { font-size: .84rem; }
+
+/* v106 · routines in the pane in compact rows */
+.fd-row.turn .fd-c { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fd-row.turn .fd-t { flex: 1 1 150px; min-width: 0; } .fd-row.turn .fd-pills { margin: 0; justify-content: flex-end; }

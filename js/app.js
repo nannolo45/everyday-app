@@ -418,6 +418,13 @@ view.addEventListener('click', (e) => {
     case 'focus-skip': { const b = runningBlock(); if (b) { focusSkip(b); changed(); } break; }
     case 'task-done-x': { const x = get('tasks', id); if (x) { if (checklistLeft(x.checklist || [], x.checked) > 0) openTaskChecklist(x); else { setTaskDone(x, true); changed(); } } break; }
     case 'imp-quick': ui.impQuick = !ui.impQuick; render(); break;
+    case 'pv-open': ui.pvOpen = !ui.pvOpen; ui.pvTab = null; render(); break; // (v106) how the Planner looks
+    case 'pv-tab': ui.pvTab = id; render(); break;
+    case 'pv-use': saveSettings({ planStyle: id }); ui.pvTab = null; ui.lastHtml = null; render(); break;
+    case 'pv-agdone': ui.agDone = id === '1'; render(); break;
+    case 'pv-steps': saveSettings({ showSteps: id === '1' }); render(); break;
+    case 'rail-mini': saveSettings({ railMini: !state.settings.railMini }); render(); break; // (v106) the edges
+    case 'pane-toggle': saveSettings({ paneHidden: !state.settings.paneHidden }); render(); break;
     case 'mp-addin': openTask(null, null, { event: true, date: btn.dataset.date, start: Number(btn.dataset.start) }); break; // (v99) ＋ inside a block with room
     case 'now-left': { const b = get('blocks', id); if (b) { setStepOutcome(b, btn.dataset.step, 'done'); toast(t('goodTrip')); changed(); } break; }
     case 'now-done': { const b = get('blocks', id); if (b && runningBlock()?.id === id) finishTimer(); else if (b) { if (trySetBlockDone(b, true)) { changed(); countToast(id); } else changed(); } break; }
@@ -624,6 +631,15 @@ setupDrag(view, {
     if (modal.open || calOpen() || e.target.isContentEditable || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
     e.preventDefault(); hideToast(); openQuickTask({ kind: plusKind() });
   });
+  // (v106) [ and ]: the bar on the left and the panel on the right; 1–4 on the Planner: its view
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || modal.open || calOpen() || e.target.isContentEditable || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+    if (e.key === '[' && document.body.classList.contains('is-wide')) { e.preventDefault(); saveSettings({ railMini: !state.settings.railMini }); render(); return; }
+    if (e.key === ']' && document.body.classList.contains('is-wide')) { e.preventDefault(); saveSettings({ paneHidden: !state.settings.paneHidden }); render(); return; }
+    if (/^[1-4]$/.test(e.key) && route().name === 'plan') { e.preventDefault(); saveSettings({ planStyle: ['agenda', 'hours', 'scaletta', 'mappa'][Number(e.key) - 1] }); ui.pvTab = null; ui.lastHtml = null; render(); }
+  });
+  document.addEventListener('click', (e) => { if (ui.pvOpen && !e.target.closest?.('.pv-pop, [data-action=pv-open]')) { ui.pvOpen = false; if (!e.target.closest?.('[data-action]')) render(); } }, true);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.pvOpen) { ui.pvOpen = false; render(); } }, true);
 }
 $('#app-title').addEventListener('click', () => {
   if (route().name === 'today') window.scrollTo({ top: 0, behavior: 'smooth' }); else location.hash = '#/today';
