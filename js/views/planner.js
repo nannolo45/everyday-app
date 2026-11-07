@@ -107,19 +107,21 @@ function pvOptions(k, v) {
   if (k === 'agenda') return seg(t('pv_done'), 'pv-agdone', ui.agDone ? '1' : '0', [['0', t('pv_doneFold')], ['1', t('pv_doneList')]]);
   if (k === 'hours') return seg(t('steps'), 'pv-steps', showSteps() ? '1' : '0', [['1', t('pv_show')], ['0', t('pv_hide')]]);
   if (k === 'mappa') {
-    const cat = state.settings.mapLanesBy === 'cat';
-    return `${seg(t('mp_lanesL'), 'mp-lby', cat ? 'cat' : 'mine', [['mine', t('mp_byMine')], ['cat', t('mp_byCat')]])}
+    const cat = state.settings.mapLanesBy === 'cat'; const lines = state.settings.mapForm === 'lines'; const dayBoxes = v === 'day' && !lines;
+    // (v109) Forma: boxes or lines, for every view; the rest is for the day in boxes (grey otherwise)
+    return `${seg(t('mp_form'), 'mp-form', lines ? 'lines' : 'boxes', [['boxes', t('mp_form_boxes')], ['lines', t('mp_form_lines')]])}<div class="pv-grp${dayBoxes ? '' : ' off'}">
+      ${seg(t('mp_lanesL'), 'mp-lby', cat ? 'cat' : 'mine', [['mine', t('mp_byMine')], ['cat', t('mp_byCat')]])}
       ${cat ? '' : seg(t('mp_laneNames'), 'mp-lab', state.settings.mapLaneLabels || 'custom', ['custom', 'none', 'num'].map((x) => [x, t(`mp_lab_${x}`)]))}
       ${seg(t('mp_ov'), 'mp-ov', state.settings.mapOverlap === 'side' ? 'side' : 'over', [['over', `⧉ ${t('mp_ov_over')}`], ['side', `▥ ${t('mp_ov_side')}`]])}
       ${seg(t('mp_dragging'), 'mp-time', ui.mpTime ? '1' : '0', [['0', `↔ ${t('mp_laneOnly')}`], ['1', `⇅ ${t('mp_alsoTime')}`]])}
-      ${isWide() ? `<small class="pv-note">${esc(t('mp_orCtrl'))}</small>` : ''}`;
+      ${isWide() ? `<small class="pv-note">${esc(t('mp_orCtrl'))}</small>` : ''}</div>${dayBoxes ? '' : `<small class="pv-note">${esc(t('mp_formNote'))}</small>`}`;
   }
   return `<p class="pv-note">${esc(t('pv_noOpts'))}</p>`;
 }
 function pvRow(v, date) {
   const ps = planStyle(); const tab = ui.pvTab && STYLES.includes(ui.pvTab) ? ui.pvTab : ps;
   const nC = isWide() && v === 'day' ? conflictsOn(date).length : 0;
-  const sub = ps === 'mappa' && v === 'day' && state.settings.mapLanesBy === 'cat' ? ` <small>· ${esc(t('mp_byCat').toLowerCase())}</small>` : '';
+  const sub = ps !== 'mappa' ? '' : state.settings.mapForm === 'lines' ? ` <small>· ${esc(t('mp_ms_lines').toLowerCase())}</small>` : v === 'day' && state.settings.mapLanesBy === 'cat' ? ` <small>· ${esc(t('mp_byCat').toLowerCase())}</small>` : '';
   return `<div class="pvw-row">${nC ? `<button type="button" class="btn small mp-warnb" data-action="mp-warn" title="${esc(t('nConflicts', nC))}">⚠ ${nC}</button>` : ''}<span class="pv-sp"></span>
     <span class="pv-wrap"><button type="button" class="btn small pv-btn${ui.pvOpen ? ' on' : ''}" data-action="pv-open" aria-expanded="${Boolean(ui.pvOpen)}" title="${esc(t('pv_title'))}">${styleIcon(ps)} ${esc(t(`ps_${ps}Short`))}${sub} ▾</button>
     ${ui.pvOpen ? `<div class="pv-pop" role="dialog" aria-label="${esc(t('pv_title'))}"><div class="pv-tabs" role="tablist">${STYLES.map((k, i) => `<button type="button" role="tab" class="${tab === k ? 'on' : ''}" aria-selected="${tab === k}" data-action="pv-tab" data-id="${k}" title="${esc(`${t(`ps_${k}Short`)} (${i + 1})`)}">${styleIcon(k)}<span>${esc(t(`ps_${k}Short`))}</span>${ps === k ? '<i aria-hidden="true">●</i>' : ''}</button>`).join('')}</div>

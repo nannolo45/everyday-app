@@ -2672,3 +2672,41 @@ body.pane-hid { --pane: 56px; }
   .mp-n.tall:not(.mp-room):not(.dragging):hover > .mp-full { position: static; display: block; min-width: 0; width: auto; max-width: none; margin-top: 4px; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
   .mp-n.tall:hover > .mp-full > b, .mp-n.tall:hover > .mp-full > small:first-of-type { display: none; }
 }
+/* v109 · the map: the time down the side, categories across, the whole width; Linee in every view; past things.
+   A past thing fades its text and border, not itself, so the card that opens over it stays solid. */
+.mp-n.is-done, .mp-n.is-failed, .mp-n.is-partial, .mp-n.is-over { opacity: 1; border-color: color-mix(in srgb, var(--c) 40%, transparent); }
+.mp-n.is-done:not(.gcal), .mp-n.is-failed:not(.gcal), .mp-n.is-partial:not(.gcal), .mp-n.is-over:not(.gcal) { background: color-mix(in srgb, var(--surface) 55%, var(--bg)); }
+.mp-n.is-done > b, .mp-n.is-done > small, .mp-n.is-failed > b, .mp-n.is-failed > small, .mp-n.is-partial > b, .mp-n.is-partial > small, .mp-n.is-over > b, .mp-n.is-over > small { opacity: .5; }
+.mp-n.is-failed > b { text-decoration: line-through; }
+.mp-n.pend { border-style: dashed; }
+.mp-n.edge-r > .mp-full { left: auto; right: -6px; }
+.mp-full .mp-pt { display: block; font-style: normal; font-size: .56rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.mp-full.is-past:not(.pend) { background: color-mix(in srgb, var(--surface) 60%, var(--bg)); border-color: color-mix(in srgb, var(--c) 40%, var(--surface)); }
+.mp-full.is-past:not(.pend) > b, .mp-full.is-past:not(.pend) > small, .mp-full.is-past:not(.pend) .mp-hro { color: var(--muted); }
+.mp-full.pend { border-style: dashed; }
+.mp-ask { display: block; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); } .mp-ask > i { display: block; font-style: normal; font-weight: 700; font-size: .72rem; color: var(--warn); }
+.mp-qa.mp-qaw { flex-wrap: wrap; } .mp-qa.mp-qaw > span { width: auto; padding: 0 9px; font-size: .74rem; white-space: nowrap; }
+.mp-full.mp-float { position: absolute; z-index: 50; cursor: default; display: block; max-width: 290px; }
+.mp-full.mp-float.pin { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent), 0 14px 34px rgba(0,0,0,.45); }
+.mp-multi { min-width: 230px; } .mp-rows { display: flex; flex-direction: column; gap: 1px; margin-top: 6px; max-height: 260px; overflow: auto; }
+.mp-hr { display: flex; align-items: center; gap: 6px; border-radius: 8px; } .mp-hr:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.mp-hro { flex: 1; min-width: 0; display: flex; gap: 8px; padding: 4px 6px; font-size: .76rem; cursor: pointer; } .mp-hro i { font-style: normal; color: var(--muted); width: 36px; flex: none; font-variant-numeric: tabular-nums; } .mp-hro em { font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-hr.is-past .mp-hro em { opacity: .55; } .mp-hr.pend .mp-hro em::after { content: ' ?'; color: var(--warn); font-weight: 800; }
+.mp-hq { display: flex; gap: 3px; padding-right: 4px; } .mp-hq > span { display: grid; place-items: center; width: 24px; height: 22px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); font-size: .7rem; cursor: pointer; }
+@media (hover: hover) { .mp-hq { display: none; } .mp-hr:hover .mp-hq { display: flex; } }
+.mp-go { display: block; margin-top: 6px; color: var(--accent); font-size: .76rem; cursor: pointer; } .mp-np { color: var(--warn); }
+.mp-wrow.we { background: color-mix(in srgb, var(--muted) 4%, transparent); } .mp-wrow.cur { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.mp-dlab.is-today b { color: var(--accent); } .mp-wlab:hover b { color: var(--accent); }
+.mp-cl.pend { border-style: dashed; } .mp-cl.is-past { border-color: color-mix(in srgb, var(--c) 40%, transparent); background: color-mix(in srgb, var(--surface) 60%, var(--bg)); } .mp-cl.is-past > * { opacity: .55; }
+.mp-cl .tt { margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-trk { position: absolute; width: 5px; margin-left: -2.5px; border-radius: 3px; background: var(--c); opacity: .7; z-index: 1; }
+.mp-rhy { position: absolute; width: 2px; margin-left: -1px; background-image: linear-gradient(var(--c) 50%, transparent 0); background-size: 2px 8px; opacity: .55; z-index: 1; }
+.mp-sta { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; border: 3px solid var(--c); box-sizing: border-box; background: var(--bg); color: var(--ink); font: 800 .64rem var(--sans); padding: 0; display: grid; place-items: center; z-index: 3; cursor: pointer; }
+.mp-sta.appt { background: var(--c); color: var(--bg); border-radius: 7px; } .mp-sta.rt { border: 0; background: var(--c); opacity: .75; }
+.mp-sta.is-past { opacity: .45; } .mp-sta.pend { border-style: dashed; } .mp-sta.rt.pend { background: var(--bg); border: 2px dashed var(--c); opacity: 1; }
+.mp-sta.conf { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 60%, transparent); } .mp-sta.sel { box-shadow: 0 0 0 4px var(--accent); }
+.mp-stal { position: absolute; transform: translateY(-50%); font-size: .7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); pointer-events: none; z-index: 2; } .mp-stal small { color: var(--muted); } .mp-stal.is-past { opacity: .5; }
+.mp-dtk { position: absolute; width: 24px; border: 0; background: none; color: var(--muted); font: inherit; font-size: .6rem; text-align: right; padding: 0; cursor: pointer; } .mp-dtk:hover, .mp-dtk.is-today { color: var(--accent); font-weight: 700; }
+.pv-grp.off { opacity: .4; pointer-events: none; }
+.mp-full.mp-float > b, .mp-full.mp-float > small { display: block; } .mp-full.mp-float > small { color: var(--muted); }
+.mp-multi > small { display: block; }
