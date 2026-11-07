@@ -2666,3 +2666,9 @@ body.pane-hid { --pane: 56px; }
 /* v107 · the selected block doesn't open its hover card: it would cover the ＋, the petals and the links (its details are in the pane) */
 @media (hover: hover) { .mp-n.sel:hover > .mp-full { display: none !important; } }
 .mp-plus, .mp-plusm, .mp-pet, .mp-n.stub.bloom { z-index: 45; } .mp-plusm { z-index: 50; }
+/* v108 · a tall block has room: on hover its details open inside it, under its own title, instead of a card covering the title */
+.mp-n.tall > b { white-space: normal; }
+@media (hover: hover) {
+  .mp-n.tall:not(.mp-room):not(.dragging):hover > .mp-full { position: static; display: block; min-width: 0; width: auto; max-width: none; margin-top: 4px; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+  .mp-n.tall:hover > .mp-full > b, .mp-n.tall:hover > .mp-full > small:first-of-type { display: none; }
+}
