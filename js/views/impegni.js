@@ -140,10 +140,12 @@ export function groupsOf(list, by, dir = 1) {
     return [['rep', rep], ['any', any]].filter(([, l]) => l.length).map(([k, l]) => ({ key: k, label: t(`gs_${k}`), list: l.sort(az) }));
   }
   if (by === 'due') { // (v100) by deadline: late, today and tomorrow, this week, later, whenever
+    const kRep = (x) => { const d = nextPlanned(x.id)?.date; if (!d) return 'none'; return d <= addDays(td, 1) ? 'soon' : d <= addDays(td, 7) ? 'week' : 'later'; };
     const k = (x) => { const d = x.due || dateOf(x); if (!d) return 'none'; if (x.due && x.due < td) return 'late'; if (d < td) return 'soon'; if (d <= addDays(td, 1)) return 'soon'; if (d <= addDays(td, 7)) return 'week'; return 'later'; };
     const smart = sortTasks(list, td); const pos = new Map(smart.map((x, i) => [x.id, i]));
-    const m = new Map(); for (const x of list) { const g = typeOf(x) === 'repeat' && !x.due ? 'none' : k(x); if (!m.has(g)) m.set(g, []); m.get(g).push(x); }
-    return DUE_GROUPS.filter((g) => m.has(g)).map((g) => ({ key: g, label: t(`gd_${g}`), list: m.get(g).sort((a, b) => ((a.due || dateOf(a) || '9999').localeCompare(b.due || dateOf(b) || '9999')) || pos.get(a.id) - pos.get(b.id)) }));
+    const m = new Map(); for (const x of list) { const g = typeOf(x) === 'repeat' ? kRep(x) : k(x); /* (v101) a routine is never late: its next turn decides */ if (!m.has(g)) m.set(g, []); m.get(g).push(x); }
+    const kd = (x) => (typeOf(x) === 'repeat' ? nextPlanned(x.id)?.date : x.due || dateOf(x)) || '9999';
+    return DUE_GROUPS.filter((g) => m.has(g)).map((g) => ({ key: g, label: t(`gd_${g}`), list: m.get(g).sort((a, b) => kd(a).localeCompare(kd(b)) || pos.get(a.id) - pos.get(b.id)) }));
   }
   const key = (x) => (by === 'added' ? addedKey(x, td) : by === 'when' ? (typeOf(x) === 'repeat' && whenOf(x) !== 'today' ? 'rep' : whenOf(x)) : by === 'cat' ? (catsOf(x)[0] || '') : typeOf(x));
   const order = by === 'added' ? ['today', 'yesterday', 'week', 'earlier'] : by === 'when' ? ['today', 'week', 'rep', 'later', 'none'] : by === 'cat' ? ['', ...cats] : TYPES;
@@ -254,7 +256,7 @@ export function viewImpegni() {
   const row = v.fixed ? plainRow : (x) => fullRow(x, ws, sv);
   const fresh = !v.fixed ? [...(ui.justAdded || [])].map((id) => get('tasks', id)).filter((x) => x && list.includes(x)) : [];
   const freshSet = new Set(fresh);
-  const body = groups.map((g) => { const l = g.list.filter((x) => !freshSet.has(x)); return l.length ? `<section class="vw-grp"><h3 class="vw-gh${g.key === 'late' && (v.by || '') === 'due' ? ' late' : ''}">${esc(g.label)} <small>${l.length}${classic() ? '' : ` · ${esc(fmtDur(l.filter((x) => typeOf(x) !== 'repeat').reduce((n, x) => n + (x.minutes || 30), 0)))}`}</small></h3><ul class="list tasks${v.fixed ? ' plain' : ' saved routines'}">${l.map(row).join('')}</ul></section>` : ''; }).join('');
+  const body = groups.map((g) => { const l = g.list.filter((x) => !freshSet.has(x)); return l.length ? `<section class="vw-grp"><h3 class="vw-gh${g.key === 'late' && (v.by || '') === 'due' ? ' late' : ''}">${esc(g.label)} <small>${l.length}${(() => { const m = classic() ? 0 : l.filter((x) => typeOf(x) !== 'repeat').reduce((n, x) => n + (x.minutes || 30), 0); return m ? ` · ${esc(fmtDur(m))}` : ''; })()}</small></h3><ul class="list tasks${v.fixed ? ' plain' : ' saved routines'}">${l.map(row).join('')}</ul></section>` : ''; }).join('');
   return `${top}
   <p class="vw-shows">${esc(showsText(v))}${changedF ? ` <span class="vw-changed">· ${esc(t('vwChanged'))}</span>` : ''}</p>
   ${tools}

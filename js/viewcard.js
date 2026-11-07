@@ -94,7 +94,7 @@ function focusBox(b, x) {
   return `<div class="vc-focus col"><span class="vc-k">${esc(t('vc_focusSug'))}</span><b>${esc(planWords(plan))}</b><button type="button" class="btn primary" data-vc="focus-start" data-id="${esc(b.id)}">▶ ${esc(t('vc_startFocus'))}</button>${b.date === today() ? `<button type="button" class="linkish" data-vc="now-start" data-id="${esc(b.id)}">${esc(t('vc_noTimer'))}</button>` : ''}</div>`;
 }
 function headHtml(color, cat, title, line, chip) {
-  return `<div class="vc-head"><span class="vc-dot" style="--c:${esc(color)}"></span><div class="vc-hx"><small>${esc(cat)}</small><h2>${esc(title)}</h2><small>${line}</small>${chip}</div><button type="button" class="icon vc-edit" data-vc="edit" aria-label="${esc(t('vc_edit'))}" title="${esc(t('vc_edit'))}">✎</button></div>`;
+  return `<div class="vc-head"><span class="vc-dot" style="--c:${esc(color)}"></span><div class="vc-hx"><small>${esc(cat)}</small><h2>${esc(title)}</h2><small>${line}</small>${chip}</div><button type="button" class="icon vc-x" data-vc="close" aria-label="${esc(t('close'))}" title="${esc(t('close'))}">✕</button></div>`;
 }
 function extrasHtml(x, cl, checked, blockId, notes) {
   const after = x ? live('tasks').filter((q) => (q.after || []).includes(x.id) && !q.done && !q.deleted) : [];
@@ -147,8 +147,13 @@ function draw() {
   openModal(b ? blockCard(b) : taskCard(x), () => {}, { cls: 'sheet vc-sheet' });
   fillMaps(modal);
 }
-export function openView(b, page = null) { V = { kind: 'block', id: b.id, page }; draw(); }
-export function openTaskView(x) { V = { kind: 'task', id: x.id, page: null }; draw(); }
+// (v101) closing: ✕, a tap outside the card, Esc, or the phone's Back (the card adds a step to the history)
+const pushStep = () => { if (!viewOpen()) try { history.pushState({ vc: 1 }, ''); } catch { /* none */ } };
+export function openView(b, page = null) { pushStep(); V = { kind: 'block', id: b.id, page }; draw(); }
+export function openTaskView(x) { pushStep(); V = { kind: 'task', id: x.id, page: null }; draw(); }
+window.addEventListener('popstate', () => { if (viewOpen()) { V = null; modal.close(); } });
+modal.addEventListener('close', () => { setTimeout(() => { if (history.state?.vc && !(modal.open && modal.querySelector('.vc'))) history.back(); }, 0); });
+modal.addEventListener('click', (e) => { if (e.target === modal && modal.classList.contains('vc-sheet')) { V = null; modal.close(); } }); // the backdrop
 export function redrawView() { if (viewOpen()) draw(); }
 
 modal.addEventListener('click', (e) => {
@@ -156,6 +161,7 @@ modal.addEventListener('click', (e) => {
   e.preventDefault(); const a = el.dataset.vc; const id = el.dataset.id;
   const close = () => { modal.close(); };
   switch (a) {
+    case 'close': V = null; close(); return;
     case 'pg': V.page += Number(el.dataset.d); draw(); return;
     case 'step': act('ag-step', null, { block: id, step: el.dataset.step }); setTimeout(() => { if (V) { V.page = null; draw(); } }, 0); return;
     case 'edit': { const kind = V.kind; const vid = V.id; close(); V = null; setTimeout(() => act(kind === 'block' ? 'block-edit' : 'task-edit', vid), 0); return; }

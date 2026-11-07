@@ -2594,3 +2594,9 @@ dialog.vc-sheet .form { gap: 0; }
 .rule-pill span { display: block; height: 100%; padding: 8px 6px; border: 1px solid var(--line); border-radius: 12px; text-align: center; cursor: pointer; }
 .rule-pill small { display: block; font-size: .68rem; color: var(--muted); } .rule-pill input:checked + span { border-color: var(--accent); background: var(--accent-soft, color-mix(in srgb, var(--accent) 18%, transparent)); }
 .rule-pill input:focus-visible + span { outline: 2px solid var(--accent); }
+
+/* v101 · the card is a sheet from the bottom, as tall as it needs; ✕, a tap outside or Back close it */
+dialog.sheet.vc-sheet { height: fit-content; max-height: min(92vh, 980px); width: min(560px, 100vw); }
+dialog.sheet.vc-sheet form { height: auto; max-height: inherit; padding-top: 14px; }
+@media (max-width: 600px) { dialog.sheet.vc-sheet { width: 100vw; height: fit-content; max-height: 92dvh; inset: auto 0 0 0; margin: 0; border-radius: 22px 22px 0 0; } }
+.vc-x { flex: none; width: 38px; height: 38px; border: 1px solid var(--line) !important; border-radius: 12px; }
