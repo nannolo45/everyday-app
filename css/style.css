@@ -2663,3 +2663,6 @@ body.pane-hid { --pane: 56px; }
 /* v106 · routines in the pane in compact rows */
 .fd-row.turn .fd-c { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .fd-row.turn .fd-t { flex: 1 1 150px; min-width: 0; } .fd-row.turn .fd-pills { margin: 0; justify-content: flex-end; }
+/* v107 · the selected block doesn't open its hover card: it would cover the ＋, the petals and the links (its details are in the pane) */
+@media (hover: hover) { .mp-n.sel:hover > .mp-full { display: none !important; } }
+.mp-plus, .mp-plusm, .mp-pet, .mp-n.stub.bloom { z-index: 45; } .mp-plusm { z-index: 50; }
