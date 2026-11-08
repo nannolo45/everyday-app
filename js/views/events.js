@@ -21,7 +21,15 @@ export function eventItems() {
   const own = ownEvents().map((x) => ({ id: x.id, own: true, title: x.title, date: eventDate(x), start: eventStart(x), minutes: ownMinutes(x), allDay: Boolean(x.allDay), place: x.place || '', category: x.category, repeat: x.repeat, done: Boolean(x.done), task: x }));
   // A recurring event shows once per coming occurrence.
   const occ = [];
+  const td = today();
   for (const e of own) {
+    const ds = !e.task.repeat && (e.task.dates || []).length > 1 ? [...e.task.dates].sort() : null;
+    if (ds) { // (v118) one appointment on several days: one row, at the next of its days, with all of them under it
+      const nx = ds.find((d) => d >= td) || ds[ds.length - 1];
+      const st = e.allDay ? null : e.task.datesTimes?.[nx]?.s ?? e.start;
+      occ.push({ ...e, date: nx, start: st, minutes: e.task.datesTimes?.[nx]?.m || e.minutes, dates: ds });
+      continue;
+    }
     if (!e.task.repeat || e.allDay) { occ.push(e); continue; }
     const blocks = seriesBlocks(e.id).filter((b) => b.date >= today()).sort((a, b) => (a.date < b.date ? -1 : 1)).slice(0, 8);
     if (!blocks.length) occ.push(e);
@@ -30,6 +38,8 @@ export function eventItems() {
   const imported = state.settings.showEvents === false ? [] : live('events').map((e) => ({ id: e.id, own: false, title: e.title, date: e.date, start: e.allDay ? null : e.start, minutes: e.minutes || 0, allDay: Boolean(e.allDay), place: e.location || '', color: e.color, calendar: e.calendar, event: e }));
   return [...occ, ...imported].filter((e) => e.date).sort((a, b) => (a.date === b.date ? (a.start ?? -1) - (b.start ?? -1) : a.date < b.date ? -1 : 1));
 }
+// (v118) the days of an appointment on several days, the past ones struck through, the next one lit
+const daysChips = (e, td) => (e.dates ? `<span class="ev-days">${e.dates.map((d) => `<i class="${d < td ? 'past' : d === e.date ? 'nx' : ''}">${esc(fmtDay(d, { weekday: 'short', day: 'numeric' }))}</i>`).join('')}</span>` : '');
 export function viewEvents() {
   if (!classic()) return viewEvents2();
   const td = today();
@@ -43,12 +53,12 @@ export function viewEvents() {
     const ready = readinessText(e.id);
     const r = ready ? eventReadiness(e.id) : null;
     const when = e.allDay ? t('allDay') : e.start != null ? (e.minutes ? range(e.start, e.minutes) : fmtTime(e.start)) : t('timeTbd');
-    const bits = [fmtDay(e.date, { weekday: 'short' }), when, e.place ? `📍 ${e.place}` : '', e.own && e.repeat ? `↻ ${repeatText(e.task)}` : '', !e.own ? e.calendar : ''].filter(Boolean);
+    const bits = [fmtDay(e.date, { weekday: 'short' }), e.dates ? t('plNDays', e.dates.length) : '', when, e.place ? `📍 ${e.place}` : '', e.own && e.repeat ? `↻ ${repeatText(e.task)}` : '', !e.own ? e.calendar : ''].filter(Boolean);
     const color = e.own ? catColor(e.category) || 'var(--accent)' : e.color || '#6b7280';
     return `<li class="ev-row${e.own ? '' : ' imported'}${e.date === td ? ' is-today' : ''}${e.done ? ' done' : ''}" style="--c:${esc(color)}">
       <button class="ev-main" type="button" data-action="event-open" data-id="${esc(e.id)}">
         <span class="ev-date"><b>${parseDate(e.date).getDate()}</b><small>${esc(fmtDay(e.date, { month: 'short' }))}</small></span>
-        <span class="item-text">${esc(e.title)}<small>${esc(bits.join(' · '))}</small>${ready ? `<small class="ev-ready${r && !r.open ? ' ok' : r && r.late ? ' late' : ''}">${esc(ready)}</small>` : ''}</span>
+        <span class="item-text">${esc(e.title)}<small>${esc(bits.join(' · '))}</small>${daysChips(e, td)}${ready ? `<small class="ev-ready${r && !r.open ? ' ok' : r && r.late ? ' late' : ''}">${esc(ready)}</small>` : ''}</span>
       </button>
     </li>`;
   };
@@ -125,13 +135,13 @@ function viewEvents2() {
   const card = (e) => {
     const r = e.own ? eventReadiness(e.id) : null;
     const when = e.allDay ? t('allDay') : e.start != null ? (e.minutes ? range(e.start, e.minutes) : fmtTime(e.start)) : t('timeTbd');
-    const bits = [when, e.place ? `📍 ${e.place}` : '', e.own && e.repeat ? `↻ ${repeatText(e.task)}` : '', !e.own ? e.calendar : ''].filter(Boolean);
+    const bits = [e.dates ? t('plNDays', e.dates.length) : '', when, e.place ? `📍 ${e.place}` : '', e.own && e.repeat ? `↻ ${repeatText(e.task)}` : '', !e.own ? e.calendar : ''].filter(Boolean);
     const color = e.own ? catColor(e.category) || 'var(--accent)' : e.color || '#6b7280';
     const pct = r?.total ? Math.round(((r.total - r.open) / r.total) * 100) : 0;
     const gs = ghostsFor(e.id);
     return `<li class="ev2${e.date === td ? ' is-today' : ''}${e.done ? ' done' : ''}${e.own ? '' : ' imported'}" style="--c:${esc(color)}">
       <span class="ev2-date"><small>${esc(fmtDay(e.date, { weekday: 'short' }))}</small><b>${parseDate(e.date).getDate()}</b><small>${esc(fmtDay(e.date, { month: 'short' }))}</small></span>
-      <span class="ev2-col"><button class="ev2-card" type="button" data-action="event-open" data-id="${esc(e.id)}"><span class="ag-t">${esc(e.title)}</span><small>${esc(bits.join(' · '))}</small>
+      <span class="ev2-col"><button class="ev2-card" type="button" data-action="event-open" data-id="${esc(e.id)}"><span class="ag-t">${esc(e.title)}</span><small>${esc(bits.join(' · '))}</small>${daysChips(e, td)}
         ${r?.total ? `<span class="ev2-ready${!r.open ? ' ok' : r.late ? ' late' : ''}"><i style="width:${pct}%"></i></span><small class="ev2-rt">${esc(readinessText(e.id))}</small>` : ''}</button>
         ${gs.map((g) => `<span class="ev2-ghost">→ ${esc(relDay(g.date))} ${esc(fmtTime(g.start))} · ${esc(ghostTitle(g))} <small>${esc(fmtDur(g.minutes || 30))}</small><button class="icon" type="button" data-action="ghost-rm" data-i="${g.i}" aria-label="${esc(t('remove'))}">✕</button></span>`).join('')}</span></li>`;
   };

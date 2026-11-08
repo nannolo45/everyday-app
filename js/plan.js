@@ -216,6 +216,7 @@ export function ruleAt(task, s) {
 // Is `s` an occurrence of the task's rule? (Ignores `skipped` and `repeatUntil`.)
 export function isOccurrence(task, s) {
   if (task.next?.from && s >= task.next.from) return isOccurrence(ruleAt(task, s), s);
+  if (task.repeat && (task.extraDates || []).includes(s)) return true; // (v118) a day in more, besides the rhythm
   const anchor = task.seriesFrom || task.due;
   if (!task.repeat || !anchor || s < anchor) return false;
   const n = Math.max(1, Number(task.every) || 1);
@@ -242,7 +243,9 @@ export function occurrences(task, from, to) {
   if (!REPEATS.includes(task.repeat) && !nx) return out;
   const anchor = REPEATS.includes(task.repeat) ? (task.seriesFrom || task.due) : nx.from;
   if (!anchor) return out;
-  const start = from > anchor ? from : anchor;
+  const ex0 = [...(task.extraDates || [])].sort()[0]; // (v118) days in more can come before the first turn
+  const first = ex0 && ex0 < anchor ? ex0 : anchor;
+  const start = from > first ? from : first;
   const end = task.repeatUntil && task.repeatUntil < to ? task.repeatUntil : to;
   const skip = new Set(task.skipped || []);
   for (let d = start; d <= end; d = addDays(d, 1)) if (isOccurrence(task, d) && !skip.has(d) && !inPause(task, d)) out.push(d);

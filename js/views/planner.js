@@ -222,6 +222,7 @@ export function viewMonth(date) {
   for (let d = start; cells.length < 42; d = addDays(d, 1)) cells.push(d);
   while (cells.length > 35 && cells.slice(-7).every((d) => d.slice(0, 7) !== month)) cells.splice(-7);
   const heads = Array.from({ length: 7 }, (_, i) => fmtDay(addDays(start, i), { weekday: 'short' }));
+  const cap = window.matchMedia?.('(max-width: 600px)').matches ? 2 : 3; // (v118) on the phone two lines, then «+N»
   return `
   <div class="month">
     <div class="m-head">${heads.map((x) => `<span>${esc(x)}</span>`).join('')}</div>
@@ -233,8 +234,8 @@ export function viewMonth(date) {
         <span class="m-num">${parseDate(d).getDate()}${conflict ? ' <span class="warn-ico">⚠</span>' : ''}</span>
         ${loadBar(d, { text: false })}
         ${gh.map((g) => `<span class="m-item ghost" title="${esc(ghostTip(g))}">${esc(ghostTitle(g))}</span>`).join('')}
-        ${items.slice(0, 3).map((x) => `<span class="m-item${outcomeOf(x) ? ' done' : ''}" style="--c:${esc(x.isEvent || x.allDay ? x.color : catColor(x.category) || 'var(--accent)')}">${x.allDay ? '' : `<i>${fmtTime(x.start)}</i> `}${esc(x.title)}</span>`).join('')}
-        ${items.length > 3 ? `<span class="m-more">${esc(t('nMore', items.length - 3))}</span>` : ''}
+        ${items.slice(0, cap).map((x) => `<span class="m-item${outcomeOf(x) ? ' done' : ''}" style="--c:${esc(x.isEvent || x.allDay ? x.color : catColor(x.category) || 'var(--accent)')}">${x.allDay ? '' : `<i>${fmtTime(x.start)}</i> `}${esc(x.title)}</span>`).join('')}
+        ${items.length > cap ? `<span class="m-more">${esc(t('nMore', items.length - cap))}</span>` : ''}
       </button>`;
   }).join('')}</div>
   </div>`;

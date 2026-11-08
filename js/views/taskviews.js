@@ -18,6 +18,7 @@ export function tvOptions(k) {
   if (k === 'kanban') return vmSeg(t('tv_cols'), 'tv-kby', state.settings.kanbanBy === 'cat' ? 'cat' : 'state', [['state', t('tv_byState')], ['cat', t('tv_byCat')]]);
   if (k === 'matrix') return vmSeg(t('tv_urgent'), 'tv-urg', state.settings.urgDays === 7 ? 7 : 2, [[2, t('tv_2d')], [7, t('tv_1w')]]);
   if (k === 'habit') return vmSeg(t('tv_days'), 'tv-hdays', state.settings.habitDays === 14 ? 14 : 7, [[7, '7'], [14, '14']]);
+  if (k === 'list') return vmSeg(t('tv_rows'), 'tv-rows', state.settings.rowsCompact === true ? 'c' : 'n', [['n', t('tv_rowsN')], ['c', t('tv_rowsC')]]); // (v118)
   return '';
 }
 
@@ -38,15 +39,15 @@ function card(x, st) {
   const pb = st === 'pend' ? pendBlock(x) : null; const nb = st === 'planned' ? nextBlock(x) : null;
   const meta = [fmtDur(x.minutes || 30), pb ? `${relDay(pb.date)} ${fmtTime(pb.start)}` : nb ? `${relDay(nb.date)} ${fmtTime(nb.start)}` : x.due ? t('kbDue', relDay(x.due)) : '', catsOf(x)[0] ? catName(get('categories', catsOf(x)[0])) : ''].filter(Boolean).join(' · ');
   const acts = pb ? `<span class="kb-a"><button type="button" data-action="behind-done" data-id="${esc(pb.id)}">✓ ${esc(t('esDone'))}</button><button type="button" data-action="behind-fail" data-id="${esc(pb.id)}" title="${esc(t('esFail'))}" aria-label="${esc(t('esFail'))}">✕</button></span>` : '';
-  return `<div class="kb-c${st === 'pend' ? ' pend' : ''}${st === 'done' ? ' done' : ''}" style="--c:${esc(colorOf(x))}"><button type="button" class="kb-t" data-action="task-view" data-id="${esc(x.id)}">${st === 'done' ? '✓ ' : ''}${esc(x.title)}<small>${esc(meta)}</small></button>${acts}</div>`;
+  return `<div class="kb-c${st === 'pend' ? ' pend' : ''}${st === 'done' ? ' done' : ''}" style="--c:${esc(colorOf(x))}" data-kid="${esc(x.id)}" data-kst="${esc(st)}"${x.repeat ? ' data-krep="1"' : ''}><button type="button" class="kb-t" data-action="task-view" data-id="${esc(x.id)}">${st === 'done' ? '✓ ' : ''}${esc(x.title)}<small>${esc(meta)}</small></button>${acts}</div>`;
 }
-const col = (title, list, st, extra = '') => `<section class="kb-col${extra}"><h4>${esc(title)}<span>${list.length}</span></h4>${list.slice(0, 40).map((x) => card(x, st || stateOf(x))).join('') || `<p class="kb-e">—</p>`}${list.length > 40 ? `<p class="kb-e">${esc(t('nMore', list.length - 40))}</p>` : ''}</section>`;
+const col = (title, list, st, extra = '', key = st) => `<section class="kb-col${extra}" data-kcol="${esc(key || '')}"><h4>${esc(title)}<span>${list.length}</span></h4>${list.slice(0, 40).map((x) => card(x, st || stateOf(x))).join('') || `<p class="kb-e">—</p>`}${list.length > 40 ? `<p class="kb-e">${esc(t('nMore', list.length - 40))}</p>` : ''}</section>`;
 
 export function kanbanHtml(list, done) {
   const open = list.filter((x) => !x.done);
   if (state.settings.kanbanBy === 'cat') {
     const by = new Map(); for (const x of open) { const c = catsOf(x)[0] || ''; if (!by.has(c)) by.set(c, []); by.get(c).push(x); }
-    return `<div class="kb">${[...by.entries()].map(([c, l]) => col(c ? catName(get('categories', c)) : t('noCategory'), l, null)).join('')}</div>`;
+    return `<div class="kb kb-cat">${[...by.entries()].map(([c, l]) => col(c ? catName(get('categories', c)) : t('noCategory'), l, null, '', `cat:${c}`)).join('')}</div>`;
   }
   const g = { toplan:[], planned:[], pend:[] }; for (const x of open) g[stateOf(x)]?.push(x);
   const fin = [...done, ...list.filter((x) => x.done)].slice(0, 30);

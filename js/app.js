@@ -14,6 +14,8 @@
 import { moveWeek, openRoutine } from './routines.js';
 import { $, findCategory, hideToast, fmtDay, modal, PPM, quickFields, range, relDay, route, seedCategories, TAB_OF, toast, ui, view } from './core.js';
 import { setupDrag } from './drag.js';
+import { setupKbDrag } from './kbdrag.js';
+import { repCmpClick } from './views/report.js';
 import { afterStart, openChecklist, openPalestra, doShift, finishTimer, openAddMenu, openPickSheet, openQuickTask, plusKind, openAutoPlanner, openBlock, openCategory, openEvent, openEventTaskAdd, openImport, pickMealRecipes, openPlanSaved, openSavedPicker, openPlaceRec, openSpare, openTask, openTaskChecklist, openTemplate, openTemplatesMenu } from './editors.js';
 import { t } from './i18n.js';
 import { isEvent } from './kinds.js';
@@ -36,7 +38,8 @@ import { plClick } from './pianifica.js';
 import './timefield.js';
 import { applyTheme } from './theme.js';
 applyTheme();
-import { classic, curView, openComplete, openFilters, openPick, openSort, openTriage, openViews, setView, setWeekly, setWhen, viewList } from './views/impegni.js';
+import { classic, curView, openComplete, openFilters, openNewView, openPick, openSort, openTriage, openViews, setView, setWeekly, setWhen, viewList } from './views/impegni.js';
+import { archiveDone, autoArchive, openArchive } from './archive.js';
 import { openWeekGrid } from './weekgrid.js';
 import { goToBlock, goToProposal, openChooser, openPropsList, resumeRoutine, sheetClick } from './finder.js';
 import { setLowPref } from './lowstock.js';
@@ -433,12 +436,14 @@ view.addEventListener('click', (e) => {
     case 'tv-tab': ui.tvTab = id; render(); break;
     case 'tv-use': saveSettings({ taskView: id }); ui.tvTab = null; ui.tvOpen = false; render(); break;
     case 'tv-kby': saveSettings({ kanbanBy: id }); render(); break;
+    case 'tv-rows': saveSettings({ rowsCompact: id === 'c' }); render(); break; // (v118) Righe Comode / Compatte
     case 'tv-urg': saveSettings({ urgDays: Number(id) }); render(); break;
     case 'tv-hdays': saveSettings({ habitDays: Number(id) }); render(); break;
     case 'rv-open': ui.rvOpen = !ui.rvOpen; ui.rvTab = null; render(); break;
     case 'rv-tab': ui.rvTab = id; render(); break;
     case 'rv-use': saveSettings({ reportView: id }); ui.rvTab = null; ui.rvOpen = false; render(); break;
     case 'rv-pend': saveSettings({ repOnlyPend: id === '1' }); render(); break;
+    case 'rep-cmp': case 'rep-cmpset': repCmpClick(action, id); render(); break; // (v118) Confronta con
     case 'rep-scope': ui.repScope = id; render(); break;
     case 'rep-go': ui.repDate = id; render(); break;
     case 'rep-day': ui.repScope = 'day'; ui.repDate = id; render(); break;
@@ -491,6 +496,10 @@ view.addEventListener('click', (e) => {
     case 'tasks-tab': if (id !== 'shop') leaveShop(); ui.tasksTab = id; saveSettings({ tasksTab: id }); if (route().name === 'shop' && id !== 'shop') location.hash = '#/tasks'; else render(); window.scrollTo(0, 0); break;
     case 'vw-tab': { const v = viewList().find((y) => y.id === id); if (!v?.shop) leaveShop(); setView(id); if (route().name === 'shop' && !v?.shop) location.hash = '#/tasks'; else render(); window.scrollTo(0, 0); break; }
     case 'vw-views': openViews(); break;
+    case 'vw-new': openNewView(); break; // (v117)
+    case 'vw-archive': archiveDone(); break;
+    case 'archive-open': openArchive(); break;
+    case 'task-reopen': { const x = get('tasks', id); if (x) { setTaskDone(x, false); changed(); toast(t('reopenedT', x.title)); } break; }
     case 'vw-filters': openFilters(); break;
     case 'vw-sort': openSort(); break;
     case 'vw-triage': openTriage(); break;
@@ -673,6 +682,7 @@ $('#app-title').addEventListener('click', () => {
 $('#app-title').setAttribute('role', 'link');
 $('#app-title').tabIndex = 0;
 $('#app-title').addEventListener('keydown', (e) => { if (e.key === 'Enter') location.hash = '#/today'; });
+setupKbDrag(); // (v118) Kanban: drag the cards between columns
 setupTrayDrag({
   onTap: (id, chip) => {
     if (ui.assign && !chip?.closest('.to-plan')) { if (ui.assign.sel.has(id)) ui.assign.sel.delete(id); else ui.assign.sel.add(id); render(); return; }
@@ -752,6 +762,7 @@ async function boot() {
   $('#sync').addEventListener('click', runSync);
   handleShortcut();
   runSync();
+  setTimeout(autoArchive, 8000); // (v117) «Archivia da sola», once a day
   // A running timer's clock, between redraws.
   setInterval(() => { const el = document.getElementById('run-time'); const b = runningBlock(); if (el && b) el.textContent = elapsedText(b); }, 15000);
   // Every minute: move the "now" line, and pick up changes from other devices.

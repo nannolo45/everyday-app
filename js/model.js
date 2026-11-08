@@ -107,7 +107,7 @@ export function travelTasks() { return live('tasks').filter((x) => !x.done && (i
 export function ownEvents() { return live('tasks').filter(isEvent); }
 export function ownAllDayOn(date) {
   // (v82) an appointment of several days (`days`) shows on each of them
-  return ownEvents().filter((x) => x.allDay && x.due && date >= x.due && date <= addDays(x.due, Math.max(1, Number(x.days) || 1) - 1))
+  return ownEvents().filter((x) => x.allDay && x.due && ((x.dates || []).length > 1 ? x.dates.includes(date) : date >= x.due && date <= addDays(x.due, Math.max(1, Number(x.days) || 1) - 1)))
     .map((x) => ({ id: x.id, title: x.title, date, allDay: true, color: catColor(x.category) || 'var(--accent)', own: true, calendar: t('tabEvents'), location: x.place || '' }));
 }
 // An event by id: one of yours (a task) or an imported one.
@@ -527,6 +527,10 @@ export function setOutcome(block, outcome, { steps = true } = {}) {
     // A step planned on its own: the task is done once every step's block is.
     const steps = (task.steps || []).filter((y) => y.title);
     const all = steps.length > 0 && steps.every((y) => live('blocks').some((x) => x.taskId === task.id && x.stepId === y.id && outcomeOf(x) === 'done'));
+    if (Boolean(task.done) !== all) setTaskDone(get('tasks', task.id), all);
+  } else if (task && isTodo(task) && !task.repeat && (task.dates || []).length > 1 && !b.partial && b.kind !== 'prep') {
+    // (v117) a thing on several days is done once every day's turn is
+    const all = live('blocks').filter((x) => x.taskId === task.id && !x.deleted && !x.stepId && x.kind !== 'prep').every((x) => outcomeOf(x) === 'done');
     if (Boolean(task.done) !== all) setTaskDone(get('tasks', task.id), all);
   } else if (task && isTodo(task) && !b.partial && b.kind !== 'prep' && task.repeat !== 'times') {
     const done = outcome === 'done';

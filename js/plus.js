@@ -4,18 +4,18 @@
 // length, several times a day) and ● Categoria. A pill opened and closed again keeps its default as a
 // choice. Then Altre opzioni (importance, deadline, place, steps, «prima serve», rules, notes) open in
 // place, and one button that says what it will do.
-import { catName, categories, esc, planSettings, relDay, toast, ui } from './core.js';
+import { catName, categories, esc, fmtDay, planSettings, relDay, toast, ui } from './core.js';
 import { state } from './store.js';
 import { t } from './i18n.js';
 import { isEvent, isSaved, isTodo } from './kinds.js';
-import { catFlag, anchorOffset, nextBlockOf, deleteBlock, ensureSeries, eventTasksOf, isSeries, outcomeOf, planTask, saveEvent, seriesBlocks } from './model.js';
+import { busyOn, catFlag, anchorOffset, nextBlockOf, deleteBlock, ensureSeries, eventTasksOf, isSeries, outcomeOf, planTask, saveEvent, seriesBlocks } from './model.js';
 import { upcomingOf } from './finder.js';
 import { ownMinutes, realSteps, routeOf, travelOf } from './travel-plan.js';
 import { tripHtml, tvAction, tvRead, tvRecord, tvState } from './tripui.js';
 import { skipOcc } from './weekpick.js';
 import { openWeekGrid } from './weekgrid.js';
 import { changed } from './shell.js';
-import { addDays, fmtDur, fmtTime, isoDay, nowMinutes, parseDate, parseTime, quickAdd, today } from './plan.js';
+import { addDays, fmtDur, fmtTime, isOccurrence, isoDay, nowMinutes, parseDate, parseTime, quickAdd, today } from './plan.js';
 import { allPlaces, guessEmoji, hasHours, openState, parsePlaceText, PLACE_ICONS, placeAddress, placeById, placeByText, placeEmoji, quickPlace, recentPlaces, savePlace, searchPlaces } from './places.js';
 import { norm, searchAddress, searchOnce } from './travel.js';
 import { saveSettings } from './store.js';
@@ -68,8 +68,10 @@ function fresh(text = '') {
   return {
     name: text, save: false, appt: false, pop: null, touched: {},
     len: 30, lenUnit: null, lenSet: false, unknown: false,
-    wc: undefined, once: true, date: today(), mode: 'first', start: null, end: null, anchor: 'start',
+    wc: undefined, once: true, date: today(), dates: [], addOpen: false, mode: 'first', start: null, end: null, anchor: 'start',
     n: 1, per: 'settimana', days: [], until: 'always', times: [],
+    // (v118) a rhythm's days in more and days skipped; several days each at its own time; the calendar sheet
+    extra: [], skips: [], perDay: false, dtimes: {}, cal: null,
     cat: null, more: false, open: null, imp: 3, due: '', place: '', placeId: null, people: 2, tv: tvState(), tvOwn: false, legOv: null, steps: [], after: [], ok: [], ko: [], notes: '',
     // (v84) editing a task: its id, the Quando it had (to know if it changed), its steps, checklist, margin, other rules
     edit: null, orig: null, stepObjs: null, checklist: [], buffer: '', room: null, keepRules: [], ov: null, rk: 'ok', untilKeep: null, ovt: 'recent',
@@ -87,8 +89,9 @@ function whenWords(long = false) {
   if (P.wc === 'first') { const s = suggestSlot({ title: P.name, minutes: Math.min(len(), DAY), ...hoursNow() }); return s ? t('plFirstAt', relDay(s.date), fmtTime(s.start)) : t('plFirst'); }
   if (P.wc !== 'pick') return t('plLater');
   if (P.once) {
-    const tm = P.mode === 'at' && P.start != null ? (long ? span(P.start) : fmtTime(P.start)) : P.mode === 'any' ? t('plAnyShort') : t('plFirst');
-    return `${relDay(P.date)} · ${tm}`;
+    const tm = perDayOn() ? t('plTimesVary') : P.mode === 'at' && P.start != null ? (long ? span(P.start) : fmtTime(P.start)) : P.appt ? t('allDay') : t('plWhereFreeShort');
+    const ds = dts();
+    return `${ds.length > 1 ? (long ? ds.map((d) => relDay(d)).join(', ') : t('plNDays', ds.length)) : relDay(P.date)} · ${tm}`;
   }
   const sortedDays = [...P.days].sort((x, y) => x - y);
   if (!long && P.per === 'settimana' && P.days.length && P.days.length === P.n) return `↻ ${sortedDays.map(dayShort).join(', ')}${P.mode === 'at' && P.start != null ? ` · ${fmtTime(P.start)}` : ''}`; // (v84) the days say more than «2× a settimana»
@@ -106,6 +109,16 @@ function linkTimes(k) {
     P.times = P.times.map((x) => (!x ? x : P.anchor === 'end' && x.e != null ? { ...x, s: ((x.e - L) % 1440 + 1440) % 1440 } : x.s != null ? { ...x, e: (x.s + L) % 1440 } : x));
   }
 }
+// (v117) the days picked: one or more dates (Quando · Che giorno)
+const dts = () => (P.dates.length ? [...P.dates].sort() : [P.date]);
+function setDates(list) { const l = [...new Set(list.filter(Boolean))].sort(); P.dates = l.length > 1 ? l : []; P.date = l[0] || today(); }
+// (v118) a rhythm with fixed days can have days in more and days skipped («N volte a settimana» can't)
+const canExtra = () => P.per === 'giorno' || (P.per === 'settimana' && P.days.length === P.n) || ((P.per === 'mese' || P.per === 'anno') && P.n === 1);
+// (v118) several days at a time, each its own start and end («Stesso orario tutti i giorni» off)
+const perDayOn = () => P.wc === 'pick' && P.once && P.mode === 'at' && P.perDay && dts().length > 1;
+const dtime = (d) => { const x = P.dtimes[d]; return x && x.s != null ? x : { s: P.start, e: P.end }; };
+const dlen = (d) => { const x = dtime(d); if (x.s == null || x.e == null) return len(); let m = x.e - x.s; if (m <= 0) m += 1440; return m; };
+const datesTimes = (ds) => (perDayOn() ? Object.fromEntries(ds.map((d) => [d, { s: dtime(d).s, m: dlen(d) }]).filter(([, v]) => v.s != null)) : null);
 function setLenFrom(a, b) { let d = b - a; if (d <= 0) d += 1440; P.len = d; P.lenUnit = null; P.lenSet = true; P.unknown = false; P.touched.len = true; }
 
 // ---------- the pieces ----------
@@ -123,37 +136,59 @@ function lenPanel() {
     <p class="pl-hint">${esc(P.unknown ? t('plUnknownHint') : long ? (P.appt ? t('plLongAppt', fmtLen(P.len)) : t('plLongTask', fmtLen(P.len))) : t('plLenHint'))}</p>`;
 }
 const timeBox = (k, label, v, id, small = false) => `<label class="pl-tbox${small ? ' sm' : ''}${P.anchor === k ? ' anchor' : ''}${v != null ? ' set' : ''}"><span data-anchor="${k}">${esc(label)}</span><input id="${id}" ${TIME24} value="${v != null ? fmtTime(v) : ''}" aria-label="${esc(label)}"></label>`;
+// (v117) Quando in one card: «Che giorno» (one or more days, or a rhythm; none = the planner or later),
+// «A che ora» (at a time, or wherever there's room) and the length, which comes from the times when there are some.
 function whenPanel() {
-  const opts = [['first', `✦ ${t('plFirst')}`], ['pick', `📅 ${t('plPick')}`], ['later', t('plLater')]];
-  const cur = P.wc === undefined ? 'later' : P.wc;
-  let body = '';
-  if (P.wc === 'pick') {
-    const multi = !P.once && P.per === 'giorno' && P.n > 1;
-    const dayIn = `<label class="pl-date">${dateBox(`<input id="pl-date" type="date" required value="${esc(P.date)}" min="${today()}">`, P.date)}</label>`;
-    body = `<div class="pl-seg">${[[1, 'wm_once'], [0, 'plMore']].map(([v, k]) => `<button class="${Number(P.once) === v ? 'on' : ''}" value="once:${v}" formnovalidate>${esc(t(k))}</button>`).join('')}</div>`;
-    if (P.once) body += `<div class="pl-lbl">${esc(t('whichDay'))}</div>${dayIn}`;
-    else {
-      body += `<div class="pl-lbl">${esc(t('plHowOften'))}</div><div class="pl-row"><input id="pl-n" class="pl-num" value="${P.n}" inputmode="text" aria-label="${esc(t('plHowOften'))}"><span class="pl-mid">${esc(t(P.n === 1 ? 'plTime1' : 'plTimesW'))}</span>
-        <select id="pl-per" class="pl-sel">${PER.map((k) => `<option value="${k}" ${P.per === k ? 'selected' : ''}>${esc(t(`per2_${k}`))}</option>`).join('')}</select></div>
-        <p class="pl-hint">${esc(t('plFreqHint'))}</p>`;
-      if (P.per === 'settimana' || P.per === 'giorno') {
-        body += `<div class="pl-lbl">${esc(t(P.per === 'giorno' ? 'plWhichDays' : 'qwDays'))}</div><div class="pl-days">${ALL7.map((d) => `<button class="${P.days.includes(d) ? 'on' : ''}" value="wd:${d}" formnovalidate>${esc(dayShort(d).slice(0, 1).toUpperCase())}</button>`).join('')}</div>`;
-        if (P.per === 'settimana') body += `<p class="pl-hint">${esc(P.days.length === P.n ? t('plDaysExact') : P.days.length ? t('plDaysFewer', P.n) : t('plDaysNone', P.n))}</p>`;
-      } else body += `<div class="pl-lbl">${esc(t('plFrom'))}</div>${dayIn}<p class="pl-hint">${esc(t(P.per === 'mese' ? 'plMonthly' : 'plYearly', parseDate(P.date).getDate()))}</p>`;
-      body += `<div class="pl-lbl">${esc(t('plUntil'))}</div><div class="pl-chips">${['always', 'w4', 'n10'].map((k) => `<button class="pl-chip${P.until === k ? ' on' : ''}" value="until:${k}" formnovalidate>${esc(t(`plU_${k}`))}</button>`).join('')}</div>`;
-    }
-    body += `<div class="pl-lbl">${esc(multi ? t('plTimesDay', P.n) : t('qwAt'))}</div>`;
+  const rows = P.wc === 'pick';
+  const auto = P.wc === 'first';
+  const multi = rows && !P.once && P.per === 'giorno' && P.n > 1;
+  let body = `<div class="pl-lbl pl-lblr"><span>${esc(t('plDayQ'))}</span>${rows ? `<button class="linkish" value="wc:${P.appt ? 'pick' : 'later'}" formnovalidate ${P.appt ? 'hidden' : ''}>${esc(t('plClearDays'))}</button>` : ''}</div>`;
+  if (rows && P.once) {
+    const ds = dts(); const pd = perDayOn();
+    const tmIn = (id, v, l) => `<input id="${id}" ${TIME24} value="${v != null ? fmtTime(v) : ''}" aria-label="${esc(l)}">`;
+    body += ds.map((d, i) => `<div class="pl-drow${pd ? ' tm' : ''}"><span class="pl-dic" aria-hidden="true">📅</span><label class="pl-date">${dateBox(`<input id="pl-d${i}" data-di="${i}" type="date" value="${esc(d)}" min="${today()}" aria-label="${esc(t('whichDay'))}">`, d)}</label>${pd ? `<span class="pl-dtm">${tmIn(`pl-dts${i}`, dtime(d).s, t('start'))}<span aria-hidden="true">→</span>${tmIn(`pl-dte${i}`, dtime(d).e, t('tpEnd'))}</span>` : ''}${ds.length > 1 || !P.appt ? `<button class="pl-x" value="drm:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button>` : ''}</div>`).join('');
+  } else if (rows) {
+    body += `<div class="pl-drow rh"><span class="pl-dic" aria-hidden="true">↻</span><input id="pl-n" class="pl-num" value="${P.n}" inputmode="text" aria-label="${esc(t('plHowOften'))}"><select id="pl-per" class="pl-sel" aria-label="${esc(t('plUnit'))}">${PER.map((k) => `<option value="${k}" ${P.per === k ? 'selected' : ''}>${esc(t(`per2_${k}`))}</option>`).join('')}</select><button class="pl-x" value="wc:${P.appt ? 'pick' : 'later'}" formnovalidate aria-label="${esc(t('remove'))}" ${P.appt ? 'hidden' : ''}>✕</button></div>`;
+    let more = '';
+    if (P.per === 'settimana' || P.per === 'giorno') {
+      more += `<div class="pl-days">${ALL7.map((d) => `<button class="${P.days.includes(d) ? 'on' : ''}" value="wd:${d}" formnovalidate>${esc(dayShort(d).slice(0, 1).toUpperCase())}</button>`).join('')}</div>`;
+      if (P.per === 'settimana') more += `<p class="pl-hint">${esc(P.days.length === P.n ? t('plDaysExact') : P.days.length ? t('plDaysFewer', P.n) : t('plDaysNone', P.n))}</p>`;
+    } else more += `<div class="pl-row"><span class="pl-mid">${esc(t('plFrom'))}</span><label class="pl-date">${dateBox(`<input id="pl-date" type="date" required value="${esc(P.date)}" min="${today()}">`, P.date)}</label></div><p class="pl-hint">${esc(t(P.per === 'mese' ? 'plMonthly' : 'plYearly', parseDate(P.date).getDate()))}</p>`;
+    more += `<div class="pl-chips">${['always', 'w4', 'n10'].map((k) => `<button class="pl-chip${P.until === k ? ' on' : ''}" value="until:${k}" formnovalidate>${esc(t(`plU_${k}`))}</button>`).join('')}</div>`;
+    body += `<div class="pl-rhmore">${more}</div>`;
+    // (v118) besides the rhythm: days in more, and days it doesn't come
+    const xrow = (d, i, k) => `<div class="pl-drow ${k}"><span class="pl-dic" aria-hidden="true">${k === 'skip' ? '⊘' : '＋'}</span><span class="pl-dtx"><b>${esc(fmtDay(d, { weekday: 'short', day: 'numeric', month: 'short' }))}</b><small>${esc(t(k === 'skip' ? 'plSkipSub' : 'plExtraSub'))}</small></span><button class="pl-x" value="${k === 'skip' ? 'srm' : 'xrm'}:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></div>`;
+    if (canExtra() && P.extra.length) body += `<div class="pl-lbl pl-lblsm">${esc(t('plExtraL'))}</div>${[...P.extra].sort().map((d, i) => xrow(d, i, 'extra')).join('')}`;
+    if (canExtra() && P.skips.length) body += `<div class="pl-lbl pl-lblsm">${esc(t('plSkipL'))}</div>${[...P.skips].sort().map((d, i) => xrow(d, i, 'skip')).join('')}`;
+  } else {
+    body += `<div class="pl-drow none"><span class="pl-dic" aria-hidden="true">—</span><span><b>${esc(t('plNoDay'))}</b><small>${esc(P.appt ? t('plApptNeedsDay') : auto ? t('plNoDayAuto') : t('plNoDayLater'))}</small></span></div>`;
+  }
+  const isRh = rows && !P.once; const ce = canExtra();
+  const opt = (v, ic, b, sub, off = false) => `<button class="pl-addopt" value="${v}" formnovalidate ${off ? 'disabled' : ''}><span aria-hidden="true">${ic}</span><span><b>${esc(b)}</b><small>${esc(sub)}</small></span></button>`;
+  body += P.addOpen
+    ? `<div class="pl-addopts">${isRh
+      ? opt('add-day', '＋', t('plAddExtra'), ce ? t('plAddExtraSub') : t('plExtraNo'), !ce) + opt('add-skip', '⊘', t('plAddSkip'), ce ? t('plAddSkipSub') : t('plExtraNo'), !ce)
+      : opt('add-day', '📅', t('plAddOneDay'), t('plAddOneDaySub')) + opt('add-rh', '↻', t('plAddRhythm'), rows && P.once ? t('plRhythmKeeps') : t('plAddRhythmSub'))}</div>`
+    : `<button class="pl-add" value="add-open" formnovalidate>＋ ${esc(t(isRh ? 'plAddExtraSkip' : 'plAddDay'))}</button>`;
+  if (rows) {
+    body += `<div class="pl-lbl">${esc(multi ? t('plTimesDay', P.n) : t('plTimeQ'))}</div>`;
     if (multi) {
       body += Array.from({ length: P.n }, (_, i) => { const x = P.times[i] || {}; return `<div class="pl-se"><span class="pl-k">${i + 1}ª</span>${timeBox('start', t('start'), x.s ?? null, `pl-ts${i}`, true)}<span class="pl-arrow">→</span>${timeBox('end', t('tpEnd'), x.e ?? null, `pl-te${i}`, true)}</div>`; }).join('');
-      body += `<p class="pl-hint">${esc(t('plAnchorHint', P.anchor === 'start'))} ${esc(t('plEmptyTimes'))}</p>`;
+      body += `<p class="pl-hint">${esc(t('plAnchorHint', P.anchor === 'start'))} ${esc(t('plEmptyTimes'))}</p>${lenPanel()}`;
     } else {
-      const modes = P.once ? [['at', 'plAt'], ['first', 'plFirst'], ['any', 'plAny']] : [['at', 'plAlways'], ['first', 'plIPick']];
-      body += `<div class="pl-seg">${modes.map(([k, l]) => `<button class="${P.mode === k ? 'on' : ''}" value="mode:${k}" formnovalidate>${esc(t(l))}</button>`).join('')}</div>`;
-      if (P.mode === 'at') body += `<div class="pl-se">${timeBox('start', t('start'), P.start, 'pl-s')}<span class="pl-arrow">→</span>${timeBox('end', t('tpEnd'), P.end, 'pl-e')}</div><p class="pl-hint">${esc(P.start != null || P.end != null ? t('plAnchorHint', P.anchor === 'start') : t('plTimeHint'))}</p>`;
+      const at = P.mode === 'at';
+      body += `<div class="pl-seg"><button class="${at ? 'on' : ''}" value="mode:at" formnovalidate>🕘 ${esc(t('plAt'))}</button><button class="${at ? '' : 'on'}" value="mode:free" formnovalidate>${P.appt ? `☀ ${esc(t('allDay'))}` : `✦ ${esc(t('plFreeOpt'))}`}</button></div>`;
+      const many = P.once && dts().length > 1;
+      if (at && many) body += `<button class="pl-tog${P.perDay ? '' : ' on'}" value="perday" formnovalidate><span>${esc(t('plSameTime'))}<small>${esc(t(P.perDay ? 'plSameTimeOff' : 'plSameTimeOn'))}</small></span><i></i></button>`;
+      if (at && many && P.perDay) body += `<p class="pl-hint">${esc(t('plPerDayHint'))}</p>`;
+      else if (at) body += `<div class="pl-se">${timeBox('start', t('start'), P.start, 'pl-s')}<span class="pl-arrow">→</span>${timeBox('end', t('tpEnd'), P.end, 'pl-e')}</div><p class="pl-hint">${esc(P.start != null && P.end != null ? t('plDurFromTimes', lenLabel()) : P.start != null || P.end != null ? t('plAnchorHint', P.anchor === 'start') : t('plTimeHint'))}</p>`;
+      else body += `${P.appt ? '' : lenPanel()}<p class="pl-hint">${esc(P.appt ? t('plAllDayHint') : P.once ? t(dts().length > 1 ? 'plFreeHintN' : 'plFreeHint') : t('plFreeHintRh'))}</p>`;
     }
-    body = `<div class="pl-inner">${body}</div>`;
-  } else body = `<p class="pl-hint">${esc(P.wc === 'first' ? t('plFirstHint', whenWords()) : t('plLaterHint'))}</p>`;
-  return `<div class="pl-seg">${opts.map(([k, l]) => `<button class="${cur === k ? 'on' : ''}" value="wc:${k}" formnovalidate ${k === 'first' && P.appt ? 'disabled' : ''}>${esc(l)}</button>`).join('')}</div>${body}`;
+  } else {
+    if (!P.appt) body += `<button class="pl-tog${auto ? ' on' : ''}" value="wc:${auto ? 'later' : 'first'}" formnovalidate><span>${esc(t('plAutoTog'))}<small>${esc(auto ? t('plFirstHint', whenWords()) : t('plAutoTogOff'))}</small></span><i></i></button>`;
+    body += lenPanel();
+  }
+  return body;
 }
 function catPanel() {
   return `<div class="pl-chips">${categories().map((c) => `<button class="pl-chip${P.cat === c.id ? ' on' : ''}" value="cat:${esc(c.id)}" formnovalidate><i class="cat-dot" style="--c:${esc(c.color || 'var(--line)')}"></i>${esc(catName(c))}</button>`).join('')}<button class="pl-chip${!P.cat ? ' on' : ''}" value="cat:" formnovalidate>${esc(t('noCategory'))}</button></div>`;
@@ -263,7 +298,6 @@ function optRows() {
   return [
     row('imp', t('importance'), '★'.repeat(P.imp), `<div class="pl-stars">${[1, 2, 3, 4, 5].map((i) => `<button class="${i <= P.imp ? 'on' : ''}" value="imp:${i}" formnovalidate aria-label="${i}">★</button>`).join('')}</div><p class="pl-hint">${esc(t(`imp_${P.imp}`))}</p>`),
     row('due', t('due'), P.due ? relDay(P.due) : '', `<div class="pl-row"><label class="pl-date">${dateBox(`<input id="pl-due" type="date" value="${esc(P.due)}">`, P.due)}</label>${P.due ? `<button class="pl-chip" value="due:" formnovalidate>${esc(t('none'))}</button>` : ''}</div>`),
-    row('place', t('plPlace'), placeLabel(), placeBody()),
     row('room', t('roomL'), roomVal(), roomBody()), // (v95) other things may go inside it
     P.stepObjs ? row('steps', t('steps'), P.stepObjs.length ? `${P.stepObjs.length} · ${fmtDur(stepSum())}` : '', `${P.stepObjs.map((y, i) => `<div class="pl-srow"><span>${i + 1}. ${esc(y.title)}</span><input id="pl-sm${i}" class="pl-num sm" data-sm="${i}" inputmode="numeric" value="${Number(y.minutes) || 10}" aria-label="${esc(t('duration'))}"><span class="pl-mid">min</span><button class="pl-x" value="step-rm:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></div>`).join('')}<input id="pl-step" class="pl-in" placeholder="${esc(t('plStepPh'))}" autocomplete="off">${P.stepObjs.length ? `<p class="pl-hint">${esc(t('plStepsLen'))}</p>` : ''}`)
     : row('steps', t('steps'), P.steps.length ? String(P.steps.length) : '', `${P.steps.map((s, i) => `<div class="pl-srow"><span>${i + 1}. ${esc(s)}</span><button class="pl-x" value="step-rm:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></div>`).join('')}<input id="pl-step" class="pl-in" placeholder="${esc(t('plStepPh'))}" autocomplete="off">`),
@@ -276,7 +310,16 @@ function optRows() {
     row('notes', t('notes'), P.notes ? '✎' : '', `<textarea id="pl-notes" class="pl-in" rows="3">${esc(P.notes)}</textarea>`),
   ].join('');
 }
-const optSummary = () => [P.imp !== 3 && '★'.repeat(P.imp), P.due && t('dueOn', relDay(P.due)), P.place && placeLabel(), P.steps.length && t('plStepsN', P.steps.length), P.after.length && `🔒 ${P.after.length}`, (P.ok.length + P.ko.length) && t('plRulesN', P.ok.length + P.ko.length), P.notes && '✎', P.checklist.length && `☑ ${P.checklist.length}`, P.room && `⊕ ${roomVal()}`].filter(Boolean).join(' · ');
+// (v117) under Quando: Categoria, Luogo and Altro, each a row that opens in place
+function secRows() {
+  const c = P.cat && get('categories', P.cat);
+  const head = (k, ic, label, val, open, action) => `<button class="pl-ohead pl-sec${open ? ' on' : ''}" value="${action}" formnovalidate aria-expanded="${open}"><span class="pl-sic" aria-hidden="true">${ic}</span><span class="pl-sl">${esc(label)}</span><span class="pl-oval">${val} ${open ? '▾' : '›'}</span></button>`;
+  const os = optSummary(true);
+  return `<div class="pl-orow${P.open === 'cat' ? ' open' : ''}">${head('cat', c ? `<i class="cat-dot" style="--c:${esc(c.color || 'var(--line)')}"></i>` : '●', t('category'), esc(c ? catName(c) : t('noCategory')), P.open === 'cat', 'row:cat')}${P.open === 'cat' ? `<div class="pl-obody">${catPanel()}</div>` : ''}</div>
+    <div class="pl-orow${P.open === 'place' ? ' open' : ''}">${head('place', '📍', t('plLuogo'), esc(placeLabel() || '—'), P.open === 'place', 'row:place')}${P.open === 'place' ? `<div class="pl-obody">${placeBody()}</div>` : ''}</div>
+    <div class="pl-orow${P.more ? ' open' : ''}">${head('more', '⋯', t('plMoreTab'), esc(os || '—'), Boolean(P.more), 'more')}${P.more ? `<div class="pl-obody pl-more">${optRows()}</div>` : ''}</div>`;
+}
+const optSummary = (noPlace = false) => [P.imp !== 3 && '★'.repeat(P.imp), P.due && t('dueOn', relDay(P.due)), !noPlace && P.place && placeLabel(), P.steps.length && t('plStepsN', P.steps.length), P.after.length && `🔒 ${P.after.length}`, (P.ok.length + P.ko.length) && t('plRulesN', P.ok.length + P.ko.length), P.notes && '✎', P.checklist.length && `☑ ${P.checklist.length}`, P.room && `⊕ ${roomVal()}`].filter(Boolean).join(' · ');
 // what the name says by itself ("Cena ogni giorno 20:30", "Dentista ven 10:00"), while Quando is untouched
 function typedWhen() {
   if (P.wc !== undefined) return null;
@@ -292,7 +335,7 @@ function goLabel() {
   if (P.wc === 'pick') return [P.once ? t('plGoPlan') : t('plGoRoutine'), `${whenWords(true)} · ${lenLabel()}`];
   return [t('addBtnTask'), t('plGoLater')];
 }
-const needsTime = () => P.appt && !(P.wc === 'pick' && P.once && (P.start != null || len() >= DAY));
+const needsTime = () => P.appt && (P.wc !== 'pick' || (P.mode === 'at' && P.start == null && !(P.once && len() >= DAY)));
 
 // ---------- (v84) editing: what's on the plan, and the list to choose from ----------
 const wideNow = () => window.matchMedia?.('(min-width: 900px)').matches;
@@ -311,17 +354,53 @@ function turnsOverlay() {
     ${ups.slice(0, 60).map((b) => `<div class="pl-turn"><span><b>${esc(relDay(b.date))} · ${esc(fmtTime(b.start))}–${esc(fmtTime(b.start + (b.minutes || 0)))}</b></span><button class="pl-chip" value="mv:${esc(b.id)}" formnovalidate>${esc(t('moveBtn'))}</button><button class="pl-chip" value="skip:${esc(b.id)}" formnovalidate>${esc(t(b.seriesId ? 'plSkip' : 'plUnplan'))}</button></div>`).join('')}
     <div class="pl-ovf"><button class="btn primary" value="ov-close" formnovalidate>${esc(t('plOvDone'))}</button></div></div></div>`;
 }
+// (v118) Days from a calendar: tap as many as you like. `mode` days (one or several days), extra (a rhythm's
+// days in more) or skip (a rhythm's days it doesn't come: only its own days can be picked). A yellow dot: that
+// day is already about full.
+const monthOf = (d) => `${d.slice(0, 7)}-01`;
+const monthAdd = (m, k) => { const p = parseDate(m); return `${new Date(p.getFullYear(), p.getMonth() + k, 1).getFullYear()}-${String(new Date(p.getFullYear(), p.getMonth() + k, 1).getMonth() + 1).padStart(2, '0')}-01`; };
+function openCal(mode) {
+  const sel = mode === 'extra' ? [...P.extra] : mode === 'skip' ? [...P.skips] : P.wc === 'pick' && P.once ? dts() : [];
+  const td = today(); const base = sel.length ? sel[sel.length - 1] : (P.date > td ? P.date : td);
+  P.cal = { mode, m: monthOf(base), sel: sel.filter((d) => d >= td) }; P.ov = 'cal'; P.addOpen = false;
+}
+const rhRule = () => { const r = rhythm().fields; return { ...r, extraDates: [] }; };
+function calOverlay() {
+  const C = P.cal; const td = today(); const sel = new Set(C.sel);
+  const full = (Number(planSettings().maxLoad) || 480) * 0.8;
+  const rule = C.mode === 'skip' ? rhRule() : null;
+  const first = C.m; const p = parseDate(first);
+  const lead = (isoDay(first) + 6) % 7; const nDays = new Date(p.getFullYear(), p.getMonth() + 1, 0).getDate();
+  let cells = [1, 2, 3, 4, 5, 6, 7].map((d) => `<span class="pl-calh">${esc(dayShort(d).slice(0, 1).toUpperCase())}</span>`).join('');
+  cells += '<span></span>'.repeat(lead);
+  for (let i = 0; i < nDays; i++) {
+    const d = addDays(first, i); const past = d < td;
+    const off = past || (rule && !isOccurrence(rule, d));
+    const busy = !past && busyOn(d).reduce((n, b) => n + (Number(b.minutes) || 0), 0) >= full;
+    cells += `<button class="pl-cald${sel.has(d) ? ' on' : ''}${d === td ? ' td' : ''}${busy ? ' busy' : ''}${rule && !off ? ' occ' : ''}" value="cal-d:${d}" formnovalidate ${off ? 'disabled' : ''} aria-pressed="${sel.has(d)}">${i + 1}</button>`;
+  }
+  const n = C.sel.length;
+  const wd = dayShort(isoDay(C.sel.length ? C.sel[C.sel.length - 1] : (first > td ? first : td)));
+  const mname = fmtDay(first, { month: 'long' });
+  const quick = C.mode === 'days' ? `<div class="pl-chips pl-calq"><button class="pl-chip" value="cal-q:wd" formnovalidate>${esc(t('plCalEvery', wd, mname))}</button><button class="pl-chip" value="cal-q:we" formnovalidate>${esc(t('plCalWeekend'))}</button>${n ? `<button class="pl-chip" value="cal-q:clr" formnovalidate>${esc(t('plCalClear'))}</button>` : ''}</div>` : '';
+  const title = t(C.mode === 'skip' ? 'plCalSkipT' : C.mode === 'extra' ? 'plCalExtraT' : 'plCalDaysT');
+  return `<div class="pl-ov"><div class="pl-ovc pl-cal"><div class="pl-ovh"><b>${esc(title)}</b><button class="pl-x" value="ov-close" formnovalidate aria-label="${esc(t('close'))}">✕</button></div>
+    <div class="pl-calnav"><button class="round sm" value="cal-m:-1" formnovalidate aria-label="${esc(t('previous'))}" ${first <= monthOf(td) ? 'disabled' : ''}>‹</button><b>${esc(fmtDay(first, { month: 'long', year: 'numeric' }))}</b><button class="round sm" value="cal-m:1" formnovalidate aria-label="${esc(t('next'))}">›</button></div>
+    <div class="pl-calg">${cells}</div>${quick}
+    <p class="pl-hint">${esc(t(C.mode === 'skip' ? 'plCalSkipHint' : 'plCalHint'))}</p>
+    <div class="pl-ovf pl-calf"><button class="btn" value="ov-close" formnovalidate>${esc(t('cancel'))}</button><button class="btn primary" value="cal-ok" formnovalidate>${esc(n ? t('plCalDoneN', n) : C.mode === 'days' ? t('plCalNone') : t('plCalDone'))}</button></div></div></div>`;
+}
 // The whole list for «Prima serve…» and the rules: already added, a search, then (v85) in tabs: Recenti,
 // one per category, Tutte A–Z. The search looks through all of them. For the place: Recenti, 🛒 Negozi,
 // Con orari, Tutti, one choice.
-const pickTitle = (k) => t(k === 'after' ? 'needsFirst' : k === 'place' ? 'plPlace' : k === 'ok' ? 'plIfDone' : 'plIfFail');
+const pickTitle = (k) => t(k === 'after' ? 'needsFirst' : k === 'place' ? 'plLuogo' : k === 'ok' ? 'plIfDone' : 'plIfFail');
 const ctabs = (tabs, cls = '') => `<div class="pl-ctabs ${cls}${P.ovq ? ' dim' : ''}" role="tablist">${tabs.map(([k, l, n]) => `<button class="${P.ovt === k ? 'on' : ''}" value="ovt:${esc(k)}" formnovalidate role="tab" aria-selected="${P.ovt === k}">${esc(l)}${n != null ? `<small>${n}</small>` : ''}</button>`).join('')}</div>`;
 const grp = (k, label, html, extra = '') => `<div class="pl-pgrp" data-tab="${esc(k)}" ${extra} ${P.ovt === k ? '' : 'hidden'}><div class="pl-lbl">${esc(label)}</div>${html}</div>`;
 function placePickerHtml() {
   const all = allPlaces();
   const item = (p) => `<button class="pl-pick${P.placeId === p.id ? ' on' : ''}" value="plc:${esc(p.id)}" formnovalidate data-name="${esc(p.name.toLowerCase())}" data-hay="${esc(`${p.name} ${p.place || ''}`.toLowerCase())}"><span class="pl-ck" aria-hidden="true">${esc(placeEmoji(p))}</span><span>${esc(p.name)}<small>${esc([p.place, openText(p)].filter(Boolean).join(' · '))}</small></span></button>`;
   const lists = [['recent', t('plcRecent'), recentPlaces(6)], ['shop', `🛒 ${t('plcShopsTab')}`, all.filter((p) => p.shop)], ['hours', t('plcWithHours'), all.filter(hasHours)], ['all', t('plcAllTab'), [...all].sort((a, b) => a.name.localeCompare(b.name))]];
-  return `<div class="pl-ov"><div class="pl-ovc"><div class="pl-ovh"><b>${esc(t('plPlace'))}</b><button class="pl-x" value="ov-close" formnovalidate aria-label="${esc(t('close'))}">✕</button></div>
+  return `<div class="pl-ov"><div class="pl-ovc"><div class="pl-ovh"><b>${esc(t('plLuogo'))}</b><button class="pl-x" value="ov-close" formnovalidate aria-label="${esc(t('close'))}">✕</button></div>
     <p class="pl-hint">${esc(t('plcPickHint'))}</p>
     <input id="pl-ovq" class="pl-in" placeholder="${esc(t('plcSearchPh'))}" autocomplete="off">
     <button class="pl-sopt new" id="pl-ovnew" value="ov-new:place:" formnovalidate hidden></button>
@@ -373,20 +452,20 @@ function draw(focus = null) {
   const c = P.cat && get('categories', P.cat);
   const [g1, g2] = goLabel();
   const os = optSummary();
-  const side = P.ov && P.ov !== 'turns' && wideNow();
+  const side = P.ov && P.ov !== 'turns' && P.ov !== 'cal' && wideNow();
   openModal(`<div class="pl-wrap${side ? ' side' : ''}"><div class="pl">
     <div class="pl-name"><input id="pl-name" value="${esc(P.name)}" placeholder="${esc(t('addTaskPh'))}" autocomplete="off" enterkeyhint="done" aria-label="${esc(t('title'))}"><button class="pl-star${P.save ? ' on' : ''}" value="save" formnovalidate aria-pressed="${P.save}" aria-label="${esc(t('plSave'))}" title="${esc(t('plSave'))}">${P.save ? '★' : '☆'}</button></div>
     ${P.save ? `<p class="pl-hint">${esc(t('plSaveHint'))}</p>` : ''}
     <button class="pl-tog${P.appt ? ' on' : ''}" value="appt" formnovalidate><span>📅 ${esc(t('plAppt'))}<small>${esc(t(P.appt ? 'plApptOn' : 'plApptOff'))}</small></span><i></i></button>
-    <div class="pl-tabs four${P.pop || P.more ? ' open' : ''}" role="tablist">${tab('len', `⏱ ${esc(t('duration'))}`, esc(lenOn ? lenLabel() : t('duration')), lenOn)}${tab('when', `${P.appt ? '📅' : '🕒'} ${esc(t('whenChip').replace('…', ''))}`, esc(whenOn ? whenWords() : t('whenChip').replace('…', '')), whenOn)}${tab('cat', `● ${esc(t('category'))}`, c ? `<i class="cat-dot" style="--c:${esc(c.color || 'var(--line)')}"></i>${esc(catName(c))}` : esc(catOn ? t('noCategory') : t('category')), catOn)}<button class="pl-tab${os ? ' set' : ''}${P.more ? ' open' : ''}" value="more" formnovalidate role="tab" aria-selected="${Boolean(P.more)}" aria-expanded="${Boolean(P.more)}"><small>⋯ ${esc(t('plMoreTab'))}</small><span>${esc(os || '—')}</span></button></div>
-    ${P.pop ? `<div class="pl-panel pl-tpanel">${P.pop === 'len' ? lenPanel() : P.pop === 'when' ? whenPanel() : catPanel()}</div>` : P.more ? `<div class="pl-panel pl-tpanel pl-more">${optRows()}</div>` : ''}
+    <div class="pl-panel pl-when">${whenPanel()}</div>
+    <div class="pl-panel pl-secs">${secRows()}</div>
     ${P.edit ? planBox() : ''}
     ${P.edit ? `<div class="pl-foot"><button class="btn primary" value="go" ${!P.name.trim() || needsTime() ? 'disabled' : ''}>${esc(t('save'))}</button><button class="btn" value="cancel" formnovalidate>${esc(t('close'))}</button>
       <details class="bk-more pl-dots"><summary class="btn" aria-label="${esc(t('options'))}">⋯</summary><div class="bk-menu"><button class="btn ghost" value="full" formnovalidate>▤ ${esc(t('plFull'))}</button><button class="btn ghost danger" value="del" formnovalidate>🗑 ${esc(t('delete'))}</button></div></details></div>
       ${needsTime() ? `<p class="pl-hint">${esc(t('plNeedTime'))}</p>` : ''}`
     : `<button class="btn primary big pl-go" value="go" ${!P.name.trim() || needsTime() ? 'disabled' : ''}><b>${esc(g1)}</b><small>${esc(!P.name.trim() ? t('plNeedName') : needsTime() ? t('plNeedTime') : g2)}</small></button>
     <div class="button-row"><button class="btn ghost" value="cancel" formnovalidate>${esc(t('close'))}</button></div>`}</div>
-    ${P.ov === 'turns' ? turnsOverlay() : P.ov ? pickerHtml(P.ov) : ''}</div>`, onSubmit, { cls: `sheet plus-sheet${P.edit ? ' plus-edit' : ''}` });
+    ${P.ov === 'turns' ? turnsOverlay() : P.ov === 'cal' ? calOverlay() : P.ov ? pickerHtml(P.ov) : ''}</div>`, onSubmit, { cls: `sheet plus-sheet${P.edit ? ' plus-edit' : ''}` });
   wire();
   restoreScroll();
   const f = focus && document.querySelector(`dialog[open] ${focus}`);
@@ -404,16 +483,40 @@ function onSubmit(form, action, e) {
   if (P.edit && editAction(a, b, c, action)) return;
   if (a === 'pop') { const was = P.pop; if (was) P.touched[was] = true; P.pop = was === b ? null : b; if (P.pop) P.more = false; if (b === 'when' && P.pop === 'when' && P.wc === undefined) P.wc = undefined; }
   else if (a === 'save') P.save = !P.save;
-  else if (a === 'appt') { P.appt = !P.appt; if (P.appt) { if (P.wc !== 'pick') P.wc = 'pick'; P.once = true; P.mode = 'at'; P.pop = 'when'; } }
+  else if (a === 'appt') { P.appt = !P.appt; if (P.appt) { if (P.wc !== 'pick') { P.wc = 'pick'; P.once = true; } P.mode = 'at'; } else if (P.mode === 'any') P.mode = 'first'; }
   else if (a === 'unknown') { P.unknown = !P.unknown; P.touched.len = true; linkTimes('len'); }
-  else if (a === 'wc') { P.wc = b === 'later' ? 'later' : b; P.touched.when = true; if (b === 'pick' && !P.once && !P.days.length) P.days = [isoDay(P.date)]; }
+  else if (a === 'wc') { P.wc = b === 'later' ? 'later' : b; P.touched.when = true; P.addOpen = false; if (b === 'pick') { P.once = true; P.dates = []; P.date = P.date < today() ? today() : P.date; } }
+  else if (a === 'add-open') P.addOpen = true;
+  else if (a === 'add-day') openCal(P.wc === 'pick' && !P.once ? 'extra' : 'days'); // (v118) a calendar to tap the days
+  else if (a === 'add-skip') openCal('skip');
+  else if (a === 'cal-m' && P.cal) P.cal.m = monthAdd(P.cal.m, Number(b));
+  else if (a === 'cal-d' && P.cal) { const d = action.slice(6); const i = P.cal.sel.indexOf(d); if (i >= 0) P.cal.sel.splice(i, 1); else P.cal.sel = [...P.cal.sel, d].sort(); }
+  else if (a === 'cal-q' && P.cal) {
+    const td = today(); const C = P.cal;
+    if (b === 'clr') C.sel = [];
+    else if (b === 'we') { let d = td; while (isoDay(d) !== 6) d = addDays(d, 1); C.sel = [...new Set([...C.sel, d, addDays(d, 1)])].sort(); C.m = monthOf(d); }
+    else if (b === 'wd') { const ref = C.sel.length ? C.sel[C.sel.length - 1] : (C.m > td ? C.m : td); const w = isoDay(ref); const add = []; for (let d = C.m; d.slice(0, 7) === C.m.slice(0, 7); d = addDays(d, 1)) if (d >= td && isoDay(d) === w) add.push(d); C.sel = [...new Set([...C.sel, ...add])].sort(); }
+  }
+  else if (a === 'cal-ok' && P.cal) {
+    const C = P.cal; const sel = [...C.sel].sort();
+    if (C.mode === 'extra') P.extra = sel;
+    else if (C.mode === 'skip') P.skips = sel;
+    else if (sel.length) { const last = dtime(dts()[dts().length - 1]); for (const d of sel) if (!P.dtimes[d]) P.dtimes[d] = { ...last }; setDates(sel); P.wc = 'pick'; P.once = true; if (!P.appt && P.mode === 'any') P.mode = 'first'; }
+    else if (P.wc === 'pick' && P.once) { P.wc = P.appt ? 'pick' : 'later'; P.dates = []; }
+    P.touched.when = true; P.ov = null; P.cal = null;
+  }
+  else if (a === 'xrm') { const l = [...P.extra].sort(); l.splice(Number(b), 1); P.extra = l; }
+  else if (a === 'srm') { const l = [...P.skips].sort(); l.splice(Number(b), 1); P.skips = l; }
+  else if (a === 'perday') { P.perDay = !P.perDay; if (P.perDay) for (const d of dts()) if (!P.dtimes[d]?.s && P.dtimes[d]?.s !== 0) P.dtimes[d] = { s: P.start, e: P.end }; }
+  else if (a === 'add-rh') { if (P.wc === 'pick' && P.once) P.extra = dts().filter((d) => d >= today() && d !== P.date); /* (v118) the days stay, as days in more */ P.wc = 'pick'; P.once = false; P.dates = []; P.addOpen = false; P.touched.when = true; if (P.mode === 'any') P.mode = 'first'; if (!P.days.length) P.days = [isoDay(P.date)]; if (P.per === 'settimana' && P.days.length) P.n = P.days.length; }
+  else if (a === 'drm') { const ds = dts(); ds.splice(Number(b), 1); if (ds.length) setDates(ds); else { P.wc = P.appt ? 'pick' : 'later'; P.dates = []; } }
   else if (a === 'once') { P.once = b === '1'; if (!P.once) { if (P.mode === 'any') P.mode = 'first'; if (!P.days.length) P.days = [isoDay(P.date)]; } }
-  else if (a === 'mode') { P.mode = b; if (b === 'at') focus = '#pl-s'; }
+  else if (a === 'mode') { P.mode = b === 'free' ? (P.appt && P.once ? 'any' : 'first') : b; if (b === 'at') focus = '#pl-s'; }
   else if (a === 'wd') { const d = Number(b); P.days = P.days.includes(d) ? P.days.filter((x) => x !== d) : [...P.days, d]; if (P.per === 'settimana' && P.days.length) P.n = P.days.length; }
   else if (a === 'until') P.until = b;
-  else if (a === 'cat') { P.cat = b || null; P.touched.cat = true; P.pop = null; }
-  else if (a === 'more') { P.more = !P.more; if (P.more) { if (P.pop) P.touched[P.pop] = true; P.pop = null; } } // (v92) a tab like the other three
-  else if (a === 'row') { P.open = P.open === b ? null : b; if (P.open) { P.more = true; P.pop = null; } }
+  else if (a === 'cat') { P.cat = b || null; P.touched.cat = true; P.open = null; }
+  else if (a === 'more') { P.more = !P.more; if (P.more && (P.open === 'cat' || P.open === 'place')) P.open = null; } // (v92) a tab like the other three
+  else if (a === 'row') { P.open = P.open === b ? null : b; if (P.open && b !== 'cat' && b !== 'place') P.more = true; if (P.open === 'cat' || P.open === 'place') P.more = false; }
   else if (a === 'ov') { P.ov = b; P.ovq = ''; P.ovt = 'recent'; focus = '#pl-ovq'; }
   else if (a === 'ovt') { P.ovt = b; P.ovq = ''; }
   else if (a === 'plc' && P.legOv) { if (placeById(b)) { P.tv[P.legOv] = b; P.tvOwn = true; } P.legOv = null; P.ov = null; P.ovq = ''; }
@@ -441,7 +544,7 @@ function onSubmit(form, action, e) {
     P.ov = null; P.ovq = '';
   }
   else if (a === 'ovk') { P.ov = b; P.ovq = ''; }
-  else if (a === 'ov-close') { P.ov = null; P.ovq = ''; P.legOv = null; }
+  else if (a === 'ov-close') { P.ov = null; P.ovq = ''; P.legOv = null; P.cal = null; }
   else if (a === 'turns') P.ov = 'turns';
   else if (a === 'ov-tog') { const i = P[b].findIndex((x) => x.id === c); if (i >= 0) P[b].splice(i, 1); else { const x = get('tasks', c); if (x) P[b].push({ id: x.id, title: x.title }); } }
   else if (a === 'ov-new') { const n = decodeURIComponent(action.slice(`ov-new:${b}:`.length)).trim(); if (n) P[b].push({ title: n, isNew: true }); P.ovq = ''; focus = '#pl-ovq'; }
@@ -498,6 +601,7 @@ function wire() {
   ln?.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); ln.blur(); } });
   lu?.addEventListener('change', () => { P.lenUnit = lu.value; if (ln.value.trim()) applyLen(); else redraw(); });
   v('pl-date')?.addEventListener('change', (ev) => { if (ev.target.value) { P.date = ev.target.value < today() ? today() : ev.target.value; redraw(); } });
+  form.querySelectorAll('[data-di]').forEach((inp) => inp.addEventListener('change', () => { if (!inp.value) return; const ds = dts(); ds[Number(inp.dataset.di)] = inp.value < today() ? today() : inp.value; setDates(ds); redraw(); }));
   v('pl-due')?.addEventListener('change', (ev) => { P.due = ev.target.value || ''; redraw(); });
   const nn = v('pl-n'); const per = v('pl-per');
   nn?.addEventListener('input', () => { const r = parseFreq(nn.value); if (r.per) per.value = r.per; });
@@ -506,6 +610,10 @@ function wire() {
   const time = (id, fn) => v(id)?.addEventListener('change', (ev) => { const m = parseTime(ev.target.value); if (m != null) { fn(m); redraw(); } });
   time('pl-s', (m) => { P.start = m; linkTimes('start'); });
   time('pl-e', (m) => { P.end = m; linkTimes('end'); });
+  dts().forEach((d, i) => { // (v118) each day its own time
+    time(`pl-dts${i}`, (m) => { const x = { ...dtime(d) }; const L = dlen(d); x.s = m; x.e = (m + L) % 1440; P.dtimes[d] = x; });
+    time(`pl-dte${i}`, (m) => { const x = { ...dtime(d) }; x.e = m; if (x.s == null) x.s = ((m - len()) % 1440 + 1440) % 1440; P.dtimes[d] = x; });
+  });
   for (let i = 0; i < 12; i++) {
     time(`pl-ts${i}`, (m) => { const x = P.times[i] = { ...(P.times[i] || {}) }; x.s = m; if (P.anchor === 'end' && x.e != null) setLenFrom(m, x.e); else x.e = (m + len()) % 1440; });
     time(`pl-te${i}`, (m) => { const x = P.times[i] = { ...(P.times[i] || {}) }; x.e = m; if (P.anchor === 'start' && x.s != null) setLenFrom(x.s, m); else x.s = ((m - len()) % 1440 + 1440) % 1440; });
@@ -614,16 +722,30 @@ function save() {
   // an appointment: fixed, at its day and time (all day, or several days)
   if (P.appt) {
     const days = L >= DAY ? Math.max(1, Math.round(L / DAY)) : 0;
-    const rec = saveEvent({ ...x, kind: 'event', minutes: days ? 60 : L, planDate: P.date, planTime: days ? null : P.start, ...(days > 1 ? { days } : {}) });
-    finish(rec, null, t('plApptSaved', relDay(P.date), days ? fmtLen(L) : fmtTime(P.start)));
+    const ds = dts(); const dt = datesTimes(ds); const at = days || P.mode !== 'at' ? null : dt ? dt[ds[0]]?.s ?? P.start : P.start;
+    const rec = saveEvent({ ...x, kind: 'event', minutes: days ? 60 : dt?.[ds[0]]?.m || L, planDate: ds[0], planTime: at, ...(days > 1 ? { days } : {}), ...(ds.length > 1 ? { dates: ds } : {}), ...(dt ? { datesTimes: dt } : {}) });
+    if (at != null) for (const d of ds.slice(1)) planTask(rec, d, Math.max(0, (dt?.[d]?.s ?? at) - anchorOffset(null, rec)), dt?.[d] ? { minutes: dt[d].m } : {}); // (v117) the other days (v118: each at its time)
+    finish(rec, null, t('plApptSaved', ds.length > 1 ? ds.map((d) => relDay(d)).join(', ') : relDay(P.date), days ? fmtLen(L) : at != null ? fmtTime(at) : t('allDay')));
     return;
   }
   if (P.wc === 'pick' && !P.once) {
     const r = rhythm(); Object.assign(x, r.fields);
+    const ex = canExtra(); // (v118) days in more, days skipped
+    if (ex && P.extra.length) x.extraDates = [...P.extra].sort();
+    if (ex && P.skips.length) x.skipped = [...P.skips].sort();
     const rec = saveTask(x);
     let b = null;
     if (r.at != null) b = planTask(get('tasks', rec.id), r.first, Math.max(0, r.at - anchorOffset(null, rec)));
+    if (ex && P.skips.length && r.at != null) { const k = get('tasks', rec.id); upsert('tasks', { ...k, skipped: [...new Set([...(k.skipped || []), ...P.skips])].sort() }, { silent: true }); ensureSeries(get('tasks', rec.id)); }
     finish(get('tasks', rec.id), b, t('plRoutineSaved', whenWords(true)));
+    return;
+  }
+  if (P.wc === 'pick' && dts().length > 1) {
+    // (v117) one thing on several days: a turn on each, at the time or in the first free gap that day
+    const ds = dts(); const dt = datesTimes(ds); const rec = saveTask({ ...x, dates: ds, datesAt: P.mode === 'at' ? P.start : null, ...(dt ? { datesTimes: dt } : {}), due: P.due || null });
+    let b = null;
+    for (const d of ds) { const at = dt?.[d]?.s ?? (P.mode === 'at' ? P.start : null); const nb = planTask(get('tasks', rec.id), d, at != null ? Math.max(0, at - anchorOffset(null, rec)) : null, dt?.[d] ? { minutes: dt[d].m } : {}); b ||= nb; }
+    finish(get('tasks', rec.id), b, t('plDaysSaved', ds.length));
     return;
   }
   const rec = saveTask(x);
@@ -676,7 +798,7 @@ function finish(rec, block, msg = null, tried = false) {
 
 // ---------- (v84) the same sheet for a task you already have ----------
 const PER_OF = { day: 'giorno', week: 'settimana', month: 'mese', year: 'anno' };
-const whenKey = () => JSON.stringify([P.appt, P.wc, P.once, P.date, P.mode, P.start, P.end, P.n, P.per, [...P.days].sort(), P.until, P.times.map((x) => x?.s ?? null)]);
+const whenKey = () => JSON.stringify([P.appt, P.wc, P.once, P.date, P.dates, P.mode, P.start, P.end, P.n, P.per, [...P.days].sort(), P.until, P.times.map((x) => x?.s ?? null), [...P.extra].sort(), [...P.skips].sort(), P.perDay && dts().map((d) => [dtime(d).s, dtime(d).e])]);
 function fromTask(x) {
   const p = fresh(x.title || '');
   Object.assign(p, {
@@ -684,7 +806,7 @@ function fromTask(x) {
     cat: x.category || null, imp: x.importance || 3, people: x.people || 2, place: x.place || '', placeId: placeById(x.placeId) ? x.placeId : null, tv: tvState(travelOf(x)), tvOwn: Boolean(x.travel && ('from' in x.travel || !placeById(x.placeId)?.travel)), notes: x.notes || '',
     stepObjs: realSteps(x).map((y) => ({ ...y })), checklist: [...(x.checklist || [])], buffer: x.buffer == null ? '' : x.buffer, room: x.room && typeof x.room === 'object' ? { ...x.room } : null,
     after: (x.after || []).map((id) => get('tasks', id)).filter(Boolean).map((y) => ({ id: y.id, title: y.title })),
-    touched: { len: true, when: true, cat: true }, more: true,
+    touched: { len: true, when: true, cat: true }, more: false,
   });
   // rules: "if done / if it fails → a task" are edited here; the others (preparations, missed, groceries) are kept as they are
   for (const r of rulesForEditor(x)) {
@@ -708,6 +830,18 @@ function fromTask(x) {
     if (at != null && !((x.dayTimes || []).length > 1)) Object.assign(p, { mode: 'at', start: at, end: (at + p.len) % 1440 }); else if (p.mode !== 'first') p.mode = 'first';
     p.until = x.repeatCount === 10 && !x.repeatUntil ? 'n10' : x.repeatCount || x.repeatUntil ? 'keep' : 'always';
     p.untilKeep = { repeatUntil: x.repeatUntil || null, repeatCount: x.repeatCount || null };
+    p.extra = (x.extraDates || []).filter((d) => d >= today()).sort(); p.skips = (x.skipped || []).filter((d) => d >= today()).sort(); // (v118)
+  } else if ((x.dates || []).length > 1) {
+    // (v117) several days: the days still to come (the first kept if all are past)
+    const fut = x.dates.filter((d) => d >= today()); const ds = fut.length ? fut : [x.dates[x.dates.length - 1]];
+    const tm = isEvent(x) ? (x.allDay ? null : x.eventTime ?? null) : x.datesAt ?? null;
+    Object.assign(p, { wc: 'pick', once: true, dates: ds.length > 1 ? ds : [], date: ds[0], mode: tm != null ? 'at' : isEvent(x) ? 'any' : 'first', start: tm });
+    if (tm != null) p.end = (tm + p.len) % 1440;
+    if (x.datesTimes && Object.keys(x.datesTimes).length) { // (v118) each day its own time
+      p.perDay = true; p.mode = 'at'; p.dtimes = Object.fromEntries(Object.entries(x.datesTimes).map(([d, v]) => [d, { s: v.s, e: (v.s + (v.m || p.len)) % 1440 }]));
+      const f = p.dtimes[ds[0]]; if (f) { p.start = f.s; p.end = f.e; }
+    }
+    p.due = isEvent(x) ? '' : x.due || '';
   } else if (isEvent(x)) {
     Object.assign(p, { wc: 'pick', once: true, date: x.due || today(), mode: x.allDay || x.eventTime == null ? 'any' : 'at', start: x.allDay ? null : x.eventTime ?? null });
     if (p.start != null) p.end = (p.start + p.len) % 1440;
@@ -719,7 +853,7 @@ function fromTask(x) {
   else { p.wc = 'later'; p.due = x.due || ''; }
   return p;
 }
-const REPEAT_OFF = { repeat: null, repeatDays: [], timesN: null, timesPer: null, dayTimes: null, slotTimes: null, seriesTime: null, every: 1, pickTime: null, repeatUntil: null, repeatCount: null, whenMode: 'once' };
+const REPEAT_OFF = { extraDates: null, repeat: null, repeatDays: [], timesN: null, timesPer: null, dayTimes: null, slotTimes: null, seriesTime: null, every: 1, pickTime: null, repeatUntil: null, repeatCount: null, whenMode: 'once' };
 // Sposta, Salta, the turns, the tasks around an appointment, the full editor, delete: true when handled
 function editAction(a, b, c, action) {
   const id = P.edit;
@@ -779,11 +913,23 @@ function saveEdit({ stay = false } = {}) {
     if (P.until === 'keep') Object.assign(x, P.untilKeep);
     if (r.fields.repeat !== 'times' && !r.fields.dayTimes && P.mode === 'at' && P.start != null) Object.assign(x, { seriesTime: P.start, pickTime: false });
     if (P.appt) Object.assign(x, { eventTime: P.mode === 'at' ? P.start : null, allDay: P.mode !== 'at' });
+    if (canExtra()) { x.extraDates = P.extra.length ? [...P.extra].sort() : null; x.skipped = [...(x0.skipped || []).filter((d) => d < td), ...P.skips].sort(); } // (v118)
     for (const y of openSeries(x0.id).filter((z) => z.auto !== false)) deleteBlock(y);
     rec = saveTask(x);
     if (isSeries(get('tasks', rec.id))) ensureSeries(get('tasks', rec.id));
   } else {
     if (was) { for (const y of openSeries(x0.id)) deleteBlock(y); Object.assign(x, REPEAT_OFF); }
+    // (v117) one or several days
+    const ds = P.wc === 'pick' && P.once ? dts() : [];
+    const hadDates = (x0.dates || []).length > 1;
+    x.dates = ds.length > 1 ? ds : null; x.datesAt = ds.length > 1 && P.mode === 'at' ? P.start : null;
+    const dt = ds.length > 1 ? datesTimes(ds) : null; x.datesTimes = dt; // (v118)
+    if (ds.length > 1 || hadDates) for (const y of upcomingOf(x0.id).filter((z) => !outcomeOf(z))) deleteBlock(y);
+    if (ds.length > 1) {
+      if (P.appt) Object.assign(x, { due: ds[0], allDay: P.mode !== 'at' || P.start == null, eventTime: P.mode === 'at' ? dt?.[ds[0]]?.s ?? P.start : null });
+      rec = saveTask(x); const f1 = get('tasks', rec.id);
+      if (!(P.appt && f1.allDay)) for (const d of ds) { const at = dt?.[d]?.s ?? (P.mode === 'at' ? P.start : null); planTask(f1, d, at != null ? Math.max(0, at - anchorOffset(null, f1)) : null, dt?.[d] ? { minutes: dt[d].m } : {}); }
+    } else {
     if (P.appt) Object.assign(x, { due: P.date, allDay: P.mode !== 'at' || P.start == null, eventTime: P.mode === 'at' ? P.start : null });
     rec = saveTask(x);
     const fresh1 = get('tasks', rec.id);
@@ -799,6 +945,7 @@ function saveEdit({ stay = false } = {}) {
     else if (P.wc === 'pick' && P.mode === 'first') { if (cur) deleteBlock(cur); planTask(fresh1, P.date, null); }
     else if (P.wc === 'pick') { if (cur) deleteBlock(cur); upsert('tasks', { ...fresh1, due: P.due && P.due < P.date ? P.due : P.date, onDay: P.date }, { silent: true }); }
     else if (cur && !was) deleteBlock(cur); // Da decidere: off the plan
+    }
   }
   changed();
   if (stay) { P.orig = whenKey(); return get('tasks', rec.id); }

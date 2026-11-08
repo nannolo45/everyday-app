@@ -323,3 +323,34 @@ export async function testConnection(repo = state.settings.repo, token = null) {
     return { error: 'network' };
   }
 }
+
+// ---------- (v117) the archive: done things moved out of the app, into archive/AAAA-MM.json in the data repo ----------
+// The app no longer loads them (they're deleted here, so the other devices drop them at the next sync);
+// Impostazioni › Archivio lists the months and brings any of them back.
+const archPath = (month) => `archive/${month}.json`;
+async function editArchive(month, fn) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const { sha, data } = await getFile(archPath(month));
+    const next = fn(data);
+    if (await putFile(archPath(month), `${JSON.stringify(next, null, 1)}\n`, sha)) return next;
+  }
+  throw new SyncError('conflict');
+}
+export async function archiveTasks(list, month = new Date().toISOString().slice(0, 7)) {
+  if (!isConfigured() || !list.length) return null;
+  const at = Date.now();
+  const recs = list.map((x) => { const { deleted, ...r } = x; void deleted; return { ...r, archivedAt: at }; });
+  await editArchive(month, (data) => [...data.filter((y) => !recs.some((r) => r.id === y.id)), ...recs]);
+  return month;
+}
+export async function archiveMonths() {
+  if (!isConfigured()) return [];
+  return (await listDir('archive')).map((f) => f.name.replace(/\.json$/, '')).filter((m) => /^\d{4}-\d{2}$/.test(m)).sort().reverse();
+}
+export async function readArchive(month) { return (await getFile(archPath(month))).data; }
+// takes them out of the file and returns them (the caller puts them back in the app)
+export async function unarchive(month, ids) {
+  let out = [];
+  await editArchive(month, (data) => { out = data.filter((y) => ids.includes(y.id)); return data.filter((y) => !ids.includes(y.id)); });
+  return out;
+}

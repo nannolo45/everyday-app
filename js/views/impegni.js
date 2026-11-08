@@ -31,12 +31,18 @@ export const RICETTE_APP = 'https://nannolo45.github.io/ricette-app/';
 export const TYPES = ['once', 'repeat'];
 export const STATES = ['toplan', 'planned', 'done'];
 export const WHENS = ['today', 'week', 'later', 'none'];
-export const SORTS = ['due', 'added', 'when', 'cat', 'type'];
+export const SORTS = ['due', 'added', 'when', 'cat', 'type', 'len'];
+export const LEN_F = ['5', '15', '30', '60', 'big']; // (v118) the Durata filter: up to 5m · 15m · 30m · 1h, or more
+const lenKey = (x) => { const m = Number(x.minutes) || 30; return m <= 5 ? '5' : m <= 15 ? '15' : m <= 30 ? '30' : m <= 60 ? '60' : 'big'; };
+const lenFits = (x, l) => { const m = Number(x.minutes) || 30; return l.some((k) => (k === 'big' ? m > 60 : m <= Number(k))); };
+export const VIEW_ICONS = ['🏋', '💼', '🏠', '🛒', '📚', '💊', '✈', '🎯', '⭐', '🔥', '🧹', '💡', '📞', '🎨', '🌱', '🧾'];
 
 export function defaultViews() {
   return [
     { id: 'overview', fixed: true, pin: true, f: {}, by: classic() ? 'added' : 'due', dir: classic() ? -1 : 1 }, // (v100) by deadline
-    { id: 'week', pin: true, f: { when: ['today', 'week'] }, by: 'when', dir: 1 },
+    { id: 'done', pin: true, f: { state: ['done'] }, by: 'added', dir: -1 }, // (v117) ✓ Fatte: what's done, to archive
+    { id: 'rtn', pin: true, f: { type: ['repeat'] }, by: 'cat', dir: 1 }, // (v117) ↻ Routine: what repeats, this week
+    { id: 'week', pin: false, f: { when: ['today', 'week'] }, by: 'when', dir: 1 },
     { id: 'shop', pin: true, shop: true, f: {} },
     { id: 'workout', pin: true, f: { src: ['palestra'] }, app: 'palestra', by: 'when', dir: 1 }, // (v102) Palestra's workouts, not all of Salute
     { id: 'home', pin: true, f: { cat: ['home'] }, by: 'when', dir: 1 },
@@ -51,7 +57,7 @@ export function defaultViews() {
 // 🏋 Palestra with Palestra connected. Their name and icon are fixed; untick them (no tab) or take them away («Togli»): a
 // taken-away one waits under «Viste di serie tolte» (settings.viewsGone) to be put back. Without its app a
 // view hides by itself, keeping its place for when the app is back.
-export const BUILTIN = { routine: { ic: '★', app: null }, shop: { ic: '🛒', app: null }, workout: { ic: '🏋', app: 'palestra' } };
+export const BUILTIN = { done: { ic: '✓', app: null }, rtn: { ic: '↻', app: null }, routine: { ic: '★', app: null }, shop: { ic: '🛒', app: null }, workout: { ic: '🏋', app: 'palestra' } };
 const appOn = (a) => !a || (a === 'ricette' ? ricetteConfigured() : palestraConfigured());
 export const goneViews = () => [...new Set([...(state.settings.viewsGone || []), ...(state.settings.rtViewGone ? ['routine'] : [])])].filter((id) => BUILTIN[id]);
 function allViews() {
@@ -59,7 +65,7 @@ function allViews() {
     .map((v) => (v.id === 'workout' && JSON.stringify(v.f || {}) === JSON.stringify({ cat: ['health'] }) ? { ...v, f: { src: ['palestra'] } } : v)); // (v102) the old «Salute» filter becomes «Palestra»
   if (!list.some((v) => v.id === 'overview')) list.unshift(defaultViews()[0]);
   const gone = goneViews();
-  for (const id of Object.keys(BUILTIN)) if (!gone.includes(id) && !list.some((v) => v.id === id)) list.push({ ...defaultViews().find((v) => v.id === id), pin: true });
+  for (const id of Object.keys(BUILTIN)) if (!gone.includes(id) && !list.some((v) => v.id === id)) { const v = { ...defaultViews().find((y) => y.id === id), pin: true }; if (id === 'done' || id === 'rtn') list.splice(Math.min(list.length, id === 'done' ? 1 : 2), 0, v); else list.push(v); } // (v117) Fatte and Routine right after Da fare
   return list.filter((v) => !gone.includes(v.id));
 }
 export function viewList() { return allViews().filter((v) => appOn(BUILTIN[v.id]?.app)); }
@@ -73,7 +79,7 @@ function saveViewsAll(shown) {
 export function takeAwayView(id) { saveSettings({ viewsGone: [...new Set([...(state.settings.viewsGone || []), id])] }); }
 export function restoreView(id) { saveSettings({ viewsGone: (state.settings.viewsGone || []).filter((x) => x !== id), ...(id === 'routine' ? { rtViewGone: false } : {}) }); }
 const saveViews = (list) => saveViewsAll(list);
-export const viewName = (v) => (BUILTIN[v.id] && !classic() ? `${BUILTIN[v.id].ic} ${t(v.id === 'routine' ? 'vw_saved' : `vw_${v.id}`)}` : v.name || (v.id === 'routine' && !classic() ? t('vw_saved') : t(`vw_${v.id}`))); // (v83) Routine → Salvate; (v91) with its icon
+export const viewName = (v) => (BUILTIN[v.id] && !classic() ? `${BUILTIN[v.id].ic} ${t(v.id === 'routine' ? 'vw_saved' : v.id === 'done' ? 'vw_doneV' : v.id === 'rtn' ? 'vw_rtn' : `vw_${v.id}`)}` : v.name ? `${v.ic && !classic() ? `${v.ic} ` : ''}${v.name}` : (v.id === 'routine' && !classic() ? t('vw_saved') : t(`vw_${v.id}`))); // (v83) Routine → Salvate; (v91) with its icon
 export function curView() { const l = viewList(); return l.find((v) => v.id === (ui.view2 || state.settings.curView)) || l[0]; }
 export function setView(id) { ui.view2 = id; ui.vTemp = null; ui.openRow = null; saveSettings({ curView: id }); }
 function patchView(id, patch) { saveViews(viewList().map((v) => (v.id === id ? { ...v, ...patch } : v))); }
@@ -115,6 +121,7 @@ export function matches(x, f = {}) {
   if (f.when?.length && !f.when.includes(whenOf(x))) return false;
   if (f.src?.includes('palestra') && !isPalestra(x)) return false;
   if (f.cat?.length) { const cs = catsOf(x); if (!(cs.length ? cs.some((c) => f.cat.includes(c)) : f.cat.includes(''))) return false; }
+  if (f.len?.length && !lenFits(x, f.len)) return false; // (v118)
   return true;
 }
 const filterOf = (v) => (ui.vTemp && ui.vTemp.id === v.id ? ui.vTemp.f : v.f) || {};
@@ -124,7 +131,7 @@ const valLabel = (k, v) => (k === 'cat' ? (v ? catName(get('categories', v)) : t
 export function showsText(v) {
   const f = filterOf(v);
   if (v.shop) return t('vwShowsShop');
-  const parts = ['type', 'state', 'when', 'cat', 'src'].filter((k) => f[k]?.length).map((k) => f[k].map((x) => valLabel(k, x)).join(t('orWord')));
+  const parts = ['type', 'state', 'when', 'cat', 'len', 'src'].filter((k) => f[k]?.length).map((k) => f[k].map((x) => valLabel(k, x)).join(t('orWord')));
   return t('vwShows', parts.length ? parts.join(' · ') : t('vwEverything'));
 }
 
@@ -152,9 +159,9 @@ export function groupsOf(list, by, dir = 1) {
     const kd = (x) => (typeOf(x) === 'repeat' ? nextPlanned(x.id)?.date : x.due || dateOf(x)) || '9999';
     return DUE_GROUPS.filter((g) => m.has(g)).map((g) => ({ key: g, label: t(`gd_${g}`), list: m.get(g).sort((a, b) => kd(a).localeCompare(kd(b)) || pos.get(a.id) - pos.get(b.id)) }));
   }
-  const key = (x) => (by === 'added' ? addedKey(x, td) : by === 'when' ? (typeOf(x) === 'repeat' && whenOf(x) !== 'today' ? 'rep' : whenOf(x)) : by === 'cat' ? (catsOf(x)[0] || '') : typeOf(x));
-  const order = by === 'added' ? ['today', 'yesterday', 'week', 'earlier'] : by === 'when' ? ['today', 'week', 'rep', 'later', 'none'] : by === 'cat' ? ['', ...cats] : TYPES;
-  const label = (k) => (by === 'added' ? t(`ga_${k}`) : by === 'when' ? t(`gw_${k}`) : by === 'cat' ? (k ? catName(get('categories', k)) : t('noGroup')) : t(`vf_type_${k}`));
+  const key = (x) => (by === 'added' ? addedKey(x, td) : by === 'when' ? (typeOf(x) === 'repeat' && whenOf(x) !== 'today' ? 'rep' : whenOf(x)) : by === 'cat' ? (catsOf(x)[0] || '') : by === 'len' ? lenKey(x) : typeOf(x));
+  const order = by === 'added' ? ['today', 'yesterday', 'week', 'earlier'] : by === 'when' ? ['today', 'week', 'rep', 'later', 'none'] : by === 'cat' ? ['', ...cats] : by === 'len' ? LEN_F : TYPES;
+  const label = (k) => (by === 'added' ? t(`ga_${k}`) : by === 'when' ? t(`gw_${k}`) : by === 'cat' ? (k ? catName(get('categories', k)) : t('noGroup')) : by === 'len' ? t(`vf_len_${k}`) : t(`vf_type_${k}`));
   const m = new Map();
   for (const x of list) { const k = key(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); }
   const smart = sortTasks(list, td); const pos = new Map(smart.map((x, i) => [x.id, i]));
@@ -194,9 +201,19 @@ export function dueBadge(x) {
   const td = today(); const late = x.due < td; const soon = !late && x.due <= addDays(td, 1);
   return `<span class="due-b${late ? ' late' : soon ? ' soon' : ''}">${esc(late ? t('dueLateShort', relDay(x.due)) : relDay(x.due))}</span>`;
 }
+// (v118) Righe compatte: one line, the category's dot, on the right when (red when late)
+export const compactRows = () => !classic() && state.settings.rowsCompact === true;
+function compactRow(x, un, open, color) {
+  const np = nextPlanned(x.id);
+  const right = x.due && !x.done ? dueBadge(x) : np && !x.done ? `<span class="cr-w">${esc(`${relDay(np.date)} ${fmtTime(np.start)}`)}</span>` : x.lenSet === false ? '' : `<span class="cr-w">${esc(fmtDur(x.minutes || 30))}</span>`;
+  return `<li class="vw-row rr crow${open ? ' open' : ''}${x.done ? ' done' : ''}" style="--c:${esc(color)}"><input type="checkbox" data-action="task-done" data-id="${esc(x.id)}" ${x.done ? 'checked' : ''} aria-label="${esc(t('markDone'))}"><i class="cr-dot" aria-hidden="true"></i>
+    <button class="task-main" type="button" data-action="${un ? 'vw-row' : 'task-view'}" data-id="${esc(x.id)}"${un ? ` aria-expanded="${open}"` : ''}><span class="item-text">${taskIcon(x)}${esc(x.title)}</span></button>${right}
+    ${open && un ? missChips(x) : ''}</li>`;
+}
 export function richRow(x) {
   const open = ui.openRow === x.id; const un = unsorted(x) && !classic();
   const c = catsOf(x)[0]; const color = (c && get('categories', c)?.color) || 'var(--line)';
+  if (compactRows()) return compactRow(x, un, open, color);
   const nSt = realSteps(x).length; const np = nextPlanned(x.id);
   const meta = [x.lenSet === false ? '' : fmtDur(x.minutes || 30), sizeWord(sizeOf(x)), nSt ? t('ox_nSteps', nSt) : '', c ? catName(get('categories', c)) : '', np && !x.done ? t('plannedAt', relDay(np.date), fmtTime(np.start)) : ''].filter(Boolean).join(' · ');
   return `<li class="vw-row rr${open ? ' open' : ''}${x.done ? ' done' : ''}" style="--c:${esc(color)}"><input type="checkbox" data-action="task-done" data-id="${esc(x.id)}" ${x.done ? 'checked' : ''} aria-label="${esc(t('markDone'))}">
@@ -225,14 +242,14 @@ function tabList(cur) {
   const nUn = flagCount(); const nShop = live(SH()).filter((i) => !i.checked).length; const items = allItems();
   const l = viewList(); const shown = [...l.filter((v) => v.pin), ...(cur.pin ? [] : [cur])];
   return [...shown.map((v) => ({ label:viewName(v), on:v.id === cur.id, action:'vw-tab', id:v.id, cls:v.pin ? '' : 'loose',
-    n:v.fixed && nUn ? (nUn > 99 ? '99+' : nUn) : v.shop ? nShop || '' : items.filter((x) => !x.done && matches(x, v.f || {})).length || '' })),
-  { label:`✎ ${t('vwEdit')}`, action:'vw-views', id:'', foot:true }];
+    n:v.id === 'done' ? items.filter((x) => x.done).length || '' : v.shop ? nShop || '' : items.filter((x) => !x.done && matches(x, v.f || {})).length || '' })),
+  { label:`＋ ${t('vwNew')}`, action:'vw-new', id:'', foot:true }, { label:`✎ ${t('vwEdit')}`, action:'vw-views', id:'', foot:true }];
 }
 const isRoutineList = (v) => { const f = filterOf(v); return (f.type || []).length === 1 && f.type[0] === 'repeat'; };
 function head(v, acts = '') {
   const rt = isRoutineList(v); const tv = taskView() === 'habit' && !rt ? 'list' : taskView();
   const nV = viewList().filter((y) => y.pin || y.id === v.id).length;
-  return pageHead({ title:t('tabTasks'), pickSub:showsText(v), pickTitle:t('vwViews'), pickHint:t('ph_nViews', nV), menu:v.shop ? '' : viewMenu({ p:'tv', cur:tv, title:t('tv_title'), items:tvItems(rt), opts:tvOptions }), tabs:tabList(v), acts });
+  return pageHead({ title:t('tabTasks'), pickSub:showsText(v), pickTitle:t('vwViews'), pickHint:t('ph_nViews', nV), menu:v.shop || v.id === 'done' ? '' : viewMenu({ p:'tv', cur:tv, title:t('tv_title'), items:tvItems(rt), opts:tvOptions }), tabs:tabList(v), acts, titlePick:!classic() });
 }
 // (v82) Routines without a rhythm (often «ogni …» lost by the + before v81): set it with one tap, or leave them.
 function rhythmCard() {
@@ -253,12 +270,15 @@ export function viewImpegni() {
   const pool = allItems().filter((x) => matches(x, f) && (!q || matchesQ(taskHay(x), q)));
   const quickN = pool.filter((x) => !x.done && typeOf(x) !== 'repeat' && sizeOf(x) === 's').length;
   const list = (showDone ? pool : pool.filter((x) => !x.done)).filter((x) => !ui.impQuick || (typeOf(x) !== 'repeat' && sizeOf(x) === 's')); // (v100) ⚡ only the quick ones
-  const done = showDone ? [] : pool.filter((x) => x.done);
+  const done = showDone || (!classic() && viewList().some((y) => y.id === 'done')) ? [] : pool.filter((x) => x.done); // (v117) the done ones live in ✓ Fatte
   const n = nOf(f);
   const changedF = ui.vTemp?.id === v.id && !sameF(ui.vTemp.f, v.f);
-  const tools = `<div class="task-tools ph-tools">${searchBox({ id: 'task-q', value: ui.taskQ || '' })}
+  const tools = classic() ? `<div class="task-tools ph-tools">${searchBox({ id: 'task-q', value: ui.taskQ || '' })}
     <button class="btn small tools-btn${n ? ' on' : ''}" type="button" data-action="vw-filters">⇅ ${esc(t('filters'))}${n ? ` · ${n}` : ''}</button>
-    <button class="btn small tools-btn" type="button" data-action="vw-sort" aria-label="${esc(t('sortGroup'))}">▤ ${esc(sortLabel(v))}</button>${classic() ? '' : `<button class="btn small tools-btn${ui.impQuick ? ' on' : ''}" type="button" data-action="imp-quick" aria-pressed="${Boolean(ui.impQuick)}" title="${esc(t('impQuickH'))}">⚡ ${esc(t('impQuick'))} · ${quickN}</button>`}</div>`;
+    <button class="btn small tools-btn" type="button" data-action="vw-sort" aria-label="${esc(t('sortGroup'))}">▤ ${esc(sortLabel(v))}</button></div>`
+    : `${searchBox({ id: 'task-q', value: ui.taskQ || '', ph: t('searchIn', BUILTIN[v.id] ? viewName(v).replace(/^\S+\s/, '') : v.name || viewName(v)) })}<button class="btn small tools-btn${n || ui.impQuick ? ' on' : ''}" type="button" data-action="vw-filters">⇅ ${esc(t('filters'))}${n + (ui.impQuick ? 1 : 0) ? ` · ${n + (ui.impQuick ? 1 : 0)}` : ''}</button>`; // (v117) one row: search · Filtri · the view ▾ (order and ⚡ are in Filtri)
+  void quickN;
+  if (v.id === 'done' && !classic()) return `${head(v, searchBox({ id: 'task-q', value: ui.taskQ || '', ph: t('searchIn', t('vw_doneV')) }))}${doneHtml(pool.filter((x) => x.done))}`;
   const nUn = flagCount();
   const card = !v.fixed || q ? '' : classic() ? (nUn ? `<div class="vw-card"><b>${esc(t('nToSort', nUn))}</b><button class="btn small primary" type="button" data-action="vw-triage">${esc(t('sortNow'))}</button></div>` : '') : overviewCards();
   const sv = isSalvate(v);
@@ -267,7 +287,7 @@ export function viewImpegni() {
   const row = v.fixed ? plainRow : (x) => fullRow(x, ws, sv);
   const fresh = !v.fixed ? [...(ui.justAdded || [])].map((id) => get('tasks', id)).filter((x) => x && list.includes(x)) : [];
   const freshSet = new Set(fresh);
-  const body = groups.map((g) => { const l = g.list.filter((x) => !freshSet.has(x)); return l.length ? `<section class="vw-grp"><h3 class="vw-gh${g.key === 'late' && (v.by || '') === 'due' ? ' late' : ''}">${esc(g.label)} <small>${l.length}${(() => { const m = classic() ? 0 : l.filter((x) => typeOf(x) !== 'repeat').reduce((n, x) => n + (x.minutes || 30), 0); return m ? ` · ${esc(fmtDur(m))}` : ''; })()}</small></h3><ul class="list tasks${v.fixed ? ' plain' : ' saved routines'}">${l.map(row).join('')}</ul></section>` : ''; }).join('');
+  const body = groups.map((g) => { const l = g.list.filter((x) => !freshSet.has(x)); return l.length ? `<section class="vw-grp"><h3 class="vw-gh${g.key === 'late' && (v.by || '') === 'due' ? ' late' : ''}">${esc(g.label)} <small>${l.length}${(() => { const m = classic() ? 0 : l.filter((x) => typeOf(x) !== 'repeat').reduce((n, x) => n + (x.minutes || 30), 0); return m ? ` · ${esc(fmtDur(m))}` : ''; })()}</small></h3><ul class="list tasks${v.fixed ? ' plain' : ' saved routines'}${compactRows() ? ' cmp-rows' : ''}">${l.map(row).join('')}</ul></section>` : ''; }).join('');
   // (v112) Kanban · Matrice · Abitudini instead of the list (the lists, the filters and the search stay)
   const tv = taskView() === 'habit' && !isRoutineList(v) ? 'list' : taskView();
   if (tv !== 'list') return `${head(v, tools)}${changedF ? `<p class="vw-shows"><span class="vw-changed">${esc(t('vwChanged'))}</span></p>` : ''}${tv === 'kanban' ? kanbanHtml(list, done) : tv === 'matrix' ? matrixHtml(list) : habitHtml(list)}`;
@@ -284,6 +304,48 @@ export function viewImpegni() {
   ${done.length ? `<section class="fold-sec grp-sec">${foldBtn('grp_done', t('grp_done'), done.length)}
     ${folded('grp_done') ? '' : `<ul class="list tasks done">${done.slice(0, 50).map((x) => taskRow(x)).join('')}</ul>
     <button class="btn small ghost" type="button" data-action="clear-done">${esc(t('clearDone'))}</button>`}</section>` : ''}`;
+}
+
+// (v117) ✓ Fatte: what's done, newest first; ↺ opens it again; 📦 Archivia tutte moves them to the data repo
+// (archive/AAAA-MM.json), out of the app; Impostazioni › Archivio brings them back.
+function doneHtml(list) {
+  const q = (ui.taskQ || '').trim();
+  const l = [...list].sort((a, b) => (b.doneAt || b.updatedAt || 0) - (a.doneAt || a.updatedAt || 0));
+  const when = (x) => (x.doneAt ? relDay(localDay(x.doneAt)) : '');
+  if (!l.length) return `<p class="empty">${esc(q ? t('noMatch') : t('doneEmpty'))}</p><p class="hint dn-hint">${esc(t('doneEmptyHint'))}</p>`;
+  return `<div class="dn-head"><small>${esc(t('doneN', l.length))}</small><button class="btn small" type="button" data-action="vw-archive">📦 ${esc(t('archiveAll'))}</button></div>
+    <ul class="list tasks done dn-list">${l.slice(0, 200).map((x) => { const c = catsOf(x)[0]; const color = (c && get('categories', c)?.color) || 'var(--line)'; return `<li class="vw-row rr done" style="--c:${esc(color)}"><button class="task-main" type="button" data-action="task-view" data-id="${esc(x.id)}"><span class="item-text">${taskIcon(x)}${esc(x.title)}<small>${esc([when(x), c ? catName(get('categories', c)) : ''].filter(Boolean).join(' · '))}</small></span></button><button class="icon dn-re" type="button" data-action="task-reopen" data-id="${esc(x.id)}" aria-label="${esc(t("reopen"))}" title="${esc(t('reopen'))}">↺</button></li>`; }).join('')}</ul>
+    ${l.length > 200 ? `<p class="hint">${esc(t('nMore', l.length - 200))}</p>` : ''}
+    <p class="hint dn-hint">${esc(t('archiveHint'))}</p>`;
+}
+const localDay = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+// (v117) ＋ Nuova vista: a name, what it shows, how it groups
+const iconRow = (cur) => `<div class="field-label">${esc(t('vwIcon'))}</div><div class="vw-icons">${['', ...VIEW_ICONS].map((e) => `<button class="vw-ic${(cur || '') === e ? ' on' : ''}" value="ic:${e}" formnovalidate aria-pressed="${(cur || '') === e}" aria-label="${esc(e || t('vwNoIcon'))}">${e || '—'}</button>`).join('')}</div>`;
+export function openNewView(draft = { name: '', f: { state: ['toplan', 'planned'] }, by: 'due' }) {
+  const f = draft.f;
+  const ch = (k, val) => { const on = (f[k] || []).includes(val); return `<button class="fchip${on ? ' on' : ''}" value="f:${k}:${esc(val)}" aria-pressed="${on}" formnovalidate>${esc(valLabel(k, val))}</button>`; };
+  const sec = (k, vals) => `<div class="field-label">${esc(t(`vfh_${k}`))}</div><div class="filters">${vals.map((x) => ch(k, x)).join('')}</div>`;
+  const n = allItems().filter((x) => matches(x, f) && (f.state?.includes('done') || !x.done)).length;
+  openModal(`<h2>＋ ${esc(t('vwNew'))}</h2>
+    <label>${esc(t('vwName'))}<input name="vname" value="${esc(draft.name)}" placeholder="${esc(t('vwNamePh'))}" autocomplete="off"></label>
+    ${iconRow(draft.ic)}
+    ${sec('type', TYPES)}${sec('state', STATES)}${sec('when', WHENS)}${sec('cat', ['', ...categories().map((c) => c.id)])}${sec('len', LEN_F)}
+    <div class="field-label">${esc(t('sortGroup'))}</div><div class="filters">${SORTS.map((k) => `<button class="fchip${draft.by === k ? ' on' : ''}" value="by:${k}" formnovalidate>${esc(t(`srt_${k}`))}</button>`).join('')}</div>
+    <p class="hint">${esc(t('vwMatchN', n))}</p>
+    <div class="button-row"><button class="btn primary" value="save">${esc(t('vwSaveView'))}</button><button class="btn ghost" value="cancel" formnovalidate>${esc(t('close'))}</button></div>`, (form, action, e) => {
+    e.preventDefault();
+    const name = form.vname.value;
+    if (action.startsWith('f:')) { const [, k, val] = action.split(':'); const l = f[k] || []; openNewView({ ...draft, name, f: { ...f, [k]: l.includes(val) ? l.filter((y) => y !== val) : [...l, val] } }); return; }
+    if (action.startsWith('by:')) { openNewView({ ...draft, name, by: action.slice(3) }); return; }
+    if (action.startsWith('ic:')) { openNewView({ ...draft, name, ic: action.slice(3) || null }); return; }
+    if (action === 'save') {
+      if (!name.trim()) { form.vname.focus(); return; }
+      const id = `v${Date.now().toString(36)}`;
+      saveViews([...viewList(), { id, name: name.trim(), ...(draft.ic ? { ic: draft.ic } : {}), pin: true, f, by: draft.by, dir: draft.by === 'added' ? -1 : 1 }]);
+      setView(id); modal.close(); render(); return;
+    }
+    modal.close();
+  }, { cls: 'sheet' });
 }
 
 // (v69) Routines that have ended, folded at the bottom of views that show routines: kept, with Riprendi.
@@ -478,14 +540,15 @@ export function openViews() {
     saveViews([cur[0], ...keys.map((k) => cur.find((v) => v.id === k)).filter(Boolean)]); render();
   });
 }
-function openViewMenu(id) {
+function openViewMenu(id, ic) {
   const v = viewList().find((y) => y.id === id); if (!v) return;
-  const bi = Boolean(BUILTIN[id]);
+  const bi = Boolean(BUILTIN[id]); const icon = ic === undefined ? v.ic || '' : ic;
   openModal(`<h2>${esc(viewName(v))}</h2>
-    ${bi ? '' : `<label>${esc(t('vwName'))}<input name="name" value="${esc(viewName(v))}" autocomplete="off"></label>`}
+    ${bi ? '' : `<label>${esc(t('vwName'))}<input name="name" value="${esc(v.name || viewName(v))}" autocomplete="off"></label>${iconRow(icon)}`}
     <p class="hint">${esc(t(bi ? 'vwTakeAwayHint' : 'vwDelHint'))}</p>
     <div class="button-row">${bi ? '' : `<button class="btn primary" value="save">${esc(t('save'))}</button>`}<button class="btn danger" value="del">${esc(t(bi ? 'vwTakeAway' : 'vwDelete'))}</button><button class="btn ghost" value="back">${esc(t('back'))}</button></div>`, (form, action) => {
-    if (action === 'save' && form.name?.value.trim()) patchView(id, { name: form.name.value.trim() });
+    if (action.startsWith('ic:')) { const nm = form.name?.value; setTimeout(() => { openViewMenu(id, action.slice(3)); const i = modal.querySelector('input[name="name"]'); if (i && nm != null) i.value = nm; }, 0); return; }
+    if (action === 'save' && form.name?.value.trim()) patchView(id, { name: form.name.value.trim(), ic: icon || null });
     if (action === 'del') { if (bi) takeAwayView(id); else saveViews(viewList().filter((y) => y.id !== id)); if (curView().id === id) setView('overview'); }
     render(); setTimeout(openViews, 0);
   }, { cls: 'sheet' });
@@ -496,8 +559,11 @@ export function openFilters() {
   const ch = (k, val) => { const on = (f[k] || []).includes(val); return `<button class="fchip${on ? ' on' : ''}" value="f:${k}:${esc(val)}" aria-pressed="${on}">${esc(valLabel(k, val))}</button>`; };
   const sec = (k, vals) => `<div class="field-label">${esc(t(`vfh_${k}`))}</div><div class="filters">${vals.map((x) => ch(k, x)).join('')}</div>`;
   const changedF = !sameF(f, v.f);
+  const by = v.by || 'when';
+  const top = classic() ? '' : `<div class="field-label">${esc(t('sortGroup'))}</div><div class="filters">${SORTS.map((k) => `<button class="fchip${k === by ? ' on' : ''}" value="by:${k}">${esc(t(`srt_${k}`))}${k === by ? ` ${(v.dir ?? 1) < 0 ? '↓' : '↑'}` : ''}</button>`).join('')}</div>
+    <div class="filters"><button class="fchip${ui.impQuick ? ' on' : ''}" value="quick" aria-pressed="${Boolean(ui.impQuick)}">⚡ ${esc(t('impQuick'))}</button></div>`;
   openModal(`<h2>⇅ ${esc(t('filters'))} · ${esc(viewName(v))}</h2>
-    ${sec('type', TYPES)}${sec('state', STATES)}${sec('when', WHENS)}${sec('cat', ['', ...categories().map((c) => c.id)])}
+    ${top}${sec('type', TYPES)}${sec('state', STATES)}${sec('when', WHENS)}${sec('cat', ['', ...categories().map((c) => c.id)])}${classic() ? '' : sec('len', LEN_F)}
     <label class="vw-save">${esc(t('vwSaveAs'))}<span class="row"><input name="vname" placeholder="${esc(t('vwNamePh'))}" autocomplete="off"><button class="btn small" value="saveas">＋ ${esc(t('vwSave'))}</button></span></label>
     <div class="button-row"><button class="btn primary" value="cancel">${esc(t('vwShow'))}</button>${changedF ? `<button class="btn" value="reset">${esc(t('vwAsBefore'))}</button>` : ''}${changedF && !v.fixed ? `<button class="btn" value="keep">${esc(t('vwKeep'))}</button>` : ''}</div>`, (form, action, e) => {
     e.preventDefault();
@@ -506,6 +572,8 @@ export function openFilters() {
       const cur = filterOf(v); const l = cur[k] || [];
       ui.vTemp = { id: v.id, f: { ...cur, [k]: l.includes(val) ? l.filter((y) => y !== val) : [...l, val] } };
     }
+    if (action.startsWith('by:')) { const k = action.slice(3); patchView(v.id, k === by ? { dir: -(v.dir ?? 1) } : { by: k, dir: k === 'added' ? -1 : 1 }); }
+    if (action === 'quick') ui.impQuick = !ui.impQuick;
     if (action === 'reset') ui.vTemp = null;
     if (action === 'keep') { patchView(v.id, { f: filterOf(v) }); ui.vTemp = null; }
     if (action === 'saveas') {

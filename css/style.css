@@ -930,7 +930,7 @@ details.set-sec > .set-body { padding-bottom: 8px; }
 
 /* ---------- v29: Today (home), drawer, settings cards ---------- */
 .plan-main { max-width: 1200px; margin: 0 auto; }
-.today { display: flex; flex-direction: column; gap: 14px; max-width: 760px; margin: 0 auto; padding-bottom: 12px; }
+[class="today"] { display: flex; flex-direction: column; gap: 14px; max-width: 760px; margin: 0 auto; padding-bottom: 12px; }
 .today-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .today-head h1 { margin: 6px 0 0; font-size: 1.5rem; }
 .today-head small { color: var(--muted); }
@@ -2905,3 +2905,120 @@ body:not(.is-wide) .mx { grid-template-columns: 1fr 1fr; } body:not(.is-wide) .m
 .ox-strip { position: relative; scroll-snap-type: x proximity; } .ox-chip { scroll-snap-align: center; }
 .ox-back { margin-left: auto; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 2px 10px; font: inherit; font-size: .74rem; font-weight: 700; cursor: pointer; letter-spacing: 0; text-transform: none; }
 .ox-back[hidden] { display: none; }
+
+/* ---------- v117: Quando in one card, Categoria · Luogo · Altro rows; Impegni title = view, toolbar; ✓ Fatte; archive ---------- */
+.pl-when { gap: 8px; }
+.pl-lblr { display: flex; justify-content: space-between; align-items: center; }
+.pl-lblr .linkish { font-size: .8rem; text-transform: none; letter-spacing: 0; color: var(--accent); font-weight: 700; padding: 0; }
+.pl-drow { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 4px 6px 4px 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.pl-drow .pl-dic { flex: none; width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-size: .95rem; }
+.pl-drow .pl-date { flex: 1; min-width: 0; border: 0; padding: 0; background: none; }
+.pl-drow .pl-x { margin-left: auto; }
+.pl-drow.rh .pl-num { width: 56px; text-align: center; }
+.pl-drow.rh .pl-sel { flex: 1; min-width: 0; }
+.pl-drow.none { border-style: dashed; padding: 8px 10px; }
+.pl-drow.none .pl-dic { background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--muted); }
+.pl-drow.none b { display: block; font-weight: 600; font-size: .92rem; } .pl-drow.none small { display: block; color: var(--muted); font-size: .8rem; }
+.pl-rhmore { display: flex; flex-direction: column; gap: 8px; padding: 2px 0 2px 40px; }
+.pl-add { width: 100%; min-height: 44px; border: 1.5px dashed var(--line); border-radius: 12px; background: none; color: var(--accent); font: inherit; font-weight: 700; font-size: .9rem; text-align: left; padding: 8px 12px; cursor: pointer; }
+.pl-addopts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pl-addopt { display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 10px; border: 1.5px solid var(--accent); border-radius: 12px; background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
+.pl-addopt:disabled { opacity: .45; border-color: var(--line); cursor: not-allowed; }
+.pl-addopt b { display: block; font-size: .92rem; } .pl-addopt small { display: block; color: var(--muted); font-size: .76rem; line-height: 1.3; margin-top: 2px; }
+.pl-secs { padding: 2px 12px; gap: 0; }
+.pl-secs .pl-orow:last-child .pl-ohead { border-bottom: 0; }
+.pl-sec { justify-content: flex-start; }
+.pl-sec .pl-sic { flex: none; width: 22px; text-align: center; color: var(--muted); }
+.pl-sec .pl-sl { flex: 1; }
+.pl-sec .pl-oval { max-width: 55%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.pl-secs .pl-obody { padding: 4px 0 10px; }
+.pl-secs .pl-more .pl-orow .pl-ohead { padding-left: 4px; }
+/* Impegni: the title is the view */
+.ph-tp .ph-row { flex-wrap: nowrap; }
+.ph-tp .ph-pickw { min-width: 0; flex: 1; }
+.ph-tbtn { display: inline-flex; align-items: baseline; gap: 8px; max-width: 100%; border: 0; background: none; padding: 0; color: var(--ink); font: inherit; cursor: pointer; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ph-tbtn .ph-tc { font: 600 .95rem var(--sans, inherit); color: var(--accent); }
+.ph-tbtn.on .ph-tc { transform: rotate(180deg); display: inline-block; }
+.ph-tbar { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
+.ph-tbar .search-box { flex: 1; min-width: 0; margin: 0; }
+.ph-tbar .tools-btn, .ph-tbar .pv-btn { flex: none; white-space: nowrap; }
+@media (min-width: 900px) { .ph-tbar { max-width: 720px; } }
+/* ✓ Fatte */
+.dn-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 2px 10px; }
+.dn-head small { color: var(--muted); }
+.dn-list .vw-row { opacity: .75; }
+.dn-list .task-main .item-text { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--ink) 35%, transparent); }
+.dn-list .dn-re { margin-left: auto; flex: none; }
+.dn-hint { margin: 12px 4px; }
+.arch-list li { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--line); }
+.arch-list li .item-text { flex: 1; min-width: 0; }
+.arch-sheet .pl-tog { margin-top: 12px; }
+.pl-drow .date-field .dp-ic { display: none; } .pl-drow .pl-date .date-field .dp-in { padding-right: 8px !important; }
+.dn-list .task-main .item-text small { text-decoration: none; display: block; }
+
+/* ---------- (v118) Quando: calendar sheet, days in more / skipped, a time for each day ---------- */
+.pl-cal { gap: 10px; }
+.pl-calnav { display: flex; align-items: center; justify-content: space-between; } .pl-calnav b { font-size: 1rem; text-transform: capitalize; }
+.pl-calnav .round.sm { width: 34px; height: 34px; font-size: 1rem; display: grid; place-items: center; padding: 0; }
+.pl-calnav .round.sm:disabled { opacity: .3; }
+.pl-calg { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; }
+.pl-calh { font-size: .66rem; font-weight: 800; color: var(--muted); padding: 2px 0; }
+.pl-cald { position: relative; aspect-ratio: 1; max-height: 46px; border: 0; border-radius: 50%; background: none; color: var(--ink); font: inherit; font-size: .9rem; cursor: pointer; padding: 0; }
+.pl-cald:disabled { color: color-mix(in srgb, var(--ink) 28%, transparent); cursor: default; }
+.pl-cald.td { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.pl-cald.occ { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.pl-cald.on { background: var(--accent); color: var(--accent-ink, #102021); font-weight: 800; }
+.pl-cald.busy::after { content: ''; position: absolute; left: 50%; bottom: 12%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--warn, #e8c27a); }
+.pl-cald.on.busy::after { background: currentColor; }
+.pl-calq { margin: 0; }
+.pl-calf { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
+.pl-lblsm { margin-top: 8px; }
+.pl-drow .pl-dtx { flex: 1; min-width: 0; } .pl-drow .pl-dtx b { display: block; font-weight: 600; font-size: .92rem; } .pl-drow .pl-dtx small { display: block; color: var(--muted); font-size: .78rem; }
+.pl-drow.skip .pl-dic { background: color-mix(in srgb, var(--danger, #e0685f) 16%, transparent); color: var(--danger, #e0685f); }
+.pl-drow.tm { flex-wrap: wrap; row-gap: 4px; }
+.pl-dtm { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+.pl-dtm input { width: 58px; text-align: center; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; font-size: .88rem; padding: 4px 2px; font-variant-numeric: tabular-nums; }
+
+/* ---------- (v118) Impegni: compact rows, view icons; Kanban drag ---------- */
+.list.tasks.cmp-rows li.vw-row.crow { min-height: 42px; flex-wrap: nowrap; gap: 8px; padding-left: 10px; }
+.vw-row.crow::before { display: none; }
+.vw-row.crow .cr-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+.vw-row.crow .task-main { padding-top: 6px; padding-bottom: 6px; }
+.vw-row.crow .item-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.vw-row.crow .cr-w { flex: none; color: var(--muted); font-size: .76rem; white-space: nowrap; margin-right: 10px; }
+.vw-row.crow .due-b { flex: none; margin-right: 10px; }
+.list.tasks.cmp-rows li.vw-row.crow.open { flex-wrap: wrap; }
+.vw-icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(38px, 1fr)); gap: 5px; margin-bottom: 6px; }
+.vw-ic { aspect-ratio: 1; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--muted); font: inherit; font-size: 1.1rem; padding: 0; cursor: pointer; }
+.vw-ic.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--ink); }
+.kb-c[data-kid] { touch-action: pan-y; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.kb-c.kb-from { opacity: .3; border-style: dashed; }
+.kb-ghost { position: fixed; left: 0; top: 0; z-index: 1000; pointer-events: none; margin: 0; box-shadow: 0 14px 30px rgba(0, 0, 0, .45); border-color: var(--accent); background: var(--surface); }
+.kb-col.kb-drop { border: 1.5px dashed var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--bg)); }
+.kb-col.kb-no { opacity: .55; }
+body.kb-dragging { cursor: grabbing; -webkit-user-select: none; user-select: none; }
+/* (v118) events: an appointment on several days, its days under it */
+.ev-days { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+.ev-days i { font-style: normal; font-size: .72rem; border: 1px solid var(--line); border-radius: 8px; padding: 1px 7px; background: var(--bg); color: var(--ink); }
+.ev-days i.past { color: var(--muted); text-decoration: line-through; opacity: .7; }
+.ev-days i.nx { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+/* (v118) Resoconto: Confronta con */
+.rp-cmp { position: relative; margin: 0 0 10px; max-width: 460px; }
+.rp-cmpb { width: 100%; display: flex; align-items: center; gap: 6px; text-align: left; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font: inherit; font-size: .88rem; padding: 8px 12px; cursor: pointer; }
+.rp-cmpb b { color: var(--muted); font-weight: 600; } .rp-cmp.on .rp-cmpb { border-color: var(--accent); } .rp-cmp.on .rp-cmpb b { color: var(--accent); }
+.rp-cmpb span { margin-left: auto; color: var(--muted); }
+.rp-cmpm { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 20; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 16px 40px rgba(0, 0, 0, .35); padding: 6px; }
+.rp-cmpm button { width: 100%; display: flex; justify-content: space-between; gap: 10px; border: 0; border-radius: 9px; background: none; color: var(--ink); font: inherit; font-size: .88rem; padding: 9px 10px; cursor: pointer; text-align: left; }
+.rp-cmpm button small { color: var(--muted); font-size: .76rem; white-space: nowrap; } .rp-cmpm button.on { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-weight: 700; }
+.rp-d { display: block; font-style: normal; font-size: .72rem; font-weight: 700; margin-top: 2px; } .rp-d.up { color: var(--green, #3d9a5b); } .rp-d.dn { color: var(--danger); } .rp-d.eq { color: var(--muted); font-weight: 500; }
+.rp-cat small .rp-d, .rp-bars small .rp-d { display: inline; margin-left: 4px; } .rp-lg .rp-d { display: inline; }
+.rp-ct { overflow: visible; }
+.rp-ck2 { position: absolute; top: -3px; bottom: -3px; width: 0; border-left: 2px solid var(--ink); opacity: .75; }
+.rp-cmplg { display: flex; align-items: center; gap: 8px; font-size: .74rem; color: var(--muted); margin: 8px 0 0; } .rp-cmplg .rp-ck2 { position: static; display: inline-block; height: 12px; }
+/* (v118) month calendar: today's cell the same size as the others (the Oggi page's .today rule no longer reaches it), its number circled */
+.m-cell.today .m-num { align-self: flex-start; min-width: 1.7em; padding: 0 5px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); text-align: center; }
+.rp-d.nt { color: var(--ink); opacity: .8; }
+.rp-bars small .rp-d { display: block; margin-left: 0; }
+.rp-cmpm button span { display: block; } .rp-cmpm button span::first-letter { text-transform: uppercase; }
+.pl-ovc.pl-cal { max-width: 480px; margin: 0 auto; }
+@media (min-width: 900px) { .pl-ovc.pl-cal { margin-bottom: 4vh; border-radius: 20px; } }

@@ -23,7 +23,8 @@ export const vmSeg = (lab, act, cur, choices) => `<div class="pv-r"><span>${esc(
 // tabs: [{ label, n, on, action, id, cls, foot }]
 // (v113) The tabs are no longer a strip that scrolls sideways: one button shows the one you're on (and, with pickSub,
 // what it shows), and opens a sheet with all of them. «foot» ones (✎ Viste) go at the bottom of the sheet.
-export function pageHead({ title, where = '', menu = '', tabs = [], acts = '', after = '', pickSub = '', pickTitle = '', pickHint = '' }) {
+// (v117) titlePick: the title itself is the view you're on (▾ opens the views), and the view menu joins the actions' row.
+export function pageHead({ title, where = '', menu = '', tabs = [], acts = '', after = '', pickSub = '', pickTitle = '', pickHint = '', titlePick = false }) {
   const items = tabs.filter((x) => !x.foot); const foot = tabs.filter((x) => x.foot);
   const cur = items.find((x) => x.on) || items[0]; const open = Boolean(ui.phOpen);
   const n = (x, on) => (x.n ? `<i class="${on ? 'on' : ''}">${esc(String(x.n))}</i>` : '');
@@ -34,6 +35,11 @@ export function pageHead({ title, where = '', menu = '', tabs = [], acts = '', a
       ${pickTitle ? `<div class="ph-sheet-t">${esc(pickTitle)}</div>` : ''}
       ${items.map((x) => `<button type="button" class="ph-opt${x.on ? ' on' : ''}${x.cls ? ` ${x.cls}` : ''}" aria-current="${Boolean(x.on)}" data-action="${x.action}" data-id="${esc(x.id)}"><span class="ph-opt-l">${esc(x.label)}</span>${n(x, x.on)}<span class="ph-opt-ck" aria-hidden="true">${x.on ? '✓' : ''}</span></button>`).join('')}
       ${foot.length ? `<div class="ph-sheet-sep"></div>${foot.map((x) => `<button type="button" class="ph-opt ph-foot" data-action="${x.action}" data-id="${esc(x.id)}">${esc(x.label)}</button>`).join('')}` : ''}</div>` : ''}</div>` : '';
+  if (titlePick && cur) {
+    const sheet = pick.slice(pick.indexOf('</button>') + 9, pick.lastIndexOf('</div>'));
+    return `<header class="ph ph-tp"><div class="ph-row"><div class="ph-pickw"><h1 class="ph-t"><button type="button" class="ph-tbtn${open ? ' on' : ''}" data-action="ph-open" aria-haspopup="dialog" aria-expanded="${open}" title="${esc(pickSub)}">${esc(cur.label)} <span class="ph-tc" aria-hidden="true">▾</span></button></h1>${sheet}</div>${where ? `<span class="ph-where">${where}</span>` : ''}</div>
+    <div class="ph-acts ph-tbar">${acts}${menu}</div>${after}</header>`;
+  }
   return `<header class="ph"><div class="ph-row"><h1 class="ph-t">${esc(title)}</h1>${where ? `<span class="ph-where">${where}</span>` : ''}<span class="ph-sp"></span>${menu}</div>
     ${pick}
     ${acts ? `<div class="ph-acts">${acts}</div>` : ''}${after}</header>`;

@@ -112,6 +112,7 @@ export function settingsHtml(s, msg) {
     <div class="button-row">
       <button class="btn small" type="button" data-action="sync-now">${esc(t('syncNow'))}</button>
       <button class="btn small ghost" type="button" data-action="gh-edit">${esc(t('changeConn'))}</button>
+      <button class="btn small ghost" type="button" data-action="archive-open">📦 ${esc(t('archiveTitle'))}</button>
     </div>
   </div>` : `
   <form class="form" id="gh-form">
