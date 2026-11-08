@@ -1,0 +1,356 @@
+// Two-way sync of local collections with JSON files in a private GitHub repository.
+// Plain collections live in data/<name>.json, monthly ones in data/<name>/<YYYY-MM>.json.
+import {
+  state, COLLECTIONS, SHARDED, RICETTE, PALESTRA, PAL_SESSIONS, PAL_CONTRACT, contractVersion, READ_ONLY, CONTRACT_FILES, contractTooNew, shardOf, mergeLists, purgeTombstones, serialize, replaceCollection, saveMeta,
+} from './store.js';
+
+// ---------- meals cooked here, counted in Ricette (contract v1: Everyday's one write to recipes.json) ----------
+// A meal ticked done queues {recipeId, blockId, at}; the next sync adds them to the recipe's cookedCount and
+// lastCooked on the copy it has just read from GitHub (so a count made in Ricette meanwhile is never lost),
+// spreading the record and touching nothing else. Unticked before that sync: taken off the queue.
+export function cookedQueue() { return state.meta.cookedQueue || []; }
+export function queueCooked(recipeId, blockId) {
+  if (cookedQueue().some((x) => x.recipeId === recipeId && x.blockId === blockId)) return;
+  saveMeta({ cookedQueue: [...cookedQueue(), { recipeId, blockId, at: Date.now() }] });
+}
+export function unqueueCooked(blockId) {
+  if (cookedQueue().some((x) => x.blockId === blockId)) saveMeta({ cookedQueue: cookedQueue().filter((x) => x.blockId !== blockId) });
+}
+// The recipes file with the queued counts added; null when nothing changes.
+export function withCooked(recipes, queue, now = Date.now()) {
+  let any = false;
+  const out = recipes.map((r) => {
+    const mine = queue.filter((x) => x.recipeId === r.id);
+    if (!mine.length || r.deleted) return r;
+    any = true;
+    return { ...r, cookedCount: (Number(r.cookedCount) || 0) + mine.length, lastCooked: Math.max(Number(r.lastCooked) || 0, ...mine.map((x) => x.at)), updatedAt: now };
+  });
+  return any ? out : null;
+}
+
+export function pathFor(collection, shard = null) {
+  return shard ? `data/${collection}/${shard}.json` : `data/${collection}.json`;
+}
+
+export function isConfigured() {
+  const s = state.settings;
+  return Boolean(s.owner && s.repo && s.token);
+}
+
+function branch() { return state.settings.branch || 'main'; }
+
+export function palestraConfigured() { return isConfigured() && Boolean(state.settings.palestraRepo?.trim()); }
+export function ricetteConfigured() { return isConfigured() && Boolean(state.settings.ricetteRepo?.trim()); }
+
+// (v95) Ricette's and Palestra's repositories may belong to another GitHub account: written «owner/repo»,
+// with a token of their own (`ricetteToken` / `palestraToken`, kept on this device; empty = the main token).
+export function repoTarget(repo = state.settings.repo, token = null) {
+  const s = state.settings; const r = String(repo || '').trim();
+  const [owner, name] = r.includes('/') ? r.split('/', 2).map((x) => x.trim()) : [String(s.owner || '').trim(), r];
+  const own = r && r === String(s.ricetteRepo || '').trim() ? s.ricetteToken : r && r === String(s.palestraRepo || '').trim() ? s.palestraToken : '';
+  return { owner, repo: name, token: String(token || own || s.token || '').trim() };
+}
+// «owner/repo» for showing a connection.
+export function repoLabel(repo) { const x = repoTarget(repo); return `${x.owner}/${x.repo}`; }
+
+function api(path, init = {}, repo = state.settings.repo, token = null) {
+  const x = repoTarget(repo, token);
+  const url = `https://api.github.com/repos/${encodeURIComponent(x.owner)}/${encodeURIComponent(x.repo)}${path ? '/' + path : ''}`;
+  return fetch(url, {
+    ...init,
+    cache: 'no-store',
+    headers: {
+      Authorization: `Bearer ${x.token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(init.headers || {}),
+    },
+  });
+}
+
+class SyncError extends Error {
+  constructor(code, status) { super(code); this.code = code; this.status = status; }
+}
+
+function fail(res) {
+  if (res.status === 401) return new SyncError('auth', 401);
+  if (res.status === 403) return new SyncError('forbidden', 403);
+  if (res.status === 404) return new SyncError('notfound', 404);
+  return new SyncError('http', res.status);
+}
+
+function b64decode(b64) {
+  const bin = atob(b64.replace(/\s/g, ''));
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function b64encode(text) {
+  const bytes = new TextEncoder().encode(text);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+async function getFile(path, repo) {
+  const ref = encodeURIComponent(branch());
+  const res = await api(`contents/${path}?ref=${ref}`, {}, repo);
+  if (res.status === 404) return { sha: null, data: [] };
+  if (!res.ok) throw fail(res);
+  const meta = await res.json();
+  let text;
+  if (meta.content) text = b64decode(meta.content);
+  else {
+    // Files over 1 MB come without inline content.
+    const raw = await api(`contents/${path}?ref=${ref}`, { headers: { Accept: 'application/vnd.github.raw' } }, repo);
+    if (!raw.ok) throw fail(raw);
+    text = await raw.text();
+  }
+  let data = [];
+  try { data = JSON.parse(text); } catch { data = []; }
+  return { sha: meta.sha, data: Array.isArray(data) ? data : [] };
+}
+
+async function putFile(path, text, sha, repo) {
+  const body = { message: `everyday: update ${path}`, content: b64encode(text), branch: branch() };
+  if (sha) body.sha = sha;
+  const res = await api(`contents/${path}`, {
+    method: 'PUT', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' },
+  }, repo);
+  if (res.status === 409 || res.status === 422) return false; // someone else wrote first
+  if (!res.ok) throw fail(res);
+  return true;
+}
+
+// Sync one file. For a monthly file only the records of that month are written to it,
+// but the merge runs against the whole local collection, so a block moved to another
+// month disappears from its old file instead of being pulled back.
+async function syncFile(c, shard, repo = state.settings.repo, path = pathFor(c, shard)) {
+  const inFile = (x) => shard == null || shardOf(c, x) === shard;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const remote = await getFile(path, repo);
+    stillCurrent();
+    // The prefs decide for themselves (the marker may have just arrived in them), the rest by the prefs as synced.
+    const frozen = (CONTRACT_FILES.has(c) && contractTooNew(c === 'r_prefs' ? remote.data : state.r_prefs)) || (c === 'p_prefs' && contractVersion(remote.data) > PAL_CONTRACT);
+    if (c === 'r_recipes' && cookedQueue().length && !contractTooNew(state.r_prefs)) {
+      const queue = cookedQueue();
+      const data = withCooked(remote.data, queue);
+      if (data) {
+        stillCurrent();
+        if (!(await putFile(path, serialize(data), remote.sha, repo))) continue;
+        remote.data = data;
+      }
+      // done (or the recipes are gone): off the queue, keeping anything queued meanwhile
+      await saveMeta({ cookedQueue: cookedQueue().filter((x) => !queue.includes(x)) });
+    }
+    if (READ_ONLY.has(c) || frozen) {
+      const next = [...state[c].filter((x) => !inFile(x)), ...remote.data].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
+      await replaceCollection(c, next);
+      return;
+    }
+    const merged = purgeTombstones(mergeLists(remote.data, state[c]));
+    const content = merged.filter(inFile);
+    const text = serialize(content);
+    if (text !== serialize(remote.data)) {
+      if (!(content.length === 0 && remote.sha == null)) { // don't create empty files
+        stillCurrent();
+        const ok = await putFile(path, text, remote.sha, repo);
+        if (!ok) continue;
+      }
+    }
+    stillCurrent();
+    // Merge again with whatever changed locally while we were talking to GitHub.
+    // Same order every time (by id), so an unchanged collection is recognised as unchanged.
+    await replaceCollection(c, purgeTombstones(mergeLists(content, state[c])).sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)));
+    return;
+  }
+  throw new SyncError('conflict');
+}
+
+// Months kept in sync: last month, this month, next month, any month edited on this
+// device, and any month the user is looking at.
+const watched = new Set();
+export function watchMonth(month) { watched.add(month); }
+// Palestra's sessions (read only): this month's file and last month's, as one local list.
+async function syncSessions(repo, now = new Date()) {
+  const out = [];
+  for (const m of [monthOffset(now, -1), monthOffset(now, 0)]) {
+    const f = await getFile(`data/sessions/${m}.json`, repo);
+    stillCurrent();
+    out.push(...(f.data || []));
+  }
+  await replaceCollection(PAL_SESSIONS, out.filter((x) => x && x.id).sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0)));
+}
+
+function monthOffset(date, n) {
+  const d = new Date(date.getFullYear(), date.getMonth() + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+export function shardsToSync(c, now = new Date()) {
+  const set = new Set([monthOffset(now, -1), monthOffset(now, 0), monthOffset(now, 1), ...watched]);
+  for (const key of Object.keys(state.meta.dirtyShards || {})) {
+    const [col, shard] = key.split('/');
+    if (col === c) set.add(shard);
+  }
+  return [...set].sort();
+}
+
+let running = null;
+// A sync belongs to the repository it started with. Switching repositories or emptying the device
+// pauses syncing (pauseSync): a sync in flight drops what it fetched instead of merging it into the
+// new state and uploads nothing more, and no new one starts (the minute timer, a change) until
+// resumeSync, once the switch is complete.
+let generation = 0;
+let runGen = 0;
+let paused = 0;
+function stillCurrent() { if (runGen !== generation) throw new SyncError('cancelled'); }
+export async function pauseSync() {
+  paused++;
+  generation++;
+  const r = running;
+  if (r) await r.catch(() => {});
+}
+export function resumeSync() { paused = Math.max(0, paused - 1); }
+let again = false;
+export function requestAgain() { if (running) again = true; }
+
+export function syncNow() {
+  if (!isConfigured() || paused) return Promise.resolve({ skipped: true });
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return Promise.resolve({ offline: true });
+  // Already syncing: ask for another round. If that run had just finished its loop, start a new one.
+  if (running) { again = true; return running.then(() => (again ? syncNow() : { ok: true })); }
+  runGen = generation;
+  running = (async () => {
+    try {
+      do {
+        again = false;
+        for (const c of COLLECTIONS) {
+          if (!SHARDED[c]) { await syncFile(c, null); continue; }
+          for (const shard of shardsToSync(c)) {
+            const key = `${c}/${shard}`;
+            const before = state.meta.dirtyShards[key];
+            await syncFile(c, shard);
+            // Only clear the flag if nothing was edited in that month while syncing.
+            const dirtyShards = { ...state.meta.dirtyShards };
+            if (dirtyShards[key] === before) delete dirtyShards[key];
+            await saveMeta({ dirtyShards, syncedShards: { ...state.meta.syncedShards, [key]: Date.now() } });
+          }
+        }
+        if (ricetteConfigured()) {
+          for (const [c, path] of Object.entries(RICETTE)) await syncFile(c, null, state.settings.ricetteRepo, path);
+        }
+        if (palestraConfigured()) {
+          const repo = state.settings.palestraRepo;
+          for (const [c, path] of Object.entries(PALESTRA)) await syncFile(c, null, repo, path);
+          await syncSessions(repo);
+        }
+        await saveMeta({ dirty: again, lastSync: Date.now(), lastError: null, palestraSynced: palestraConfigured() ? Date.now() : state.meta.palestraSynced, ricetteSynced: ricetteConfigured() ? Date.now() : state.meta.ricetteSynced });
+      } while (again);
+      return { ok: true };
+    } catch (e) {
+      if (e instanceof SyncError && e.code === 'cancelled') return { cancelled: true };
+      const code = e instanceof SyncError ? e.code : (e instanceof TypeError ? 'network' : 'unknown');
+      await saveMeta({ lastError: code });
+      return { error: code };
+    } finally {
+      running = null;
+    }
+  })();
+  return running;
+}
+
+export function isSyncing() { return Boolean(running); }
+
+// A photo from Ricette's repo (images/...), as a blob.
+export async function fetchRicettePhoto(path) {
+  if (!ricetteConfigured()) return null;
+  try {
+    const res = await api(`contents/${path}?ref=${encodeURIComponent(branch())}`, { headers: { Accept: 'application/vnd.github.raw' } }, state.settings.ricetteRepo);
+    return res.ok ? await res.blob() : null;
+  } catch { return null; }
+}
+
+// Ask GitHub to run a workflow in the data repo now (the Google Calendar sync).
+// Needs the token to have "Actions: Read and write"; returns 'ok', 'forbidden' or 'error'.
+export async function runWorkflow(file) {
+  if (!isConfigured()) return 'error';
+  try {
+    const res = await api(`actions/workflows/${file}/dispatches`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ref: branch() }),
+    });
+    if (res.status === 204 || res.ok) return 'ok';
+    return res.status === 403 || res.status === 404 ? 'forbidden' : 'error';
+  } catch { return 'error'; }
+}
+
+// Everything the Google Calendar workflow wrote: the status file and the monthly event files.
+// Used when a repository was copied from someone else's and carries their calendar.
+async function listDir(path, repo) {
+  const res = await api(`contents/${path}?ref=${encodeURIComponent(branch())}`, {}, repo);
+  if (res.status === 404) return [];
+  if (!res.ok) throw fail(res);
+  const list = await res.json();
+  return Array.isArray(list) ? list.filter((f) => f.type === 'file') : [];
+}
+async function deleteFile(path, sha, repo) {
+  const res = await api(`contents/${path}`, {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: `everyday: remove ${path}`, sha, branch: branch() }),
+  }, repo);
+  if (!res.ok && res.status !== 404) throw fail(res);
+}
+export async function removeCalendarData() {
+  const files = [];
+  const status = await getFile('data/gcal.json');
+  if (status.sha) files.push({ path: 'data/gcal.json', sha: status.sha });
+  for (const f of await listDir('data/events')) files.push({ path: f.path, sha: f.sha });
+  for (const f of files) await deleteFile(f.path, f.sha);
+  await replaceCollection('events', []);
+  await replaceCollection('gcal', []);
+  return files.length;
+}
+
+export async function testConnection(repo = state.settings.repo, token = null) {
+  if (!isConfigured()) return { error: 'missing' };
+  try {
+    const res = await api('', {}, repo, token);
+    if (!res.ok) return { error: fail(res).code };
+    const info = await res.json();
+    if (!info.permissions?.push) return { error: 'readonly' };
+    return { ok: true, private: info.private };
+  } catch {
+    return { error: 'network' };
+  }
+}
+
+// ---------- (v117) the archive: done things moved out of the app, into archive/AAAA-MM.json in the data repo ----------
+// The app no longer loads them (they're deleted here, so the other devices drop them at the next sync);
+// Impostazioni › Archivio lists the months and brings any of them back.
+const archPath = (month) => `archive/${month}.json`;
+async function editArchive(month, fn) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const { sha, data } = await getFile(archPath(month));
+    const next = fn(data);
+    if (await putFile(archPath(month), `${JSON.stringify(next, null, 1)}\n`, sha)) return next;
+  }
+  throw new SyncError('conflict');
+}
+export async function archiveTasks(list, month = new Date().toISOString().slice(0, 7)) {
+  if (!isConfigured() || !list.length) return null;
+  const at = Date.now();
+  const recs = list.map((x) => { const { deleted, ...r } = x; void deleted; return { ...r, archivedAt: at }; });
+  await editArchive(month, (data) => [...data.filter((y) => !recs.some((r) => r.id === y.id)), ...recs]);
+  return month;
+}
+export async function archiveMonths() {
+  if (!isConfigured()) return [];
+  return (await listDir('archive')).map((f) => f.name.replace(/\.json$/, '')).filter((m) => /^\d{4}-\d{2}$/.test(m)).sort().reverse();
+}
+export async function readArchive(month) { return (await getFile(archPath(month))).data; }
+// takes them out of the file and returns them (the caller puts them back in the app)
+export async function unarchive(month, ids) {
+  let out = [];
+  await editArchive(month, (data) => { out = data.filter((y) => ids.includes(y.id)); return data.filter((y) => !ids.includes(y.id)); });
+  return out;
+}
