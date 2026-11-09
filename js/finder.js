@@ -2,6 +2,7 @@
 // piano · Tutte, and a search over all of them. A task shows where it is on the plan as pills; a pill
 // jumps there and the block flashes. "Sposta…" opens the week grid for that one block.
 import { fitsNext, manualOn, slottedIds } from './pianifica.js';
+import { boxesHtml } from './boxes.js';
 import { catColor, catName, catsOf, esc, relDay, route, toast, ui } from './core.js';
 import { getLang, t } from './i18n.js';
 import { isEvent } from './kinds.js';
@@ -80,7 +81,7 @@ function taskRow(x) {
 }
 // (v98) Da pianificare follows the Planner: this day (and what's overdue, on today), this week by day, this month
 // by week; below, folded, what has no date and what's for other dates.
-function scopedRows() {
+export function scopedRows() { // (v121) the old list, kept for reference
   const { r, here, nodate, other, turns } = scopedTodo();
   const min = (xs) => xs.reduce((n, x) => n + (x.minutes || 30), 0);
   const scope = `<p class="fd-scope">${esc(t('fdScope', t(`fdIn_${r.v}`), here.length + turns.length, fmtDur(min(here)) || '0m'))}</p>`;
@@ -100,8 +101,30 @@ function scopedRows() {
   void scope;
   return `${empty}${body}${turnsHtml}${fold('nodate', t('fdNoDate'), nodate)}${fold('other', t('fdOther'), other)}`;
 }
+// (v121) The pane's Da pianificare as boxes (boxes.js): everything still to plan and the period's routine turns.
+function paneEntries() {
+  const { turns } = scopedTodo(); const tId = new Set(turns.map((r) => r.x.id));
+  const drag = (k, x) => ` draggable="true" data-drag="${k}" data-min="${x.minutes || 30}"`;
+  const short = (d) => (d === today() ? t('today').toLowerCase() : d === addDays(today(), 1) ? t('tomorrow').toLowerCase() : `${dayShort(isoDay(d))} ${Number(d.slice(8))}`);
+  const out = turns.map((r) => ({ key: `${r.x.id}~${r.date || ''}`, title: r.x.title, minutes: r.x.minutes || 30, cat: catsOf(r.x)[0] || '', kind: 'turn', rep: true,
+    tag: r.date ? short(r.date) : `×${r.n}`, when: r.date || '', on: ui.pick === r.x.id && (ui.pickOcc || '') === (r.date || ''),
+    act: `data-action="fd-pick" data-id="${esc(r.x.id)}" data-occ="${r.date || ''}"`, drag: drag(`turn:${esc(r.x.id)}:${r.date || ''}`, r.x) }));
+  for (const x of trayTasks()) {
+    if (tId.has(x.id)) continue;
+    const w = whenFor(x);
+    out.push({ key: x.id, title: x.title, minutes: x.minutes || 30, cat: catsOf(x)[0] || '', kind: x.repeat === 'times' ? 'turn' : w ? 'due' : 'none', rep: x.repeat === 'times',
+      tag: w ? `${x.onDay ? '📌 ' : ''}${short(w)}` : '', when: w || '', on: ui.pick === x.id, act: `data-action="fd-pick" data-id="${esc(x.id)}"`, drag: drag(`task:${esc(x.id)}`, x) });
+  }
+  return out;
+}
+function paneBoxes() {
+  const es = paneEntries();
+  if (!es.length) return `<p class="hint fd-empty">✓ ${esc(t('fdNoneIn', t(`fdIn_${viewRange().v}`)))}</p>`;
+  const pick = ui.pick && get('tasks', ui.pick);
+  return `${pick ? `<p class="hint">${esc(t('pnPicked', pick.title))}</p>` : ''}${boxesHtml(es, { scope: 'paneBox', max: 6 })}`;
+}
 function todoRows() {
-  if (isWide() && route().name === 'plan' && !manualOn()) return scopedRows(); // (v114) Manuale: everything still to plan
+  if (isWide() && route().name === 'plan' && !manualOn()) return paneBoxes(); // (v114) Manuale: everything still to plan; (v121) boxes
   const list = trayTasks();
   const turns = routineTurns();
   if (!list.length && !turns.length) return `<p class="hint fd-empty">${esc((ui.assign?.ghosts || []).length ? `✦ ${t('propsAllUp')}` : `✓ ${t('agAllPlanned')}`)}</p>`;

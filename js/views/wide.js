@@ -26,6 +26,34 @@ import { loadBar, paneWarnings, planStyle, weekStart } from './planner.js';
 const MQ = typeof matchMedia === 'function' ? matchMedia('(min-width: 1100px)') : null;
 export const isWide = () => Boolean(MQ?.matches) && !classic();
 MQ?.addEventListener?.('change', () => { ui.lastHtml = null; render(); });
+// (v121) The pane's width: drag its left edge (320–760 px, and the plan keeps 520 px at least); a double click
+// switches between narrow and wide. Kept on this device only.
+const PANE_MIN = 320; const PANE_MAX = 760;
+const paneCap = () => Math.max(PANE_MIN, Math.min(PANE_MAX, window.innerWidth - 224 - 520));
+const setPaneW = (w) => { const v = Math.round(Math.max(PANE_MIN, Math.min(paneCap(), w))); document.documentElement.style.setProperty('--pane-w', `${v}px`); return v; };
+const savedPaneW = () => { try { return Number(localStorage.getItem('everyday-paneW')) || 0; } catch { return 0; } };
+if (typeof document !== 'undefined' && savedPaneW()) setPaneW(savedPaneW());
+let paneDrag = null;
+if (typeof document !== 'undefined') {
+  document.addEventListener('pointerdown', (e) => {
+    const g = e.target.closest?.('.pane-grip'); if (!g || e.button > 0) return;
+    const pane = g.closest('.pane'); paneDrag = { x0: e.clientX, w0: pane.getBoundingClientRect().width, w: 0 };
+    g.setPointerCapture?.(e.pointerId); document.body.classList.add('pane-resizing'); e.preventDefault();
+  });
+  document.addEventListener('pointermove', (e) => { if (!paneDrag) return; paneDrag.w = setPaneW(paneDrag.w0 - (e.clientX - paneDrag.x0)); });
+  const end = () => {
+    if (!paneDrag) return; const w = paneDrag.w; paneDrag = null; document.body.classList.remove('pane-resizing');
+    if (w) { try { localStorage.setItem('everyday-paneW', String(w)); } catch { /* not here */ } ui.lastHtml = null; render(); }
+  };
+  document.addEventListener('pointerup', end); document.addEventListener('pointercancel', end);
+  document.addEventListener('dblclick', (e) => {
+    if (!e.target.closest?.('.pane-grip')) return;
+    const cur = document.querySelector('.pane')?.getBoundingClientRect().width || 380;
+    const w = setPaneW(cur >= 560 ? 400 : 640); try { localStorage.setItem('everyday-paneW', String(w)); } catch { /* not here */ }
+    ui.lastHtml = null; render();
+  });
+  window.addEventListener('resize', () => { if (savedPaneW()) setPaneW(savedPaneW()); });
+}
 
 const ICONS = {
   today: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v4.8l3 1.8"/></svg>',
@@ -126,7 +154,7 @@ export function wideWrap(html) {
   const hid = Boolean(state.settings.paneHidden) && pane; const mini = Boolean(state.settings.railMini);
   const strip = () => { const pl = r.name === 'plan'; const nC = pl ? conflictsOn(currentDate()).length : 0; const nT = pl ? trayTasks().length : 0;
     return `<aside class="pane strip" aria-label="${esc(t('pnLabel'))}"><button type="button" class="edge" data-action="pane-toggle" title="${esc(t('pane_show'))}" aria-label="${esc(t('pane_show'))}">«</button>${pl ? `<button type="button" class="pn-sb" data-action="ag-plan" title="${esc(t('smartTitle'))}" aria-label="${esc(t('smartTitle'))}">✦</button>${nC ? `<button type="button" class="pn-sb" data-action="pane-toggle" title="${esc(t('nConflicts', nC))}">⚠<em class="r">${nC}</em></button>` : ''}<button type="button" class="pn-sb" data-action="pane-toggle" title="${esc(t('agToPlan', nT))}">☰${nT ? `<em>${nT}</em>` : ''}</button>` : ''}</aside>`; };
-  return `${mark}<div class="wide${pane ? '' : ' no-pane'}${hid ? ' pane-hid' : ''}${mini ? ' rail-mini' : ''}">${rail()}<div class="wide-main">${html}</div>${pane ? (hid ? strip() : `<aside class="pane" aria-label="${esc(t('pnLabel'))}"><button type="button" class="edge pn-edge" data-action="pane-toggle" title="${esc(t('pane_hide'))}" aria-label="${esc(t('pane_hide'))}">»</button>${pane}</aside>`) : ''}</div>`;
+  return `${mark}<div class="wide${pane ? '' : ' no-pane'}${hid ? ' pane-hid' : ''}${mini ? ' rail-mini' : ''}">${rail()}<div class="wide-main">${html}</div>${pane ? (hid ? strip() : `<aside class="pane" aria-label="${esc(t('pnLabel'))}"><div class="pane-grip" data-grip="1" role="separator" aria-orientation="vertical" aria-label="${esc(t('pane_grip'))}" title="${esc(t('pane_grip'))}"></div><button type="button" class="edge pn-edge" data-action="pane-toggle" title="${esc(t('pane_hide'))}" aria-label="${esc(t('pane_hide'))}">»</button>${pane}</aside>`) : ''}</div>`;
 }
 
 // ---------- clicks that mean something else on a wide screen ----------

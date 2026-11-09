@@ -1415,7 +1415,7 @@ dialog.tri .tri-go .btn { flex: 1; }
 .ev2-gap u { color: var(--accent); text-decoration: none; }
 
 /* ---------- v56: wide screens — rail · tab · pane (views/wide.js) ---------- */
-body.is-wide { --pane: 380px; --hdr: 57px; padding-bottom: 0; }
+body.is-wide { --pane: var(--pane-w, 380px); --hdr: 57px; padding-bottom: 0; }
 body.is-wide .tabs { display: none; }
 body.is-wide main { max-width: none; padding: 0; }
 body.is-wide .vw-tabs { display: none; }
@@ -3057,3 +3057,44 @@ body.kb-dragging { cursor: grabbing; -webkit-user-select: none; user-select: non
 .ph-where .ph-date small { font-size: .8rem; }
 @media (pointer: coarse) { .ph-where .ph-nav .round.sm { width: 40px; height: 40px; } .ph-where .ph-today { min-height: 40px; } }
 .ph-row > .ph-where { align-self: flex-start; } /* (v120) the arrows stay at the same height in every view */
+
+/* (v121) the pane's left edge: drag to widen */
+.pane-grip { position: absolute; left: 0; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 3; touch-action: none; }
+.pane-grip::after { content: ''; position: absolute; left: 2px; top: 50%; width: 3px; height: 56px; margin-top: -28px; border-radius: 2px; background: var(--line); transition: background .15s; }
+.pane-grip:hover::after, body.pane-resizing .pane-grip::after { background: var(--accent); }
+body.pane-resizing, body.pane-resizing * { cursor: col-resize !important; user-select: none !important; }
+
+/* (v121) Riquadri: things in boxes, per categoria · per quando · per durata */
+.bx-wrap { display: flex; flex-direction: column; gap: 10px; }
+.bx-seg { display: flex; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
+.bx-seg button { flex: 1; min-width: 0; border: 0; border-radius: 999px; background: none; color: var(--muted); font: inherit; font-size: .8rem; padding: 6px 8px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bx-seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.bx-gap { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--accent); border-radius: 12px; background: var(--accent-soft); font-size: .86rem; }
+.bx-gap > span { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bx-gap small { color: var(--muted); font-size: .76rem; }
+.bx-gap .linkish { text-decoration: none; font-weight: 700; font-size: .8rem; white-space: nowrap; }
+.bx-nogap { margin: 0; }
+.bx-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; align-items: start; }
+.bx { min-width: 0; border: 1px solid var(--line); border-top: 3px solid var(--c); border-radius: 12px; background: var(--surface); padding: 8px 10px 6px; }
+.bx.full { grid-column: 1 / -1; }
+.bx.ring { box-shadow: 0 0 0 2px var(--accent); }
+.bx.dim { opacity: .55; }
+.bx-h { display: flex; align-items: baseline; gap: 6px; margin-bottom: 3px; }
+.bx-h b { font-size: .84rem; color: var(--c); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.bx-h small { margin-left: auto; color: var(--muted); font-size: .72rem; white-space: nowrap; }
+.bx.full .bx-l { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); column-gap: 14px; }
+.bx-l { list-style: none; margin: 0; padding: 0; }
+.bx-r { margin: 0 -5px; border-radius: 8px; }
+.bx-r.on { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.bx-r[draggable="true"] { cursor: grab; }
+.bx-b { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 30px; border: 0; background: none; padding: 0 5px; color: var(--ink); font: inherit; font-size: .82rem; line-height: 1.25; text-align: left; cursor: pointer; border-radius: 8px; }
+.bx-b:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.bx-b:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.bx-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--c); flex: none; }
+.bx-t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bx-m { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: .72rem; color: var(--muted); }
+.bx-rep { font-weight: 400; }
+.bx-tag { color: var(--warn); font-weight: 700; }
+.bx-e { margin: 4px 0; color: var(--muted); font-size: .78rem; }
+.bx-more { border: 0; background: none; padding: 5px 0 3px; color: var(--accent); font: inherit; font-size: .78rem; font-weight: 700; cursor: pointer; }
+@media (pointer: coarse) { .bx-b { min-height: 40px; font-size: .88rem; } .bx-more { min-height: 36px; } .bx-seg button { min-height: 36px; font-size: .84rem; } }

@@ -7,14 +7,16 @@ import { outcomeOf } from '../model.js';
 import { addDays, fmtDur, fmtTime, nowMinutes, parseDate, today } from '../plan.js';
 import { get, live, state } from '../store.js';
 import { vmSeg } from '../viewmenu.js';
+import { boxesHtml } from '../boxes.js';
 
-export const TVIEWS = ['list', 'kanban', 'matrix', 'habit'];
-const ICON = { list:'☰', kanban:'▥', matrix:'⊞', habit:'▦' };
+export const TVIEWS = ['list', 'boxes', 'kanban', 'matrix', 'habit'];
+const ICON = { list:'☰', boxes:'▤', kanban:'▥', matrix:'⊞', habit:'▦' };
 export const taskView = () => (TVIEWS.includes(state.settings.taskView) ? state.settings.taskView : 'list');
 export function tvItems(routineList) {
   return TVIEWS.map((k) => ({ k, icon:`<span class="pv-ic" aria-hidden="true">${ICON[k]}</span>`, label:t(`tv_${k}`), sub:t(`tv_${k}Sub`), off:k === 'habit' && !routineList ? t('tv_habitOff') : '' }));
 }
 export function tvOptions(k) {
+  if (k === 'boxes') return ''; // (v121) the grouping is the switch above the boxes
   if (k === 'kanban') return vmSeg(t('tv_cols'), 'tv-kby', state.settings.kanbanBy === 'cat' ? 'cat' : 'state', [['state', t('tv_byState')], ['cat', t('tv_byCat')]]);
   if (k === 'matrix') return vmSeg(t('tv_urgent'), 'tv-urg', state.settings.urgDays === 7 ? 7 : 2, [[2, t('tv_2d')], [7, t('tv_1w')]]);
   if (k === 'habit') return vmSeg(t('tv_days'), 'tv-hdays', state.settings.habitDays === 14 ? 14 : 7, [[7, '7'], [14, '14']]);
@@ -80,4 +82,17 @@ export function habitHtml(list) {
   return `<div class="hb" style="grid-template-columns:76px repeat(${rts.length},minmax(44px,1fr))"><span></span>${rts.map((x) => `<button type="button" class="hb-h" data-action="routine-open" data-id="${esc(x.id)}" style="color:${esc(colorOf(x))}">${esc(x.title)}<small>🔥 ${streak(x)}</small></button>`).join('')}
     ${days.map((d) => `<span class="hb-d${d === td ? ' td' : ''}">${esc(parseDate(d).toLocaleDateString(undefined, { weekday:'short', day:'numeric' }))}</span>${rts.map((x) => cell(x, d)).join('')}`).join('')}</div>
     <p class="hint kb-hint">${esc(t('hb_hint'))}</p>`;
+}
+
+// ---------- (v121) Riquadri: the open things in boxes, per categoria · per quando · per durata ----------
+export function boxesView(list) {
+  const open = list.filter((x) => !x.done);
+  const es = open.map((x) => {
+    const st = stateOf(x); const nb = st === 'planned' ? nextBlock(x) : null; const pb = st === 'pend' ? pendBlock(x) : null; const b = nb || pb;
+    const kind = x.repeat ? 'turn' : b ? 'planned' : x.due ? 'due' : 'none';
+    const tag = x.repeat ? '' : b ? `${relDay(b.date)} ${fmtTime(b.start)}` : x.due ? relDay(x.due) : '';
+    return { key:x.id, title:x.title, minutes:x.minutes || 30, cat:catsOf(x)[0] || '', kind, rep:Boolean(x.repeat), tag, when:b ? b.date : x.due || '', act:`data-action="task-view" data-id="${esc(x.id)}"` };
+  });
+  if (!es.length) return `<p class="empty">${esc(t('vwEmpty'))}</p>`;
+  return boxesHtml(es, { scope:'tasksBox', max:6 });
 }

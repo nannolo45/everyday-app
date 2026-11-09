@@ -436,6 +436,9 @@ view.addEventListener('click', (e) => {
     case 'tv-open': ui.tvOpen = !ui.tvOpen; ui.tvTab = null; render(); break;
     case 'tv-tab': ui.tvTab = id; render(); break;
     case 'tv-use': saveSettings({ taskView: id }); ui.tvTab = null; ui.tvOpen = false; render(); break;
+    case 'bx-mode': saveSettings({ [btn.dataset.scope]: id }); render(); break; // (v121) Riquadri: per categoria · quando · durata
+    case 'bx-open': ui.bxOpen = { ...(ui.bxOpen || {}), [id]: !ui.bxOpen?.[id] }; render(); break;
+    case 'bx-gap': ui.bxGap = (ui.bxGap || 0) + 1; render(); break;
     case 'tv-kby': saveSettings({ kanbanBy: id }); render(); break;
     case 'tv-rows': saveSettings({ rowsCompact: id === 'c' }); render(); break; // (v118) Righe Comode / Compatte
     case 'tv-urg': saveSettings({ urgDays: Number(id) }); render(); break;

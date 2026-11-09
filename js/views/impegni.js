@@ -22,7 +22,7 @@ import { weekStart } from './planner.js';
 import { SH, shopReader, viewShop } from './shop.js';
 import { foldBtn, folded, taskHay, taskRow } from './tasks.js';
 import { pageHead, viewMenu } from '../viewmenu.js';
-import { habitHtml, kanbanHtml, matrixHtml, taskView, tvItems, tvOptions } from './taskviews.js';
+import { boxesView, habitHtml, kanbanHtml, matrixHtml, taskView, tvItems, tvOptions } from './taskviews.js';
 
 // The older layouts stay reachable for the older test suites (a switch kept on the device, not a setting).
 export const classic = () => { try { return localStorage.getItem('everyday-classic') === '1'; } catch { return false; } };
@@ -290,7 +290,7 @@ export function viewImpegni() {
   const body = groups.map((g) => { const l = g.list.filter((x) => !freshSet.has(x)); return l.length ? `<section class="vw-grp"><h3 class="vw-gh${g.key === 'late' && (v.by || '') === 'due' ? ' late' : ''}">${esc(g.label)} <small>${l.length}${(() => { const m = classic() ? 0 : l.filter((x) => typeOf(x) !== 'repeat').reduce((n, x) => n + (x.minutes || 30), 0); return m ? ` · ${esc(fmtDur(m))}` : ''; })()}</small></h3><ul class="list tasks${v.fixed ? ' plain' : ' saved routines'}${compactRows() ? ' cmp-rows' : ''}">${l.map(row).join('')}</ul></section>` : ''; }).join('');
   // (v112) Kanban · Matrice · Abitudini instead of the list (the lists, the filters and the search stay)
   const tv = taskView() === 'habit' && !isRoutineList(v) ? 'list' : taskView();
-  if (tv !== 'list') return `${head(v, tools)}${changedF ? `<p class="vw-shows"><span class="vw-changed">${esc(t('vwChanged'))}</span></p>` : ''}${tv === 'kanban' ? kanbanHtml(list, done) : tv === 'matrix' ? matrixHtml(list) : habitHtml(list)}`;
+  if (tv !== 'list') return `${head(v, tools)}${changedF ? `<p class="vw-shows"><span class="vw-changed">${esc(t('vwChanged'))}</span></p>` : ''}${tv === 'boxes' ? boxesView(list) : tv === 'kanban' ? kanbanHtml(list, done) : tv === 'matrix' ? matrixHtml(list) : habitHtml(list)}`;
   return `${head(v, tools)}
   ${changedF ? `<p class="vw-shows"><span class="vw-changed">${esc(t('vwChanged'))}</span></p>` : ''}
   ${card}
