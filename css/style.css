@@ -2018,8 +2018,10 @@ body.is-wide #view > :last-child { margin-bottom: 0; }
 .plc-home .item-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .plc-home .item-text small { color: var(--muted); }
 .plc-em { width: 32px; height: 32px; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; background: var(--bg); font-size: 1.1rem; }
-.plc-list .task-main { display: flex; align-items: center; gap: 12px; }
-.plc-list small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plc-list .task-main { display: flex; align-items: center; gap: 12px; min-width: 0; width: 100%; }
+.plc-list li { min-width: 0; }
+.plc-list .item-text { flex: 1; min-width: 0; overflow: hidden; } /* (v119) long addresses ellipsize instead of widening the page on phones */
+.plc-list small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .seg.plc-filter > button { white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .st-open { color: var(--green, #3f8f5a); font-weight: 600; } .st-soon { color: var(--warn, #b5780c); font-weight: 600; } .st-closed { color: var(--danger, #b24a3c); font-weight: 600; }
 .plc-emojis { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 8px; }
