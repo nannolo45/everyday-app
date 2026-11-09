@@ -3107,3 +3107,16 @@ body.pane-resizing, body.pane-resizing * { cursor: col-resize !important; user-s
   dialog.sheet form { padding-bottom: max(48px, calc(18px + env(safe-area-inset-bottom, 0px))); }
   dialog.sheet form > .button-row:last-child, dialog.sheet .pl > .button-row:last-child { margin-bottom: 0; }
 }
+
+/* (v125) the phone Planner's Pianifica bar, above the tabs (in place of the ＋) */
+.plan-dock { position: fixed; margin: 0; left: 0; right: 0; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); z-index: 40; display: flex; align-items: center; gap: 10px; padding: 9px 14px; background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -8px 20px rgba(0,0,0,.18); }
+.pd-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pd-t b { font-size: .98rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pd-t small { color: var(--muted); font-size: .8rem; }
+.pd-btn { flex: none; min-height: 46px; padding: 0 16px; display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; }
+.pd-btn i { font-style: normal; font-size: .8em; }
+body.has-dock { padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 84px); }
+/* (v125) the laptop pane's Pianifica: how many are still to plan */
+.pf-cnt-b { display: inline-block; min-width: 22px; margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: var(--accent-ink); color: var(--accent); font-style: normal; font-size: .78rem; font-weight: 700; }
+body.has-dock #toast, body.has-dock .update-bar { bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 84px); }
+#view > .plan-dock { margin: 0; } /* not the last-child spacing */

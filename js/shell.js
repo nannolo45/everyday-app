@@ -19,7 +19,7 @@ import { focusScreenHtml } from './focus.js';
 import { todayRows, weekCardHtml } from './weekpick.js';
 import { viewSettings } from './views/settings.js';
 import { viewTasks } from './views/tasks.js';
-import { currentView, planCounts, planStyle, viewPlan } from './views/planner.js';
+import { currentView, planCounts, viewPlan } from './views/planner.js';
 import { viewEvents } from './views/events.js';
 import { isWide, wideWrap } from './views/wide.js';
 import { viewToday } from './views/today.js';
@@ -142,10 +142,11 @@ export function render() {
   $('#gear')?.classList.toggle('active', r.name === 'settings');
   document.body.classList.remove('compact'); // (v54) Compact is gone: rows are one line of facts anyway
   document.body.dataset.route = r.name === 'shop' ? 'tasks' : r.name; // (v52) list styles shared by To do, Saved, Shopping
+  document.body.classList.toggle('has-dock', r.name === 'plan' && !isWide()); // (v125) room for the Pianifica bar
   // The + button: on Oggi, Eventi and Attività (the shopping list and the Planner have their own).
   const fab = $('#fab');
   if (fab) {
-    fab.hidden = !['today', 'events', 'tasks', 'shop', 'plan'].includes(r.name) || (r.name === 'plan' && planStyle() === 'hours') // (v55) the agenda Planner has the + too
+    fab.hidden = !['today', 'events', 'tasks', 'shop'].includes(r.name) // (v125) the Planner has Pianifica instead (a bar on a phone, the pane on a laptop)
       || (shopReader() && (r.name === 'shop' || (r.name === 'tasks' && curView()?.shop))); // (v83) Ricette's list is only read here
     fab.setAttribute('aria-label', t('addMenuFab')); fab.title = t('addMenuFab');
   }

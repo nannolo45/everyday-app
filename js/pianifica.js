@@ -190,7 +190,7 @@ export function plPanel() {
   return `<div class="pf pf-wide">${x.top}${x.page}${x.tray}</div>`;
 }
 // the button (pane and phone card) — the period on screen, no ✦
-export const plButton = (cls = '') => `<button class="btn primary pf-btn ${cls}" type="button" data-action="pl-open" aria-expanded="${plOpen()}">${esc(t('planChoose'))} <span>· ${esc(periodLabel())}</span><i aria-hidden="true">${plOpen() ? '▴' : '▾'}</i></button>`;
+export const plButton = (cls = '', n = 0) => `<button class="btn primary pf-btn ${cls}" type="button" data-action="pl-open" aria-expanded="${plOpen()}">${esc(t('planChoose'))} <span>· ${esc(periodLabel())}</span>${n ? `<em class="pf-cnt-b" title="${esc(t('agToPlan', n))}">${n}</em>` : ''}<i aria-hidden="true">${plOpen() ? '▴' : '▾'}</i></button>`; // (v125) the laptop pane's shows how many are still to plan
 // The phone's sheet
 export function plSheet() {
   if (isWide() || !plOpen() || route().name !== 'plan') return '';

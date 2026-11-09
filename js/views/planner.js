@@ -81,11 +81,12 @@ export function viewPlan(date) {
   const where = `<span class="ph-nav"><a class="round sm" href="#/plan/${prev}" aria-label="${esc(t('previous'))}" title="${esc(t('previous'))}">‹</a><a class="round sm" href="#/plan/${next}" aria-label="${esc(t('next'))}" title="${esc(t('next'))}">›</a></span><a class="ph-today${showToday ? '' : ' here'}" href="#/plan/${td}"${showToday ? '' : ' aria-current="date"'}>${esc(t('today'))}</a><button class="day-title ph-date" type="button" data-action="pick-date" aria-haspopup="dialog" title="${esc(t(v === 'week' ? 'dp_pickWeek' : v === 'month' ? 'dp_pickMonth' : 'dp_pickDay'))}"><span class="day-name">${esc(title)}</span>${sub ? `<small>${esc(sub)}</small>` : ''}</button>`;
   const acts = `${ag ? '' : `<button class="btn small primary" type="button" data-action="auto">✦ ${esc(t('planBtn'))}</button><button class="btn small" type="button" data-action="add-menu">＋ ${esc(t('addMenu'))}</button>`}${nC ? `<button type="button" class="btn small mp-warnb" data-action="mp-warn" title="${esc(t('nConflicts', nC))}">⚠ ${nC}</button>` : ''}${v === 'day' ? `<span class="ph-load">${loadBar(date)}</span>` : ''}`;
   const head = pageHead({ title:t('tabPlan'), where, menu:pvMenu(v), tabs:VIEWS.map((k) => ({ label:t(`v_${k}`), on:k === v, action:'view', id:k })), pickTitle:t('ph_period'), acts });
-  if (ps === 'scaletta') return head + viewScaletta(v, date);
-  if (ps === 'mappa') return head + viewMappa(v, date);
-  if (ag) return `${head}<section class="plan-main agenda-main">${v === 'week' ? agendaWeek(date) : v === 'month' ? viewMonth(date) : agendaDay(date)}</section>`;
+  const dock = planDock(date);
+  if (ps === 'scaletta') return head + viewScaletta(v, date) + dock;
+  if (ps === 'mappa') return head + viewMappa(v, date) + dock;
+  if (ag) return `${head}<section class="plan-main agenda-main">${v === 'week' ? agendaWeek(date) : v === 'month' ? viewMonth(date) : agendaDay(date)}</section>${dock}`;
   const main = v === 'week' ? viewWeek(date) : v === 'month' ? viewMonth(date) : viewDay(date);
-  return `${head}<section class="plan-main">${main}</section>${trayHtml()}`;
+  return `${head}<section class="plan-main">${main}</section>${trayHtml()}${dock}`;
 }
 
 // (v106) One place for how the Planner looks: the button above the plan names the view (Agenda, A ore, Scaletta,
@@ -492,11 +493,21 @@ export function planCard() {
   if (pick) return `<div class="ag-pick"><span>${esc(t('pickBanner', pick.title, fmtDur(pick.minutes || 30)))}<small>${esc(t('swapHint'))}</small></span><button class="icon" type="button" data-action="fd-unpick" aria-label="${esc(t('close'))}">✕</button></div>`;
   const nPlan = trayTasks().length; const nFix = toFix(td, weekEndOf(td)).length;
   // on a phone one button, Pianifica: a smart suggestion, or Scelgo io (find, pick, place; also to find what's planned)
-  if (!wide) return `<div class="ag-card-top"><span><b>${esc(nPlan + nFix ? t('agToPlan', nPlan + nFix) : `✓ ${t('agAllPlanned')}`)}</b></span>${plButton('small')}</div>`;
+  if (!wide) return ''; // (v125) on a phone: the bar above the tabs (planDock)
   if (!state.settings.paneHidden && planStyle() !== 'hours') return ''; // (v106) the pane has ✦ and the list already
   if (!nPlan && !nFix) return `<p class="ag-ok">✓ ${esc(t('agAllPlanned'))}</p>`;
   // (v66) one word for both: what's to plan and this week's routine turns without a time yet
   return `<div class="ag-card-top"><span><b>${esc(t('agToPlan', nPlan + nFix))}</b></span><button class="btn small primary" type="button" data-action="ag-plan">✦ ${esc(t('smartTitle'))}</button></div>`;
+}
+// (v125) On a phone, Pianifica is a bar above the tabs, in place of the ＋: how much is still to plan, the free time
+// of the day on screen, and the button. Hidden while a proposal, a pick or the Pianifica sheet is on.
+export function planDock(date) {
+  if (isWide() || plOpen()) return '';
+  if ((ui.assign?.ghosts?.length || 0) + fixProps().length || ui.pick || ui.pickBlock) return '';
+  const td = today(); const n = trayTasks().length + toFix(td, weekEndOf(td)).length;
+  const free = currentView() === 'day' && date >= td ? freeStretches(date).filter((g) => !g.inside).reduce((a, g) => a + g.min, 0) : 0;
+  const sub = [currentView() === 'day' ? (date === td ? t('today').toLowerCase() : relDay(date)) : '', free ? t('dockFree', fmtDur(free)) : ''].filter(Boolean).join(' · ');
+  return `<div class="plan-dock"><span class="pd-t"><b>${esc(n ? t('agToPlan', n) : `✓ ${t('agAllPlanned')}`)}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</span><button class="btn primary pd-btn" type="button" data-action="pl-open" aria-expanded="false"><span aria-hidden="true">✦</span> ${esc(t('planChoose'))} <i aria-hidden="true">▾</i></button></div>`;
 }
 export function agItems(date) {
   const ghosts = ghostsOn(date).map((g) => ({ k: 'ghost', g, start: g.start, minutes: g.minutes || 30 }));
@@ -736,7 +747,8 @@ export function paneWarnings(date, extra = '') {
   const n = conflicts.length + late.length;
   const v = currentView(); const per = v === 'day' ? (date === td ? t('today').toLowerCase() : relDay(date)) : t(`smartFor_${v}`);
   void per;
-  return `<div class="pw">${plButton('pw-plan')}${plOpen() ? plPanel() : ''}${pickStep() ? '' : extra}
+  const nToPlan = trayTasks().length + toFix(td, weekEndOf(td)).length;
+  return `<div class="pw">${plButton('pw-plan', nToPlan)}${plOpen() ? plPanel() : ''}${pickStep() ? '' : extra}
     ${n ? `<button type="button" class="field-label pw-h" data-action="pw-fold" aria-expanded="${!pwFolded()}">${esc(t('pwTitle'))} <small>${n}</small><span class="pw-chev" aria-hidden="true">${pwFolded() ? '›' : '▾'}</span></button>${pwFolded() ? '' : `<ul class="pw-list">${cf}${lt}</ul>`}` : `<div class="field-label">${esc(t('pwTitle'))}</div><p class="hint">✓ ${esc(t('pwNone'))}</p>`}</div>`;
 }
 export function agendaWeek(date) {
