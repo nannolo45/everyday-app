@@ -15,9 +15,9 @@ export const bxMode = (scope) => (BX_MODES.includes(state.settings[scope]) ? sta
 const BANDS = [(m) => m <= 15, (m) => m > 15 && m <= 30, (m) => m > 30 && m <= 60, (m) => m > 60];
 
 // An entry: { key, title, minutes, cat, kind: 'turn'|'due'|'planned'|'none', when, tag, rep, act, drag, on }
-// act: the button's data attributes; drag: the row's (for dragging it onto the plan).
+// act: the button's data attributes; drag: the row's (for dragging it onto the plan); cls: more classes (' fit').
 function rowHtml(e, dot) {
-  return `<li class="bx-r${e.on ? ' on' : ''}"${e.drag || ''}><button type="button" class="bx-b" ${e.act}${e.on ? ' aria-pressed="true"' : ''}>${dot ? `<i class="bx-dot" style="--c:${esc(catColor(e.cat) || 'var(--line)')}" aria-hidden="true"></i>` : ''}<span class="bx-t">${esc(e.title)}</span><span class="bx-m">${e.rep ? '<b class="bx-rep" aria-hidden="true">↻</b>' : ''}${e.tag ? `<b class="bx-tag">${esc(e.tag)}</b>` : ''}<span>${esc(fmtDur(e.minutes || 30))}</span></span></button></li>`;
+  return `<li class="bx-r${e.on ? ' on' : ''}${e.cls || ''}"${e.drag || ''}><button type="button" class="bx-b" ${e.act}${e.on ? ' aria-pressed="true"' : ''}>${dot ? `<i class="bx-dot" style="--c:${esc(catColor(e.cat) || 'var(--line)')}" aria-hidden="true"></i>` : ''}<span class="bx-t">${esc(e.title)}</span><span class="bx-m">${e.rep ? '<b class="bx-rep" aria-hidden="true">↻</b>' : ''}${e.tag ? `<b class="bx-tag">${esc(e.tag)}</b>` : ''}<span>${esc(fmtDur(e.minutes || 30))}</span></span></button></li>`;
 }
 function boxHtml(key, title, color, list, { dot = true, max = 6, full = false, ring = false, dim = false, sub = null } = {}) {
   const open = Boolean(ui.bxOpen?.[key]); const shown = open ? list : list.slice(0, max);

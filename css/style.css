@@ -3098,3 +3098,6 @@ body.pane-resizing, body.pane-resizing * { cursor: col-resize !important; user-s
 .bx-e { margin: 4px 0; color: var(--muted); font-size: .78rem; }
 .bx-more { border: 0; background: none; padding: 5px 0 3px; color: var(--accent); font: inherit; font-size: .78rem; font-weight: 700; cursor: pointer; }
 @media (pointer: coarse) { .bx-b { min-height: 40px; font-size: .88rem; } .bx-more { min-height: 36px; } .bx-seg button { min-height: 36px; font-size: .84rem; } }
+/* (v122) Manuale's «Scegli» as boxes: what fits the lit place gets a ↑ */
+.pf-boxes { margin-top: 4px; }
+.bx-r.fit .bx-t::before { content: '↑ '; color: var(--accent); font-weight: 700; }

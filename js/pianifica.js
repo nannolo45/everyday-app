@@ -12,6 +12,7 @@ import { get, live, saveSettings, state } from './store.js';
 import { render } from './shell.js';
 import { cardRowsIn } from './weekpick.js';
 import { scheduleTravelRefresh } from './travel-plan.js';
+import { boxesHtml } from './boxes.js';
 import { moveBlockTo } from './placing.js';
 import { viewRange } from './finder.js';
 import { isWide } from './views/wide.js';
@@ -148,11 +149,16 @@ function pagePick() {
   const row = ({ x, b }) => { const on = used.has(x.id); const fit = !on && fitsNext(x);
     const meta = b ? t('plMovesHere', `${fmtDay(b.date, { weekday:'short', day:'numeric' })} · ${fmtHM(b.start)}`) : x.repeat ? t('plSrc_routine') : x.kind === 'saved' ? t('plSavedOne') : '';
     return `<button type="button" class="pf-it${on ? ' on' : ''}${fit ? ' fit' : ''}" data-action="pl-pick" data-id="${esc(x.id)}"${b ? ` data-block="${esc(b.id)}"` : ''}><span class="pf-dot" style="background:${catColor(x)}"></span><span class="pf-mt"><b>${hl(x.title || '')}</b>${meta ? `<small>${esc(meta)}</small>` : ''}</span><small class="pf-len">${esc(fmtDur(x.minutes || 30))}</small><span class="pf-add" aria-hidden="true">${on ? '✓' : '＋'}</span></button>`; };
+  // (v121) the same things as boxes (Per categoria · Per quando · Per durata): a tap adds it to the day, again takes it out
+  const entry = ({ x, b }) => { const on = used.has(x.id); const fit = !on && curTpl() !== 'free' && fitsNext(x);
+    return { key:x.id, title:x.title || '', minutes:x.minutes || 30, cat:catsOf(x)[0] || '', kind:b ? 'planned' : x.repeat ? 'turn' : x.due ? 'due' : 'none', rep:Boolean(x.repeat),
+      tag:on ? '✓' : b ? `${fmtDay(b.date, { weekday:'short', day:'numeric' })} ${fmtHM(b.start)}` : x.due ? fmtDay(x.due, { weekday:'short', day:'numeric' }) : '', when:b ? b.date : x.due || '',
+      on, cls:fit ? ' fit' : '', act:`data-action="pl-pick" data-id="${esc(x.id)}"${b ? ` data-block="${esc(b.id)}"` : ''}` }; };
   return `${sum}${chips}
     <label class="pf-search"><span aria-hidden="true">🔍</span><input id="pf-q" type="search" autocomplete="off" placeholder="${esc(t('plSearchAll'))}" value="${esc(s.q || '')}"></label>
     ${q ? `<div class="pf-lh"><span>${esc(t('plNFound', list.length))}</span></div>` : `<div class="pf-srow"><button type="button" class="pf-dd${s.srcMenu ? ' on' : ''}" data-action="pl-srcmenu" aria-expanded="${Boolean(s.srcMenu)}">${esc(srcName(src))} · ${counts[src]} ▾</button><span class="pf-lh">${esc(t('plTapAdd'))}</span>
       ${s.srcMenu ? `<div class="pf-srcm" role="menu">${SRC.map((k, i) => `${i === 4 ? '<hr>' : ''}<button type="button" role="menuitem" class="${k === src ? 'on' : ''}" data-action="pl-src" data-id="${k}">${esc(srcName(k))}<small>${counts[k]}</small></button>`).join('')}</div>` : ''}</div>`}
-    <div class="pf-items">${list.slice(0, 80).map(row).join('') || `<p class="hint">${esc(q ? t('noMatch') : t('trayEmpty'))}</p>`}</div>`;
+    ${q || !list.length ? `<div class="pf-items">${list.slice(0, 80).map(row).join('') || `<p class="hint">${esc(q ? t('noMatch') : t('trayEmpty'))}</p>`}</div>` : `<div class="pf-boxes">${boxesHtml(list.slice(0, 200).map(entry), { scope:'plBox', max:5 })}</div>`}`;
 }
 function trayHtml() {
   const s = st(); const d = dayOf(); const k = curTpl(); const T = TPLS[k]; const m = slotsOf(d);
