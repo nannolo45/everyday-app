@@ -156,7 +156,7 @@ function pagePick() {
       on, cls:fit ? ' fit' : '', act:`data-action="pl-pick" data-id="${esc(x.id)}"${b ? ` data-block="${esc(b.id)}"` : ''}` }; };
   return `${sum}${chips}
     <label class="pf-search"><span aria-hidden="true">🔍</span><input id="pf-q" type="search" autocomplete="off" placeholder="${esc(t('plSearchAll'))}" value="${esc(s.q || '')}"></label>
-    ${q ? `<div class="pf-lh"><span>${esc(t('plNFound', list.length))}</span></div>` : `<div class="pf-srow"><button type="button" class="pf-dd${s.srcMenu ? ' on' : ''}" data-action="pl-srcmenu" aria-expanded="${Boolean(s.srcMenu)}">${esc(srcName(src))} · ${counts[src]} ▾</button><span class="pf-lh">${esc(t('plTapAdd'))}</span>
+    ${q ? `<div class="pf-lh"><span>${esc(t('plNFound', list.length))}</span></div>` : `<div class="pf-srow"><button type="button" class="pf-dd${s.srcMenu ? ' on' : ''}" data-action="pl-srcmenu" aria-expanded="${Boolean(s.srcMenu)}">${esc(srcName(src))} · ${counts[src]} ▾</button>
       ${s.srcMenu ? `<div class="pf-srcm" role="menu">${SRC.map((k, i) => `${i === 4 ? '<hr>' : ''}<button type="button" role="menuitem" class="${k === src ? 'on' : ''}" data-action="pl-src" data-id="${k}">${esc(srcName(k))}<small>${counts[k]}</small></button>`).join('')}</div>` : ''}</div>`}
     ${q || !list.length ? `<div class="pf-items">${list.slice(0, 80).map(row).join('') || `<p class="hint">${esc(q ? t('noMatch') : t('trayEmpty'))}</p>`}</div>` : `<div class="pf-boxes">${boxesHtml(list.slice(0, 200).map(entry), { scope:'plBox', max:5 })}</div>`}`;
 }
