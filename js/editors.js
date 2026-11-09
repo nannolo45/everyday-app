@@ -3,6 +3,7 @@ import { isPalestra, PALESTRA_APP, palestraNote, startLink } from './palestra.js
 import { isRoutine, routines } from './routines.js';
 import { classic, curView, RICETTE_APP, setView, setWhen, viewName, viewTokens, wouldShow } from './views/impegni.js';
 import { openWeekGrid } from './weekgrid.js';
+import { openView } from './viewcard.js';
 import { upcomingOf, viewRange } from './finder.js';
 import { timePairHtml, wireTimePair } from './timepair.js';
 import { afterPantryChange, pantrySnap } from './lowstock.js';
@@ -1958,8 +1959,11 @@ export function openBlock(block, defaults = {}) {
     ? `<div class="es-state done"><span>✓ ${esc(b.endedAt ? `${t('esDoneLine')} · ${t('realOf', fmtDur(b.minutes), fmtDur(b.plannedMinutes || b.minutes))}` : t('esDoneLine'))}</span><button class="btn small" value="reset" formnovalidate>${esc(t('reset'))}</button></div>${b.endedAt || classic() ? '' : tookRow(b, task)}`
     : status === 'failed' ? `<div class="es-state fail"><span>✕ ${esc(t('esFailLine'))}</span><button class="btn small" value="reset" formnovalidate>${esc(t('reset'))}</button></div>`
     : running ? `<div class="es-state run"><span>⏱ ${esc(t('esRunning', Math.max(1, Math.round((Date.now() - b.startedAt) / 60000))))}</span></div><div class="es-row"><button class="btn primary" value="finish" formnovalidate>■ ${esc(t('esFinish'))}</button><button class="btn" value="fail" formnovalidate>✕ ${esc(t('esFail'))}</button></div>`
-    : `<div class="es-row">${b.date === today() && !isShop ? `<button class="btn" value="block-start" formnovalidate>▶ ${esc(t(isPalestra(task) ? 'palStart' : 'esStart'))}</button>` : ''}<button class="btn primary" value="done" formnovalidate>✓ ${esc(t('esDone'))}</button><button class="btn" value="fail" formnovalidate>✕ ${esc(t('esFail'))}</button></div>`}${cnt}${learn}</div>`;
-  openModal(pickWrap(pick, `
+    : ''}${cnt}${learn}</div>`;
+  // (v120) nothing to say about how it went yet: no Esito here (✓ Fatto lives on the card this sheet came from)
+  const esitoShown = !esNew || isNew || isShop || status || running || cnt || learn ? esito : '';
+  const backBtn = esNew && !isNew && !isShop ? `<button class="bk-back" value="vc-back" formnovalidate>‹ ${esc(t('back'))}</button>` : '';
+  openModal(pickWrap(pick, `${backBtn}
     ${!esNew || isShop ? `<h2>${esc(isShop ? `🛒 ${t('groceryTitle')}` : isNew ? t('newBlock') : t('editBlock'))}</h2>` : ''}
     ${parent ? `<p class="hint">↳ ${esc(t('prepForBlock', parent.title, fmtTime(parent.start)))}</p>` : ''}
     ${status === 'failed' ? `<p class="conn bad">✕ ${esc(t('markedCouldnt'))}${b.missing?.length ? ` ${esc(t('missingWere', b.missing.join(', ')))}` : ''}</p>` : ''}
@@ -1996,7 +2000,7 @@ export function openBlock(block, defaults = {}) {
     ${turnUi ? `<button class="tb-belongs" value="edit-task" formnovalidate><span>${esc(isSeries(task) ? t('tbRoutine', task.title) : isEvent(task) ? t('tbAppt') : t('tbTask', task.title))}<small>${esc(isSeries(task) ? t('tbRoutineSub') : t('tbTaskSub'))}</small></span><span aria-hidden="true">›</span></button>`
     : isShop || isNew ? '' : task ? `<button class="btn small edit-task" value="edit-task" formnovalidate>${isEvent(task) ? '📅' : '▤'} ${esc(t(isEvent(task) ? 'editEventBtn' : 'editTaskSteps', task.title))}</button>`
     : `<button class="btn small edit-task" value="to-task" formnovalidate>▤ ${esc(t('makeTask'))}</button>`}
-    ${esNew ? `<div class="bk-foot">${esito}<div class="button-row bk-row">
+    ${esNew ? `<div class="bk-foot">${esitoShown}<div class="button-row bk-row">
       <button class="btn primary" value="ok">${esc(t('save'))}</button>
       <button class="btn" value="cancel" formnovalidate>${esc(t(isNew ? 'cancel' : 'close'))}</button>
       ${isNew ? '' : `<details class="bk-more"><summary class="btn" aria-label="${esc(t('options'))}">⋯</summary><div class="bk-menu"><button class="btn ghost" value="dup" formnovalidate>⧉ ${esc(t('duplicate'))}</button><button class="btn ghost danger" value="delete" formnovalidate>🗑 ${esc(t('delete'))}</button></div></details>`}
@@ -2007,6 +2011,8 @@ export function openBlock(block, defaults = {}) {
       ${isNew ? '' : `<button class="btn" value="dup" formnovalidate>${esc(t('duplicate'))}</button>
       <button class="btn danger" value="delete" formnovalidate>${esc(t('delete'))}</button>`}
     </div>`}`), (form, action, e) => {
+    // (v120) ‹ Indietro: save what was changed, then back to the card (the first screen)
+    const back = action === 'vc-back'; if (back) action = 'ok';
     if (stepAction(b, action, e, openBlock)) return;
     // (v88) the recipe list beside the sheet (a computer): its own actions; Fatto sets the recipes
     if (pick && action.startsWith('pk-')) {
@@ -2134,6 +2140,7 @@ export function openBlock(block, defaults = {}) {
       if (r.date !== currentDate()) location.hash = `#/plan/${r.date}`;
       changed();
       warnConflicts(get('blocks', saved.id));
+      if (back) setTimeout(() => { const nb = get('blocks', saved.id); if (nb) openView(nb); }, 0);
     };
     const seriesChange = b.seriesId && task && !isNew && (rec.start !== b.start || rec.minutes !== b.minutes || rec.title !== b.title || (rec.category || null) !== (b.category || null));
     // (v71) only the length changed, on a routine of a few weekdays: all those weekdays, only this one, or all

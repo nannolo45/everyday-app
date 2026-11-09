@@ -44,7 +44,7 @@ import { openWeekGrid } from './weekgrid.js';
 import { goToBlock, goToProposal, openChooser, openPropsList, resumeRoutine, sheetClick } from './finder.js';
 import { setLowPref } from './lowstock.js';
 import { countToast, firstFreeStart, moveBlockTo, openConflictChoice, openDropOn, placeItem, unplanToPane, openFixChoice } from './placing.js';
-import { currentView, unmarkedToday } from './views/planner.js';
+import { currentView, pwFolded, setPwFolded, unmarkedToday } from './views/planner.js';
 import { graphClick } from './graph.js';
 import { scClick } from './views/scaletta.js';
 import { mpClick, mpDragged } from './views/mappa.js';
@@ -287,6 +287,7 @@ view.addEventListener('click', (e) => {
     case 'rh-ok': { const x = get('tasks', id); if (x) upsert('tasks', { ...x, rhythmOk: true }); changed(); break; }
     case 'rh-all': { for (const x of noRhythm()) setWeekly(x); saveSettings({ rhythmAsked: true }); toast(t('rhAllDone')); changed(); break; }
     case 'rh-none': saveSettings({ rhythmAsked: true }); changed(); break;
+    case 'pw-fold': setPwFolded(!pwFolded()); render(); break; // (v120)
     case 'fd-unpick': { ui.pick = null; ui.pickOcc = null; ui.pickBlock = null; const ch = ui.chain; ui.chain = null; render(); if (ch) toast(t('chainStopped'), 7000, [{ label: t('undoAll'), run: () => { ch.undo(); changed(); toast(t('undone')); } }]); break; } // (v81)
     case 'swap-event': openDropOn('event', id); break;
     case 'box-fold': { ui.boxFold = ui.boxFold || new Set(); if (ui.boxFold.has(id)) ui.boxFold.delete(id); else ui.boxFold.add(id); render(); break; } // (v71) placing on an invitation: you won't go, it takes its slot

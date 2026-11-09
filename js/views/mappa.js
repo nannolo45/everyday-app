@@ -7,12 +7,12 @@
 // drag a port onto another thing: the preview, with the guardrails.
 import { catColor, catName, categories, esc, fmtDay, planSettings, relDay, toast, ui } from '../core.js';
 import { t } from '../i18n.js';
-import { checklistOf, conflictsOn, conflictText, outcomeOf, roomy, stepTimes } from '../model.js';
+import { checklistOf, conflictsOn, conflictText, isInvite, outcomeOf, roomy, stepTimes } from '../model.js';
 import { addDays, fmtDur, fmtTime, nowMinutes, parseDate, today } from '../plan.js';
 import { changed, render } from '../shell.js';
 import { get, live, saveSettings, state, upsert } from '../store.js';
 import { dropOn, ghostHtml, LT, linkPill, linksFor, lname, node, PORT_POS, PORTS, when } from '../graph.js';
-import { agItems, behindCard, conflictBanner, currentView, dayBand, ghostTitle, ghostWhy, planCard, prepareDays, stepName, weekStart } from './planner.js';
+import { agItems, behindCard, conflictBanner, currentView, dayBand, freeStretches, ghostTitle, ghostWhy, planCard, prepareDays, pwFolded, setPwFolded, stepName, weekStart } from './planner.js';
 import { isWide } from './wide.js';
 import { moveBlockTo, unplanToPane } from '../placing.js';
 import { dayNodes, loadMin, nodeColor, overlays, rawId } from './scaletta.js';
@@ -33,9 +33,28 @@ function curve(ax, ay, bx, by, tt, label, hz) {
   return h;
 }
 const svgOf = (s) => `<svg class="mp-links" width="10" height="10">${s}</svg>`;
+// (v120) Placing something by hand (Pianifica › Scelgo io, Sposta › Scelgo io): the same targets as the Agenda.
+// The free stretches light up (tap one: it goes there) and the things it could take the place of, or go after or
+// with, get a dashed edge (tap one: after it, in its place, or together).
+const picked = () => (ui.pickBlock && get('blocks', ui.pickBlock)) || (ui.pick && get('tasks', ui.pick)) || null;
+function swapOf(n) { // the action a thing takes while placing, or null
+  const p = picked(); if (!p || n.prop || pastOf(n)) return null;
+  if (n.kind === 'block') return !outcomeOf(n.b) && n.b.id !== ui.pickBlock ? { a:'swap-block', id:n.b.id } : null;
+  if (n.kind === 'event') { const e = n.e; return e && !e.skipped ? { a:'swap-event', id:n.raw } : null; }
+  return null;
+}
+const swapLabel = (n) => (n.kind === 'event' ? ((isInvite(n.e) && !n.e.skipped) ? t('swapHere') : t('dropHereEv')) : t('swapHere'));
+function gapBands(date, Y, x0, w, PP, inset = 0) {
+  const p = picked(); if (!p) return '';
+  const need = p.minutes || 30;
+  return freeStretches(date).map((g) => { const fits = need <= g.min; const h = Math.max(22, g.min * PP - 4); const ins = g.inside ? inset : 0; // inside a block with room: clear of its tab
+    return `<button type="button" class="mp-gap${fits ? ' fits' : ' nofit'}" data-action="ag-gap" data-date="${date}" data-start="${g.start}" data-min="${g.min}" style="left:${x0 + ins}px;top:${Y(g.start) + 2}px;width:${w - ins}px;height:${h}px"><b>${esc(fmtTime(g.start))}</b> ${esc(t('agFree', fmtDur(g.min)))} · <u>${esc(fits ? t('agHere') : t('agHereShort'))}</u></button>`; }).join('');
+}
 function nodeHtml(n, r, conf, links, extra = '') {
   const sel = S().sel; const near = sel && links.some((l) => (l.a === sel && l.b === n.id) || (l.b === sel && l.a === n.id));
   const cls = `mp-n${n.fixed ? ' appt' : ''}${n.kind === 'event' ? ' gcal' : ''}${stCls(pastOf(n))}${conf.has(rawId(n)) ? ' conflict' : ''}${sel === n.id ? ' sel' : ''}${sel && sel !== n.id && !near ? ' dim' : ''}${r.h < 34 ? ' short' : ''}${r.h >= 90 ? ' tall' : ''}${extra}`;
+  const sw = swapOf(n);
+  if (sw) return `<div role="button" tabindex="0" class="${cls.replace(' drag', '')} swap" data-action="${sw.a}" data-id="${esc(sw.id)}" data-mpn="${esc(n.id)}" style="--c:${esc(nodeColor(n))};left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px"><b>${n.fixed ? '📅 ' : ''}${esc(n.title)}</b><small class="mp-swl">${esc(swapLabel(n))}</small></div>`;
   return `<div role="button" tabindex="0" class="${cls}" data-action="mp-sel" data-id="${esc(n.id)}" data-mpn="${esc(n.id)}" style="--c:${esc(nodeColor(n))};left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px"><b>${n.fixed ? '📅 ' : ''}${n.out === 'done' ? '✓ ' : ''}${esc(n.title)}</b><small>${esc(fmtTime(n.start))}${r.h > 34 ? `–${esc(fmtTime(n.start + n.minutes))}` : ''}</small>${fullCard(n)}</div>`;
 }
 // (v99) on hover the whole card comes forward: the full title, the time, the checklist and three quick actions
@@ -134,6 +153,8 @@ function layLane(mine, l, isRoom, Y, R) {
 }
 function roomHtml(n, r, conf, inside) {
   const sel = S().sel;
+  const sw = swapOf(n);
+  if (sw) return `<div class="mp-n mp-room swap${conf.has(rawId(n)) ? ' conflict' : ''}" data-id="${esc(n.id)}" data-mpn="${esc(n.id)}" style="--c:${esc(nodeColor(n))};left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px"><div role="button" tabindex="0" class="mp-rtab" data-action="${sw.a}" data-id="${esc(sw.id)}" title="${esc(n.title)}">⇄ ${esc(n.title)}</div><small class="mp-rsub">${esc(fmtTime(n.start))}–${esc(fmtTime(n.start + n.minutes))} · ${esc(t('mp_room'))}</small></div>`;
   return `<div class="mp-n mp-room${n.out ? ` is-${n.out}` : ''}${conf.has(rawId(n)) ? ' conflict' : ''}${sel === n.id ? ' sel' : ''}${!n.out ? ' drag' : ''}" data-id="${esc(n.id)}" data-mpn="${esc(n.id)}" style="--c:${esc(nodeColor(n))};left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px"><div role="button" tabindex="0" class="mp-rtab" data-action="mp-sel" data-id="${esc(n.id)}" title="${esc(n.title)}">⊕ ${esc(n.title)}</div><small class="mp-rsub">${esc(fmtTime(n.start))}–${esc(fmtTime(n.start + n.minutes))} · ${esc(t('mp_room'))}</small>${fullCard(n, inside || ' ')}</div>`;
 }
 function mapDay(date) {
@@ -170,6 +191,8 @@ function mapDay(date) {
     const msgs = confTxt[rawId(n)] || [];
     h += nodeHtml(n, r, conf, links, `${n.kind === 'block' && !n.out ? ' drag' : ''}${total === 1 ? ' edge-in' : at.get(n.id) === total - 1 ? ' edge-r' : ''}`).replace('<b>', `${msgs.length ? `<span class="mp-bdg" title="${esc(msgs.join('\n'))}">!</span>` : ''}<b>`).replace('data-action="mp-sel"', `data-action="mp-sel"${msgs.length ? ` title="${esc(msgs.join(' · '))}"` : ''}`);
   }
+  { const pc = byCat && picked() ? TH.indexOf(picked().category || '~none') : -1; // by category: in its own column, when it has one
+    h += pc >= 0 ? gapBands(date, Y, LX0 + pc * LW + 4, LW - 8, PPMD, sideBy ? 28 : 0) : gapBands(date, Y, LX0 + 4, total * LW - 8, PPMD); }
   // (v102) linked things: with a block selected, only its links, labelled, and what's on other days (or unplanned)
   // as dashed cards out to its right; with nothing selected, the links stay as faint lines
   const sid = S().sel; const selR = sid ? R[sid] : null; const bottom = H + 10;
@@ -288,6 +311,7 @@ function linesMap(v, date) {
     const h1 = h0 + (H - HEAD - 38) / P;
     for (let m = h0; m <= h1 + 1; m += 60) h += `<div class="mp-hline" style="top:${HEAD + 14 + (m - h0) * P}px"><span>${esc(fmtTime(m % 1440))}</span></div>`;
     if (date === td) h += `<div class="mp-hline mp-now" style="top:${HEAD + 14 + (nowMinutes() - h0) * P}px"></div>`;
+    { const pc = picked() ? TH.indexOf(picked().category || '~none') : -1; h += pc >= 0 ? gapBands(date, (m) => HEAD + 14 + (m - h0) * P, X0 + pc * CW + 4, CW - 8, P) : gapBands(date, (m) => HEAD + 14 + (m - h0) * P, X0, Math.max(1, TH.length) * CW, P); }
   } else if (v === 'week') {
     const max = planSettings().maxLoad;
     days.forEach((d, i) => { const ld = loadMin(d); h += `<div class="mp-wrow${d === td ? ' cur' : ''}${i > 4 ? ' we' : ''}" style="top:${HEAD + i * RH}px;height:${RH}px;width:${WW}px"></div><button type="button" class="mp-wlab mp-dlab${d === td ? ' is-today' : ''}" data-action="view-day" data-id="${d}" style="top:${HEAD + i * RH + 10}px"><b>${esc(fmtDay(d, { weekday:'short' }))} ${parseDate(d).getDate()}</b><small>${esc(fmtDur(ld) || '—')}</small><i><u class="${ld > max ? 'veryfull' : ''}" style="width:${Math.min(100, (ld / max) * 100)}%"></u></i></button>`; });
@@ -434,7 +458,7 @@ export function mpClick(btn) {
     case 'mp-x': s.sel = null; s.plus = null; s.cl = null; ui.gr = null; render(); return true;
     case 'mp-plus': if (s.sel !== id) s.sel = id; s.plus = s.plus === id ? null : id; render(); return true;
     case 'mp-lby': saveSettings({ mapLanesBy:id }); render(); return true;
-    case 'mp-warn': { const el = document.querySelector('.pane .pw-list'); if (el) { el.scrollIntoView({ block:'center', behavior:'smooth' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } return true; }
+    case 'mp-warn': { if (pwFolded()) { setPwFolded(false); render(); } const el = document.querySelector('.pane .pw-list'); if (el) { el.scrollIntoView({ block:'center', behavior:'smooth' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } return true; }
     case 'mp-cl': s.cl = s.cl === id ? null : id; s.sel = null; render(); return true;
     case 'mp-form': saveSettings({ mapForm:id === 'lines' ? 'lines' : 'boxes' }); s.pin = null; render(); return true;
     case 'mp-stn': s.pin = s.pin === id ? null : id; document.getElementById('mp-hov')?.remove(); render(); return true;

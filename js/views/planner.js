@@ -76,7 +76,9 @@ export function viewPlan(date) {
   const ps = planStyle(); const ag = ps !== 'hours';
   // (v112) the shared header: Planner · ‹ date › Oggi · the view ▾ — Giorno · Settimana · Mese — the actions
   const nC = isWide() && v === 'day' ? conflictsOn(date).length : 0;
-  const where = `<a class="round sm" href="#/plan/${prev}" aria-label="${esc(t('previous'))}">‹</a><button class="day-title ph-date" type="button" data-action="pick-date" aria-haspopup="dialog" title="${esc(t(v === 'week' ? 'dp_pickWeek' : v === 'month' ? 'dp_pickMonth' : 'dp_pickDay'))}"><span class="day-name">${esc(title)}</span>${sub ? `<small>${esc(sub)}</small>` : ''}</button><a class="round sm" href="#/plan/${next}" aria-label="${esc(t('next'))}">›</a>${showToday ? `<a class="linkish ph-today" href="#/plan/${td}">${esc(t('today'))}</a>` : ''}`;
+  // (v120) ‹ › side by side, then Oggi (always there, faint when you're on it), then the date: nothing before the date
+  // changes width, so the arrows stay under the pointer while you go day after day
+  const where = `<span class="ph-nav"><a class="round sm" href="#/plan/${prev}" aria-label="${esc(t('previous'))}" title="${esc(t('previous'))}">‹</a><a class="round sm" href="#/plan/${next}" aria-label="${esc(t('next'))}" title="${esc(t('next'))}">›</a></span><a class="ph-today${showToday ? '' : ' here'}" href="#/plan/${td}"${showToday ? '' : ' aria-current="date"'}>${esc(t('today'))}</a><button class="day-title ph-date" type="button" data-action="pick-date" aria-haspopup="dialog" title="${esc(t(v === 'week' ? 'dp_pickWeek' : v === 'month' ? 'dp_pickMonth' : 'dp_pickDay'))}"><span class="day-name">${esc(title)}</span>${sub ? `<small>${esc(sub)}</small>` : ''}</button>`;
   const acts = `${ag ? '' : `<button class="btn small primary" type="button" data-action="auto">✦ ${esc(t('planBtn'))}</button><button class="btn small" type="button" data-action="add-menu">＋ ${esc(t('addMenu'))}</button>`}${nC ? `<button type="button" class="btn small mp-warnb" data-action="mp-warn" title="${esc(t('nConflicts', nC))}">⚠ ${nC}</button>` : ''}${v === 'day' ? `<span class="ph-load">${loadBar(date)}</span>` : ''}`;
   const head = pageHead({ title:t('tabPlan'), where, menu:pvMenu(v), tabs:VIEWS.map((k) => ({ label:t(`v_${k}`), on:k === v, action:'view', id:k })), pickTitle:t('ph_period'), acts });
   if (ps === 'scaletta') return head + viewScaletta(v, date);
@@ -614,6 +616,27 @@ function boxItems(items) {
   }
   return out.filter((x) => !inner.has(x));
 }
+// (v120) The free stretches of a day, the same ones the Agenda lists (inside a block with room too), for the Map
+// to light up while something is being placed.
+export function freeStretches(date) {
+  const td = today(); if (date < td) return [];
+  const [h0, h1] = autoHoursFor(date);
+  const now = new Date(); const nowM = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 15) * 15;
+  const from0 = (st) => (date === td ? Math.max(st, nowM) : st);
+  const out = [];
+  const walk = (list, from, to, gaps, inside) => {
+    let cur = from;
+    for (const it of list) {
+      if (!it.inner && !takesTime(it)) continue;
+      if (gaps && it.start - cur >= 30 && cur < to) out.push({ start: cur, min: Math.min(it.start, to) - cur, inside });
+      cur = Math.max(cur, it.start + it.minutes);
+    }
+    if (gaps && to - cur >= 30) out.push({ start: cur, min: to - cur, inside });
+    for (const it of list) if (it.inner) walk(it.inner, from0(it.start), it.start + it.minutes, gaps && !takesTime(it), true);
+  };
+  walk(boxItems(agItems(date)), from0(h0), h1, true, false);
+  return out.sort((a, b) => a.start - b.start);
+}
 // The rows of a stretch of the day: its things in time order, and the free stretches between them.
 function rowsFor(list, from, to, gaps, date, from0) {
   const rows = []; const free = []; let cur = from;
@@ -701,6 +724,9 @@ export function nowCard(date) {
     ${cl.length ? `<div class="agn-cl">${cl.map((c, i) => `<label><input type="checkbox" data-ci="${i}" data-block="${esc(cur.id)}" ${ck[i] ? 'checked' : ''}> <span>${esc(c)}</span></label>`).join('')}</div>` : ''}
     <div class="agn-row"><button class="btn small primary" type="button" data-action="now-done" data-id="${esc(cur.id)}">✓ ${esc(t('esDone'))}</button>${running ? '' : `<button class="btn small" type="button" data-action="now-start" data-id="${esc(cur.id)}">⏱ ${esc(t('agnTimer'))}</button>`}<button class="btn small" type="button" data-action="sc-ext" data-id="${esc(cur.id)}">+15 min</button><button class="btn small ghost" type="button" data-action="block-fail" data-id="${esc(cur.id)}">✕ ${esc(t('esFail'))}</button></div></div>${nx}</div>`;
 }
+// (v120) Avvisi folded to one line (this device only): tap the title to open or close them
+export const pwFolded = () => { try { return localStorage.getItem('everyday-pwFold') === '1'; } catch { return false; } };
+export const setPwFolded = (on) => { try { localStorage.setItem('everyday-pwFold', on ? '1' : '0'); } catch { /* not here */ } };
 // (v97) For the side pane on a wide screen (all three looks): ✦ Pianifica and this day's warnings, each with its fix.
 export function paneWarnings(date, extra = '') {
   const td = today(); const conflicts = conflictsOn(date); const late = date === td ? behindToday() : [];
@@ -711,7 +737,7 @@ export function paneWarnings(date, extra = '') {
   const v = currentView(); const per = v === 'day' ? (date === td ? t('today').toLowerCase() : relDay(date)) : t(`smartFor_${v}`);
   void per;
   return `<div class="pw">${plButton('pw-plan')}${plOpen() ? plPanel() : ''}${pickStep() ? '' : extra}
-    <div class="field-label">${esc(t('pwTitle'))} <small>${n || ''}</small></div>${n ? `<ul class="pw-list">${cf}${lt}</ul>` : `<p class="hint">✓ ${esc(t('pwNone'))}</p>`}</div>`;
+    ${n ? `<button type="button" class="field-label pw-h" data-action="pw-fold" aria-expanded="${!pwFolded()}">${esc(t('pwTitle'))} <small>${n}</small><span class="pw-chev" aria-hidden="true">${pwFolded() ? '›' : '▾'}</span></button>${pwFolded() ? '' : `<ul class="pw-list">${cf}${lt}</ul>`}` : `<div class="field-label">${esc(t('pwTitle'))}</div><p class="hint">✓ ${esc(t('pwNone'))}</p>`}</div>`;
 }
 export function agendaWeek(date) {
   const td = today();

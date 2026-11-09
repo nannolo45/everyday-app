@@ -3024,3 +3024,36 @@ body.kb-dragging { cursor: grabbing; -webkit-user-select: none; user-select: non
 .rp-cmpm button span { display: block; } .rp-cmpm button span::first-letter { text-transform: uppercase; }
 .pl-ovc.pl-cal { max-width: 480px; margin: 0 auto; }
 @media (min-width: 900px) { .pl-ovc.pl-cal { margin-bottom: 4vh; border-radius: 20px; } }
+
+/* (v120) the Map while placing by hand: free time lit up (tap: it goes there), what it could take the place of dashed */
+.mp-gap { position: absolute; z-index: 3; display: flex; align-items: flex-start; gap: 5px; padding: 3px 8px; border: 1.5px dashed var(--line); border-radius: 10px; background: color-mix(in srgb, var(--surface) 70%, transparent); color: var(--muted); font: inherit; font-size: .7rem; text-align: left; cursor: pointer; overflow: hidden; white-space: nowrap; }
+.mp-gap b { color: var(--ink); font-weight: 600; }
+.mp-gap u { color: var(--accent); text-decoration: none; font-weight: 600; }
+.mp-gap.fits { border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--ink); }
+.mp-gap.fits:hover, .mp-gap.fits:focus-visible { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+.mp-gap.nofit { opacity: .45; }
+.mp-n.swap:not(.mp-room) { z-index: 4; outline: 2px dashed color-mix(in srgb, var(--accent) 75%, transparent); outline-offset: 2px; cursor: pointer; }
+.mp-n.mp-room.swap { outline: 2px dashed color-mix(in srgb, var(--accent) 75%, transparent); outline-offset: 2px; }
+.mp-n.mp-room.swap .mp-rtab { cursor: pointer; }
+.mp-swl { color: var(--accent) !important; font-weight: 600; }
+@media (pointer: coarse) { .mp-gap { min-height: 32px; } }
+
+/* (v120) the block sheet: ‹ Indietro back to the card */
+.bk-back { display: inline-flex; align-items: center; gap: 4px; min-height: 36px; margin: -4px 0 2px -6px; padding: 4px 10px 4px 6px; border: 0; border-radius: 10px; background: none; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+.bk-back:hover { background: var(--accent-soft); }
+
+/* (v120) Avvisi: the title folds and opens them */
+.pw-h { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; padding: 6px 0; cursor: pointer; text-align: left; font: inherit; }
+.pw-h .pw-chev { margin-left: auto; font-size: .9rem; color: var(--muted); }
+@media (pointer: coarse) { .pw-h { min-height: 40px; } }
+
+/* (v120) the Planner's date: ‹ › together on the left (they never move), Oggi, then the date, bigger */
+.ph-nav { display: inline-flex; gap: 4px; flex: none; }
+.ph-where .ph-nav .round.sm { width: 36px; height: 36px; font-size: 1.15rem; }
+.ph-where .ph-today { flex: none; display: inline-flex; align-items: center; min-height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--accent); font-weight: 600; text-decoration: none; font-size: .82rem; margin-left: 2px; }
+.ph-where .ph-today.here { color: var(--muted); opacity: .55; pointer-events: none; }
+.ph-where .ph-date { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; min-width: 0; min-height: 52px; padding: 2px 8px; }
+.ph-where .ph-date .day-name { font: 700 1.2rem/1.2 var(--serif, Georgia, serif); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.ph-where .ph-date small { font-size: .8rem; }
+@media (pointer: coarse) { .ph-where .ph-nav .round.sm { width: 40px; height: 40px; } .ph-where .ph-today { min-height: 40px; } }
+.ph-row > .ph-where { align-self: flex-start; } /* (v120) the arrows stay at the same height in every view */
