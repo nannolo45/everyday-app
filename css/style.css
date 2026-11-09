@@ -3101,3 +3101,9 @@ body.pane-resizing, body.pane-resizing * { cursor: col-resize !important; user-s
 /* (v122) Manuale's «Scegli» as boxes: what fits the lit place gets a ↑ */
 .pf-boxes { margin-top: 4px; }
 .bx-r.fit .bx-t::before { content: '↑ '; color: var(--accent); font-weight: 700; }
+
+/* (v124) full-height sheets on a phone: room at the bottom for the last button and the phone's own bar */
+@media (max-width: 600px) {
+  dialog.sheet form { padding-bottom: max(48px, calc(18px + env(safe-area-inset-bottom, 0px))); }
+  dialog.sheet form > .button-row:last-child, dialog.sheet .pl > .button-row:last-child { margin-bottom: 0; }
+}
