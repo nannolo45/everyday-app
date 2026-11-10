@@ -3120,3 +3120,13 @@ body.has-dock { padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) 
 .pf-cnt-b { display: inline-block; min-width: 22px; margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: var(--accent-ink); color: var(--accent); font-style: normal; font-size: .78rem; font-weight: 700; }
 body.has-dock #toast, body.has-dock .update-bar { bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 84px); }
 #view > .plan-dock { margin: 0; } /* not the last-child spacing */
+/* (v126) «Nessun giorno» opens Una data / Routine in place; Categoria says it's optional */
+.pl-ndbox { display: flex; flex-direction: column; gap: 8px; border-radius: 12px; }
+.pl-ndbox.open { border: 1.5px solid var(--accent); padding-bottom: 8px; background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
+.pl-ndbox.open > .pl-drow.none { border: 0; background: none; }
+.pl-ndbox > .pl-addopts { padding: 0 8px; }
+button.pl-drow.none { width: 100%; font: inherit; color: var(--ink); text-align: left; cursor: pointer; }
+.pl-ndgo { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-weight: 700; font-size: .86rem; white-space: nowrap; }
+.pl-ndgo i { font-style: normal; font-size: .8rem; }
+.pl-ndx { align-self: center; color: var(--muted); font-size: .86rem; padding: 8px 12px; min-height: 40px; }
+.pl-sec .pl-sl small { display: block; color: var(--muted); font-size: .75rem; font-weight: 400; margin-top: 1px; }

@@ -160,16 +160,21 @@ function whenPanel() {
     const xrow = (d, i, k) => `<div class="pl-drow ${k}"><span class="pl-dic" aria-hidden="true">${k === 'skip' ? '⊘' : '＋'}</span><span class="pl-dtx"><b>${esc(fmtDay(d, { weekday: 'short', day: 'numeric', month: 'short' }))}</b><small>${esc(t(k === 'skip' ? 'plSkipSub' : 'plExtraSub'))}</small></span><button class="pl-x" value="${k === 'skip' ? 'srm' : 'xrm'}:${i}" formnovalidate aria-label="${esc(t('remove'))}">✕</button></div>`;
     if (canExtra() && P.extra.length) body += `<div class="pl-lbl pl-lblsm">${esc(t('plExtraL'))}</div>${[...P.extra].sort().map((d, i) => xrow(d, i, 'extra')).join('')}`;
     if (canExtra() && P.skips.length) body += `<div class="pl-lbl pl-lblsm">${esc(t('plSkipL'))}</div>${[...P.skips].sort().map((d, i) => xrow(d, i, 'skip')).join('')}`;
-  } else {
-    body += `<div class="pl-drow none"><span class="pl-dic" aria-hidden="true">—</span><span><b>${esc(t('plNoDay'))}</b><small>${esc(P.appt ? t('plApptNeedsDay') : auto ? t('plNoDayAuto') : t('plNoDayLater'))}</small></span></div>`;
   }
   const isRh = rows && !P.once; const ce = canExtra();
   const opt = (v, ic, b, sub, off = false) => `<button class="pl-addopt" value="${v}" formnovalidate ${off ? 'disabled' : ''}><span aria-hidden="true">${ic}</span><span><b>${esc(b)}</b><small>${esc(sub)}</small></span></button>`;
-  body += P.addOpen
-    ? `<div class="pl-addopts">${isRh
-      ? opt('add-day', '＋', t('plAddExtra'), ce ? t('plAddExtraSub') : t('plExtraNo'), !ce) + opt('add-skip', '⊘', t('plAddSkip'), ce ? t('plAddSkipSub') : t('plExtraNo'), !ce)
-      : opt('add-day', '📅', t('plAddOneDay'), t('plAddOneDaySub')) + opt('add-rh', '↻', t('plAddRhythm'), rows && P.once ? t('plRhythmKeeps') : t('plAddRhythmSub'))}</div>`
-    : `<button class="pl-add" value="add-open" formnovalidate>＋ ${esc(t(isRh ? 'plAddExtraSkip' : 'plAddDay'))}</button>`;
+  const opts = `<div class="pl-addopts">${isRh
+    ? opt('add-day', '＋', t('plAddExtra'), ce ? t('plAddExtraSub') : t('plExtraNo'), !ce) + opt('add-skip', '⊘', t('plAddSkip'), ce ? t('plAddSkipSub') : t('plExtraNo'), !ce)
+    : opt('add-day', '📅', t('plAddOneDay'), t('plAddOneDaySub')) + opt('add-rh', '↻', t('plAddRhythm'), rows && P.once ? t('plRhythmKeeps') : t('plAddRhythmSub'))}</div>`;
+  if (!rows) {
+    // (v126) «Nessun giorno» is itself the button: it opens Una data / Routine in place; «＋ Aggiungi…» only comes once there's a choice
+    const open = P.addOpen;
+    body += `<div class="pl-ndbox${open ? ' open' : ''}"><button class="pl-drow none" value="${open ? 'add-close' : 'add-open'}" formnovalidate aria-expanded="${open}"><span class="pl-dic" aria-hidden="true">—</span><span class="pl-dtx"><b>${esc(t('plNoDay'))}</b><small>${esc(P.appt ? t('plApptNeedsDay') : auto ? t('plNoDayAuto') : t('plNoDayLater'))}</small></span><span class="pl-ndgo">${esc(t(open ? 'close' : 'plChoose'))} <i aria-hidden="true">${open ? '▴' : '▾'}</i></span></button>${open ? opts : ''}</div>`;
+  } else {
+    body += P.addOpen
+      ? `${opts}<button class="linkish plain pl-ndx" value="add-close" formnovalidate>${esc(t('cancel'))}</button>`
+      : `<button class="pl-add" value="add-open" formnovalidate>＋ ${esc(t(isRh ? 'plAddExtraSkip' : 'plAddDay'))}</button>`;
+  }
   if (rows) {
     body += `<div class="pl-lbl">${esc(multi ? t('plTimesDay', P.n) : t('plTimeQ'))}</div>`;
     if (multi) {
@@ -313,9 +318,9 @@ function optRows() {
 // (v117) under Quando: Categoria, Luogo and Altro, each a row that opens in place
 function secRows() {
   const c = P.cat && get('categories', P.cat);
-  const head = (k, ic, label, val, open, action) => `<button class="pl-ohead pl-sec${open ? ' on' : ''}" value="${action}" formnovalidate aria-expanded="${open}"><span class="pl-sic" aria-hidden="true">${ic}</span><span class="pl-sl">${esc(label)}</span><span class="pl-oval">${val} ${open ? '▾' : '›'}</span></button>`;
+  const head = (k, ic, label, val, open, action, sub = '') => `<button class="pl-ohead pl-sec${open ? ' on' : ''}" value="${action}" formnovalidate aria-expanded="${open}"><span class="pl-sic" aria-hidden="true">${ic}</span><span class="pl-sl">${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ''}</span><span class="pl-oval">${val} ${open ? '▾' : '›'}</span></button>`;
   const os = optSummary(true);
-  return `<div class="pl-orow${P.open === 'cat' ? ' open' : ''}">${head('cat', c ? `<i class="cat-dot" style="--c:${esc(c.color || 'var(--line)')}"></i>` : '●', t('category'), esc(c ? catName(c) : t('noCategory')), P.open === 'cat', 'row:cat')}${P.open === 'cat' ? `<div class="pl-obody">${catPanel()}</div>` : ''}</div>
+  return `<div class="pl-orow${P.open === 'cat' ? ' open' : ''}">${head('cat', c ? `<i class="cat-dot" style="--c:${esc(c.color || 'var(--line)')}"></i>` : '●', t('category'), esc(c ? catName(c) : t('noCategory')), P.open === 'cat', 'row:cat', c ? '' : t('plCatOpt'))}${P.open === 'cat' ? `<div class="pl-obody">${catPanel()}</div>` : ''}</div>
     <div class="pl-orow${P.open === 'place' ? ' open' : ''}">${head('place', '📍', t('plLuogo'), esc(placeLabel() || '—'), P.open === 'place', 'row:place')}${P.open === 'place' ? `<div class="pl-obody">${placeBody()}</div>` : ''}</div>
     <div class="pl-orow${P.more ? ' open' : ''}">${head('more', '⋯', t('plMoreTab'), esc(os || '—'), Boolean(P.more), 'more')}${P.more ? `<div class="pl-obody pl-more">${optRows()}</div>` : ''}</div>`;
 }
@@ -487,6 +492,7 @@ function onSubmit(form, action, e) {
   else if (a === 'unknown') { P.unknown = !P.unknown; P.touched.len = true; linkTimes('len'); }
   else if (a === 'wc') { P.wc = b === 'later' ? 'later' : b; P.touched.when = true; P.addOpen = false; if (b === 'pick') { P.once = true; P.dates = []; P.date = P.date < today() ? today() : P.date; } }
   else if (a === 'add-open') P.addOpen = true;
+  else if (a === 'add-close') P.addOpen = false;
   else if (a === 'add-day') openCal(P.wc === 'pick' && !P.once ? 'extra' : 'days'); // (v118) a calendar to tap the days
   else if (a === 'add-skip') openCal('skip');
   else if (a === 'cal-m' && P.cal) P.cal.m = monthAdd(P.cal.m, Number(b));

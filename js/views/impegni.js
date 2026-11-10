@@ -101,7 +101,6 @@ export function whenOf(x, td = today()) {
 export function missing(x) {
   if (x.done) return [];
   const out = [];
-  if (!catsOf(x).length) out.push('cat');
   if (typeOf(x) === 'once' && !dateOf(x) && !x.noDate) out.push('when');
   if (x.lenSet === false) out.push('len');
   return out;
@@ -111,7 +110,8 @@ export const unsortedList = () => allItems().filter(unsorted).sort((a, b) => (b.
 // (v66) Nothing is "unsorted" any more: what Rivedi goes through, and the badge counts, is what's still to plan:
 // one-off things with no open block from today on (newest first). A missing category or length is fine.
 // (v91) What the Overview flags: things missing the minimum the planner needs, a length and a category.
-export const lacks = (x) => (x.done ? [] : [x.lenSet === false && 'len', !catsOf(x).length && 'cat'].filter(Boolean));
+// (v126) the category is optional: only a missing length makes a thing «da completare»
+export const lacks = (x) => (x.done ? [] : [x.lenSet === false && 'len'].filter(Boolean));
 export const incompleteList = () => allItems().filter((x) => lacks(x).length).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 export const flagCount = () => (classic() ? unsortedList() : incompleteList()).length;
 export const toPlanList = () => allItems().filter((x) => !x.done && typeOf(x) === 'once' && !nextPlanned(x.id)).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
